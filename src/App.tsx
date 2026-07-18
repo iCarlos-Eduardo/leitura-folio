@@ -146,6 +146,8 @@ const API_BASE_URL =
   (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7113' : '')
 const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || API_BASE_URL || 'https://api.sgpf.com.br'
 const BACKGROUND_REFRESH_INTERVAL_MS = 10000
+const POST_PAGE_SIZE = 5
+const POST_IMAGE_MARKER = '__folio_post_image__:'
 
 async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -195,6 +197,22 @@ function resolveMediaUrl(value: string) {
 function isMediaUrl(value: string) {
   const url = value.trim()
   return /^(https?:|data:|blob:|\/\/|\/|uploads\/|media\/|files\/)/i.test(url)
+}
+
+function postTextParts(text = '') {
+  const lines = text.split('\n')
+  const markerIndex = lines.findIndex(line => line.startsWith(POST_IMAGE_MARKER))
+  if (markerIndex < 0) return { text: text.trim(), imageUrl: '' }
+
+  const imageUrl = lines[markerIndex].slice(POST_IMAGE_MARKER.length).trim()
+  const visibleText = lines.filter((_, index) => index !== markerIndex).join('\n').trim()
+  return { text: visibleText, imageUrl }
+}
+
+function textWithPostImage(text: string, imageUrl: string) {
+  const trimmed = text.trim()
+  if (!imageUrl) return trimmed
+  return [trimmed, `${POST_IMAGE_MARKER}${imageUrl}`].filter(Boolean).join('\n')
 }
 
 const STATUS_LABELS: Record<BookStatus, string> = {
@@ -834,6 +852,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const hiddenReplyCount = Math.max(0, relatedReplies.length - visibleReplies.length)
   const displayedComments = relatedReplies.length
   const liked = post.likes.includes(currentUser.id)
+  const postContent = postTextParts(post.text)
 
   async function submitReply() {
     const trimmed = replyText.trim()
@@ -871,7 +890,15 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           {canInteractWithContent ? (
             <>
               {post.reactionEmoji && <div className="mb-2 text-3xl leading-none">{post.reactionEmoji}</div>}
-              {post.text && <p className="mb-3 text-sm leading-relaxed text-stone-300">{post.text}</p>}
+              {postContent.text && <p className="mb-3 whitespace-pre-line text-sm leading-relaxed text-stone-300">{postContent.text}</p>}
+              {postContent.imageUrl && (
+                <img
+                  src={resolveMediaUrl(postContent.imageUrl)}
+                  alt="Imagem da publicação"
+                  loading="lazy"
+                  className="mb-3 max-h-[520px] w-full rounded-lg border border-stone-800 object-cover"
+                />
+              )}
             </>
           ) : (
             <div className="mb-3 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3">
@@ -947,6 +974,41 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
         </div>
       </div>
     </article>
+  )
+}
+
+function PaginatedPostList({ posts, emptyText, resetKey, renderPost }: {
+  posts: Post[]
+  emptyText?: string
+  resetKey: string
+  renderPost: (post: Post) => React.ReactNode
+}) {
+  const [visibleCount, setVisibleCount] = useState(POST_PAGE_SIZE)
+  const visiblePosts = posts.slice(0, visibleCount)
+  const hiddenCount = Math.max(0, posts.length - visibleCount)
+
+  useEffect(() => {
+    setVisibleCount(POST_PAGE_SIZE)
+  }, [resetKey])
+
+  if (!posts.length) {
+    return emptyText ? <EmptyState text={emptyText} /> : null
+  }
+
+  return (
+    <div>
+      {visiblePosts.map(renderPost)}
+      {hiddenCount > 0 && (
+        <div className="border-b border-stone-800 px-4 py-4 text-center md:px-5">
+          <button
+            onClick={() => setVisibleCount(count => count + POST_PAGE_SIZE)}
+            className="rounded-lg border border-stone-700 px-4 py-2 text-sm font-bold text-stone-300 hover:bg-stone-900"
+          >
+            Carregar mais {Math.min(POST_PAGE_SIZE, hiddenCount)}
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1037,7 +1099,12 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
       </div>
 
       {tab === 'posts' && (
-        feedPosts.length ? feedPosts.map(post => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} protectSpoilers />) : <EmptyState text="Nenhuma publicação liberada pelo seu capítulo atual." />
+        <PaginatedPostList
+          posts={feedPosts}
+          emptyText="Nenhuma publicação liberada pelo seu capítulo atual."
+          resetKey={`timeline-${currentUser.id}`}
+          renderPost={post => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} protectSpoilers />}
+        />
       )}
 
       {tab === 'activity' && (
@@ -2117,7 +2184,11 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
       ) : (
         <div>
           {!visible.length && !hidden.length && <EmptyState text={tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
-          {visible.map(post => <PostCard key={post.id} post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => {}} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} compactBook protectSpoilers />)}
+          <PaginatedPostList
+            posts={visible}
+            resetKey={`book-${book.id}-${tab}-${visibleChapterLimit}`}
+            renderPost={post => <PostCard key={post.id} post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => {}} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} compactBook protectSpoilers />}
+          />
           {hidden.length > 0 && (
             <div className="m-4 rounded-lg border border-stone-800 bg-stone-900 p-5 text-center">
               <div className="mb-2 text-3xl">🔒</div>
@@ -2391,8 +2462,10 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, posts, 
 
       {kind === 'posts' ? (
         profilePosts.length ? (
-          <div>
-            {profilePosts.map(post => (
+          <PaginatedPostList
+            posts={profilePosts}
+            resetKey={`profile-posts-${profileUser.id}`}
+            renderPost={post => (
               <PostCard
                 key={post.id}
                 post={post}
@@ -2407,8 +2480,8 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, posts, 
                 onDeletePost={onDeletePost}
                 onDeleteReply={onDeleteReply}
               />
-            ))}
-          </div>
+            )}
+          />
         ) : (
           <EmptyState text="Nenhuma publicacao ainda." />
         )
@@ -2665,12 +2738,13 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   )
 }
 
-function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
+function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadImage }: {
   currentUser: User
   shelf: ShelfEntry[]
   books: Book[]
   onClose: () => void
   onPost: (post: Post) => Promise<boolean | void> | boolean | void
+  onUploadImage: (file: File) => Promise<string>
 }) {
   const myBooks = shelf
     .filter(entry => entry.userId === currentUser.id && canPostWithStatus(entry.status))
@@ -2684,8 +2758,12 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
   const [text, setText] = useState('')
   const [reactionEmoji, setReactionEmoji] = useState('🤯')
   const [chapter, setChapter] = useState(selectedBook ? String(chapterFromPercent(selectedBook, defaultPercent)) : '1')
+  const [postImageUrl, setPostImageUrl] = useState('')
+  const [postImageFileName, setPostImageFileName] = useState('')
+  const [postImageError, setPostImageError] = useState('')
+  const [uploadingPostImage, setUploadingPostImage] = useState(false)
   const emojis = ['😭', '🤯', '♥', '😂', '😡', '🔥', '💔', '😱', '🥹', '👏']
-  const canPost = selectedBook && chapter !== '' && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0)
+  const canPost = selectedBook && chapter !== '' && !uploadingPostImage && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0 || Boolean(postImageUrl))
 
   function handleBookChange(bookId: string) {
     const nextBook = books.find(book => book.id === bookId)
@@ -2709,13 +2787,14 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
     if (!canPost || !selectedBook) return
     const selectedChapter = clamp(Number(chapter), 1, selectedBook.totalChapters)
     const percent = percentFromChapter(selectedBook, selectedChapter)
+    const postText = textWithPostImage(postType === 'reaction' ? '' : text, postImageUrl)
     const posted = await onPost({
       id: `p${Date.now()}`,
       userId: currentUser.id,
       bookId: selectedBook.id,
       chapter: selectedChapter,
       percent,
-      text: postType === 'reaction' ? undefined : text.trim(),
+      text: postText || undefined,
       reactionEmoji: postType === 'reaction' ? reactionEmoji : undefined,
       type: postType,
       timestamp: new Date().toISOString(),
@@ -2786,6 +2865,58 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
                   />
                 </label>
               )}
+
+              <div className="rounded-lg border border-stone-800 bg-stone-950 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-stone-300">Imagem</p>
+                    <p className="text-xs text-stone-500">{postImageFileName || 'Nenhuma imagem selecionada'}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {postImageUrl && (
+                      <button
+                        onClick={() => {
+                          setPostImageUrl('')
+                          setPostImageFileName('')
+                          setPostImageError('')
+                        }}
+                        className="rounded-lg border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-400/10"
+                      >
+                        Remover
+                      </button>
+                    )}
+                    <label className="inline-flex cursor-pointer rounded-lg border border-stone-700 px-3 py-2 text-xs font-bold text-stone-300 hover:bg-stone-800">
+                      {uploadingPostImage ? 'Enviando...' : 'Anexar'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={uploadingPostImage}
+                        onChange={async e => {
+                          const file = e.target.files?.[0]
+                          e.currentTarget.value = ''
+                          if (!file) return
+                          setUploadingPostImage(true)
+                          setPostImageError('')
+                          try {
+                            const imageUrl = await onUploadImage(file)
+                            setPostImageUrl(imageUrl)
+                            setPostImageFileName(file.name)
+                          } catch {
+                            setPostImageError('Nao foi possivel enviar a imagem agora.')
+                          } finally {
+                            setUploadingPostImage(false)
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+                {postImageUrl && (
+                  <img src={resolveMediaUrl(postImageUrl)} alt="Prévia da imagem" className="mt-3 max-h-72 w-full rounded-lg object-cover" />
+                )}
+                {postImageError && <p className="mt-2 text-xs font-semibold text-red-300">{postImageError}</p>}
+              </div>
             </>
           )}
         </div>
@@ -2793,7 +2924,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
         <div className="flex justify-end gap-2 border-t border-stone-800 px-4 py-3">
           <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800">Cancelar</button>
           <button onClick={handlePost} disabled={!canPost} className="rounded-lg bg-amber-300 px-5 py-2 text-sm font-bold text-stone-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:bg-stone-700 disabled:text-stone-500">
-            Publicar
+            {uploadingPostImage ? 'Enviando...' : 'Publicar'}
           </button>
         </div>
       </div>
@@ -3203,6 +3334,28 @@ export default function App() {
     }
   }
 
+  async function handleUploadPostImage(file: File) {
+    beginActionLoading()
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await fetch(`${API_BASE_URL}/folio/media`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      })
+      if (!response.ok) throw new Error(await response.text())
+      const data = await response.json() as { url: string }
+      showToast('success', 'Imagem anexada com sucesso.')
+      return data.url
+    } catch (error) {
+      showToast('error', errorMessage(error, 'Nao foi possivel anexar a imagem.'))
+      throw error
+    } finally {
+      endActionLoading()
+    }
+  }
+
   async function handleAddReply(postId: string, text: string) {
     if (!currentUser) return false
     return runAction(async () => {
@@ -3393,6 +3546,7 @@ export default function App() {
           books={books}
           onClose={() => setShowPostModal(false)}
           onPost={handleCreatePost}
+          onUploadImage={handleUploadPostImage}
         />
       )}
     </div>
