@@ -129,9 +129,22 @@ interface ReadingGoal {
   checkedInToday: boolean
 }
 
+type ActionFeedback = {
+  success?: string
+  error: string
+  silentSuccess?: boolean
+}
+
+interface ToastMessage {
+  id: number
+  type: 'success' | 'error'
+  text: string
+}
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7113' : '')
+const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || API_BASE_URL || 'https://api.sgpf.com.br'
 
 async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -163,6 +176,21 @@ function errorMessage(error: unknown, fallback: string) {
   }
 }
 
+function resolveMediaUrl(value: string) {
+  const url = value.trim()
+  if (!url) return ''
+  if (/^(https?:|data:|blob:)/i.test(url)) return url
+  if (url.startsWith('/assets/') || url.startsWith('/icons/')) return url
+  if (url.startsWith('/')) return `${MEDIA_BASE_URL.replace(/\/$/, '')}${url}`
+  if (/^(uploads|media|files)\//i.test(url)) return `${MEDIA_BASE_URL.replace(/\/$/, '')}/${url}`
+  return url
+}
+
+function isMediaUrl(value: string) {
+  const url = value.trim()
+  return /^(https?:|data:|blob:|\/|uploads\/|media\/|files\/)/i.test(url)
+}
+
 const STATUS_LABELS: Record<BookStatus, string> = {
   reading: 'Lendo',
   want: 'TBR',
@@ -187,7 +215,7 @@ function clamp(value: number, min: number, max: number) {
 
 function chapterFromPercent(book: Book, percent: number) {
   if (percent <= 0) return 1
-  return clamp(Math.floor((book.totalChapters * percent) / 100), 1, book.totalChapters)
+  return clamp(Math.round((book.totalChapters * percent) / 100), 1, book.totalChapters)
 }
 
 function percentFromChapter(book: Book, chapter: number) {
@@ -455,10 +483,10 @@ function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }
     lg: 'h-16 w-16 text-xl',
   }
 
-  const isImage = user.avatar.startsWith('http') || user.avatar.startsWith('data:') || user.avatar.startsWith('/')
+  const isImage = isMediaUrl(user.avatar)
 
   return isImage ? (
-    <img src={user.avatar} alt={user.name} className={`${sizes[size]} shrink-0 select-none rounded-full object-cover`} />
+    <img src={resolveMediaUrl(user.avatar)} alt={user.name} className={`${sizes[size]} shrink-0 select-none rounded-full object-cover`} />
   ) : (
     <div className={`${sizes[size]} flex shrink-0 select-none items-center justify-center rounded-full bg-amber-700 font-semibold text-amber-50`}>
       {user.avatar}
@@ -469,7 +497,7 @@ function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }
 function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <img src={BRAND_LOGO_URL} alt={BRAND_NAME} className={`${compact ? 'h-12 w-12' : 'h-56 w-56 sm:h-72 sm:w-72'} rounded-lg object-cover`} />
+      <img src={resolveMediaUrl(BRAND_LOGO_URL)} alt={BRAND_NAME} className={`${compact ? 'h-12 w-12' : 'h-56 w-56 sm:h-72 sm:w-72'} rounded-lg object-cover`} />
       <span className={`${compact ? 'text-xl' : 'text-7xl sm:text-8xl'} font-serif text-amber-300`}>{BRAND_NAME}</span>
     </div>
   )
@@ -770,10 +798,10 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   shelf?: ShelfEntry[]
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
-  onAddReply: (postId: string, text: string) => void
-  onToggleLike: (postId: string) => void
-  onDeletePost: (postId: string) => void
-  onDeleteReply: (replyId: string) => void
+  onAddReply: (postId: string, text: string) => Promise<boolean | void> | boolean | void
+  onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
+  onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
+  onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
   compactBook?: boolean
   protectSpoilers?: boolean
 }) {
@@ -801,10 +829,11 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const displayedComments = relatedReplies.length
   const liked = post.likes.includes(currentUser.id)
 
-  function submitReply() {
+  async function submitReply() {
     const trimmed = replyText.trim()
     if (!trimmed) return
-    onAddReply(post.id, trimmed)
+    const saved = await onAddReply(post.id, trimmed)
+    if (saved === false) return
     setReplyText('')
     setShowReplyBox(false)
   }
@@ -827,7 +856,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           </div>
             {book && !compactBook && (
             <button onClick={() => onBookClick(book.id)} className="mb-2 flex max-w-full items-center gap-2 text-left">
-              <img src={book.cover} alt={book.title} className="h-8 w-6 shrink-0 rounded object-cover" />
+              <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-8 w-6 shrink-0 rounded object-cover" />
               <span className="truncate text-xs font-semibold text-amber-300">{book.title}</span>
               <ChapterBadge chapter={post.chapter} />
             </button>
@@ -925,11 +954,11 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   timeline: TimelineEvent[]
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
-  onAddReply: (postId: string, text: string) => void
-  onToggleLike: (postId: string) => void
-  onDeletePost: (postId: string) => void
-  onDeleteReply: (replyId: string) => void
-  onToggleFollow: (userId: string) => void
+  onAddReply: (postId: string, text: string) => Promise<boolean | void> | boolean | void
+  onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
+  onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
+  onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
+  onToggleFollow: (userId: string) => Promise<boolean | void> | boolean | void
 }) {
   const [tab, setTab] = useState<'posts' | 'activity'>('posts')
   const [readerQuery, setReaderQuery] = useState('')
@@ -1051,7 +1080,7 @@ function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondar
   return (
     <div className="flex items-center gap-3 rounded-lg bg-stone-950 p-2">
       {book.cover ? (
-        <img src={book.cover} alt={book.title} className="h-12 w-8 rounded object-cover" />
+        <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-12 w-8 rounded object-cover" />
       ) : (
         <div className="flex h-12 w-8 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
       )}
@@ -1221,7 +1250,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
   defaultStatus: BookStatus
   mode: 'new' | 'edit'
   onClose: () => void
-  onSave: (book: Book, shelfData: Partial<ShelfEntry>) => Promise<void> | void
+  onSave: (book: Book, shelfData: Partial<ShelfEntry>) => Promise<boolean | void> | boolean | void
   onUploadCover: (file: File) => Promise<string>
   includeShelfFields?: boolean
 }) {
@@ -1284,7 +1313,8 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
     }
 
     try {
-      await onSave(book, shelfData)
+      const saved = await onSave(book, shelfData)
+      if (saved === false) return
       onClose()
     } catch {
       setError('Nao foi possivel salvar este livro agora.')
@@ -1338,7 +1368,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
               </div>
               <div>
                 <p className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Previa da capa</p>
-                {draft.cover ? <img src={draft.cover} alt="Previa da capa" className="h-40 w-28 rounded-lg object-cover" /> : <div className="flex h-40 w-28 items-center justify-center rounded-lg border border-stone-800 bg-stone-950 text-xs text-stone-600">Sem capa</div>}
+                {draft.cover ? <img src={resolveMediaUrl(draft.cover)} alt="Previa da capa" className="h-40 w-28 rounded-lg object-cover" /> : <div className="flex h-40 w-28 items-center justify-center rounded-lg border border-stone-800 bg-stone-950 text-xs text-stone-600">Sem capa</div>}
                 <button onClick={() => update('cover', '')} className="mt-2 text-xs font-bold text-red-300 hover:text-red-200">Remover capa</button>
               </div>
             </div>
@@ -1391,10 +1421,10 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   shelf: ShelfEntry[]
   books: Book[]
   onBookClick: (id: string) => void
-  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>) => Promise<void> | void
-  onRemoveShelfEntry: (bookId: string) => void
-  onAddBook: (bookId: string, status: BookStatus) => Promise<void> | void
-  onSaveBook: (book: Book) => Promise<void> | void
+  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback) => Promise<boolean | void> | boolean | void
+  onRemoveShelfEntry: (bookId: string) => Promise<boolean | void> | boolean | void
+  onAddBook: (bookId: string, status: BookStatus) => Promise<boolean | void> | boolean | void
+  onSaveBook: (book: Book) => Promise<boolean | void> | boolean | void
   onSearchBooks: (query: string, field: BookSearchField) => Promise<Book[]>
 }) {
   const [activeStatus, setActiveStatus] = useState<BookStatus>('reading')
@@ -1441,13 +1471,17 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     setChapterInput(String(chapterFromPercent(book, entry.progress)))
   }
 
-  function saveProgress(book: Book) {
+  async function saveProgress(book: Book) {
     const nextProgress = percentFromChapter(book, Number(chapterInput))
-    onUpdateShelfEntry(book.id, {
+    const saved = await onUpdateShelfEntry(book.id, {
       progress: nextProgress,
       status: nextProgress >= 100 ? 'read' : activeStatus === 'read' ? 'reading' : activeStatus,
       endDate: nextProgress >= 100 ? new Date().toISOString().slice(0, 10) : undefined,
+    }, {
+      success: 'Progresso atualizado com sucesso.',
+      error: 'Nao foi possivel atualizar o progresso.',
     })
+    if (saved === false) return
     setEditingId(null)
   }
 
@@ -1516,15 +1550,19 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                           if (registeredBook) {
                             onBookClick(book.id)
                           } else {
-                            await onSaveBook(book)
+                            const saved = await onSaveBook(book)
+                            if (saved === false) return
                             setBookQuery('')
                             setCatalogResults([])
                             setBookSearchAttempted(false)
                           }
                         }}
                         secondaryLabel={secondaryLabel}
-                        onSecondaryAction={() => {
-                          if (registeredBook) onAddBook(book.id, newBookStatus)
+                        onSecondaryAction={async () => {
+                          if (registeredBook) {
+                            const added = await onAddBook(book.id, newBookStatus)
+                            if (added === false) return
+                          }
                           setBookQuery('')
                           setCatalogResults([])
                           setBookSearchAttempted(false)
@@ -1551,7 +1589,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
           <article key={book.id} className="overflow-hidden rounded-lg border border-stone-800 bg-stone-900">
             <button onClick={() => onBookClick(book.id)} className="grid w-full grid-cols-[92px_1fr] text-left sm:block">
               {book.cover ? (
-                <img src={book.cover} alt={book.title} className="h-full min-h-36 w-full object-cover sm:h-48" />
+                <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-full min-h-36 w-full object-cover sm:h-48" />
               ) : (
                 <div className="flex h-full min-h-36 w-full items-center justify-center bg-stone-800 text-xs text-stone-500 sm:h-48">Sem capa</div>
               )}
@@ -1659,10 +1697,10 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
   shelf: ShelfEntry[]
   books: Book[]
   onBookClick: (id: string) => void
-  onAddBook: (bookId: string, status: BookStatus) => Promise<void> | void
-  onSaveBook: (book: Book) => Promise<void> | void
-  onSetBookActive: (bookId: string, active: boolean) => Promise<void> | void
-  onDeleteBook: (bookId: string) => Promise<void> | void
+  onAddBook: (bookId: string, status: BookStatus) => Promise<boolean | void> | boolean | void
+  onSaveBook: (book: Book) => Promise<boolean | void> | boolean | void
+  onSetBookActive: (bookId: string, active: boolean) => Promise<boolean | void> | boolean | void
+  onDeleteBook: (bookId: string) => Promise<boolean | void> | boolean | void
   onSearchBooks: (query: string, field: BookSearchField) => Promise<Book[]>
   onUploadCover: (file: File) => Promise<string>
 }) {
@@ -1708,11 +1746,13 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
   }
 
   async function saveBookForm(book: Book) {
-    await onSaveBook(book)
+    const saved = await onSaveBook(book)
+    if (saved === false) return false
     setBookModal(null)
     setQuery('')
     setSearchResults([])
     setAttempted(false)
+    return true
   }
 
   return (
@@ -1779,7 +1819,8 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
                   onBookClick(book.id)
                 } else if (registeredBook) {
                   try {
-                    await onAddBook(book.id, newBookStatus)
+                    const added = await onAddBook(book.id, newBookStatus)
+                    if (added === false) return
                   } catch (error) {
                     setError(errorMessage(error, 'Nao foi possivel adicionar este livro a estante.'))
                   }
@@ -1837,12 +1878,12 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   currentUser: User
   onBack: () => void
   onUserClick: (id: string) => void
-  onAddReply: (postId: string, text: string) => void
-  onToggleLike: (postId: string) => void
-  onDeletePost: (postId: string) => void
-  onDeleteReply: (replyId: string) => void
-  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>) => void
-  onAddBook: (bookId: string, status: BookStatus) => void
+  onAddReply: (postId: string, text: string) => Promise<boolean | void> | boolean | void
+  onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
+  onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
+  onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
+  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback) => Promise<boolean | void> | boolean | void
+  onAddBook: (bookId: string, status: BookStatus) => Promise<boolean | void> | boolean | void
 }) {
   const [tab, setTab] = useState<'feed' | 'theories' | 'about'>('feed')
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
@@ -1888,7 +1929,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
 
       <div className="border-b border-stone-800 p-4 md:p-5">
         <div className="grid gap-4 sm:grid-cols-[132px_1fr]">
-          <img src={book.cover} alt={book.title} className="h-48 w-32 rounded-lg object-cover sm:h-52 sm:w-full" />
+          <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-48 w-32 rounded-lg object-cover sm:h-52 sm:w-full" />
           <div className="min-w-0">
             <h2 className="font-serif text-2xl leading-tight text-stone-50">{book.title}</h2>
             <p className="mt-1 text-sm text-stone-400">{book.author}</p>
@@ -1965,13 +2006,17 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                         className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
                         aria-label="Capítulo atual"
                       />
-                      <button onClick={() => {
+                      <button onClick={async () => {
                         const nextProgress = percentFromChapter(book, Number(chapterInput))
-                        onUpdateShelfEntry(book.id, {
+                        const saved = await onUpdateShelfEntry(book.id, {
                           progress: nextProgress,
                           status: nextProgress >= 100 ? 'read' : myEntry.status,
                           endDate: nextProgress >= 100 ? new Date().toISOString().slice(0, 10) : undefined,
+                        }, {
+                          success: 'Progresso atualizado com sucesso.',
+                          error: 'Nao foi possivel atualizar o progresso.',
                         })
+                        if (saved === false) return
                         setChapterLimit(chapterFromPercent(book, nextProgress))
                       }} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
                         Atualizar
@@ -2090,10 +2135,10 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
   posts: Post[]
   books: Book[]
   onBookClick: (id: string) => void
-  onUpdateUser: (changes: Partial<User>) => void
+  onUpdateUser: (changes: Partial<User>) => Promise<boolean | void> | boolean | void
   onUserClick: (userId: string) => void
-  onToggleFollow: (userId: string) => void
-  onDeletePost: (postId: string) => void
+  onToggleFollow: (userId: string) => Promise<boolean | void> | boolean | void
+  onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onOpenProfileList: (kind: ProfileListKind) => void
   onLogout: () => void
   onUploadAvatar: (file: File) => Promise<string>
@@ -2104,7 +2149,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
   const [name, setName] = useState(profileUser.name)
   const [handle, setHandle] = useState(profileUser.handle)
   const [bio, setBio] = useState(profileUser.bio)
-  const [avatar, setAvatar] = useState(profileUser.avatar.startsWith('http') || profileUser.avatar.startsWith('/') ? profileUser.avatar : '')
+  const [avatar, setAvatar] = useState(isMediaUrl(profileUser.avatar) ? profileUser.avatar : '')
   const [avatarFileName, setAvatarFileName] = useState('')
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [avatarError, setAvatarError] = useState('')
@@ -2208,9 +2253,10 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
               </div>
             </div>
             <div className="flex justify-end">
-              <button onClick={() => {
+              <button onClick={async () => {
                 const fallbackAvatar = name.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || profileUser.avatar
-                onUpdateUser({ name: name.trim() || profileUser.name, handle: handle.trim() || profileUser.handle, bio: bio.trim(), avatar: avatar.trim() || fallbackAvatar })
+                const saved = await onUpdateUser({ name: name.trim() || profileUser.name, handle: handle.trim() || profileUser.handle, bio: bio.trim(), avatar: avatar.trim() || fallbackAvatar })
+                if (saved === false) return
                 setEditing(false)
               }} className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950">
                 Salvar perfil
@@ -2271,7 +2317,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
           {filteredShelf.length ? filteredShelf.map(({ entry, book }) => (
             <button key={entry.bookId} onClick={() => onBookClick(book.id)} className="flex w-full gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3 text-left">
               {book.cover ? (
-                <img src={book.cover} alt={book.title} className="h-20 w-14 rounded object-cover" />
+                <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-20 w-14 rounded object-cover" />
               ) : (
                 <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
               )}
@@ -2307,11 +2353,11 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, posts, 
   onBack: () => void
   onBookClick: (id: string) => void
   onUserClick: (userId: string) => void
-  onToggleFollow: (userId: string) => void
-  onAddReply: (postId: string, text: string) => void
-  onToggleLike: (postId: string) => void
-  onDeletePost: (postId: string) => void
-  onDeleteReply: (replyId: string) => void
+  onToggleFollow: (userId: string) => Promise<boolean | void> | boolean | void
+  onAddReply: (postId: string, text: string) => Promise<boolean | void> | boolean | void
+  onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
+  onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
+  onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
 }) {
   const titleByKind: Record<ProfileListKind, string> = {
     following: 'Seguindo',
@@ -2425,7 +2471,6 @@ function NotificationsPage({ notifications, users, books, onBookClick, onUserCli
                       )}
                       {notification.chapter ? <span className="text-stone-500"> · cap. {notification.chapter}</span> : null}
                     </p>
-                    {notification.text && <p className="mt-2 rounded-lg bg-stone-900 p-3 text-sm text-stone-400">{notification.text}</p>}
                     <p className="mt-1 text-xs text-stone-600">{formatTime(notification.timestamp)}</p>
                   </div>
                   {!notification.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-300" />}
@@ -2445,8 +2490,8 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   shelf: ShelfEntry[]
   books: Book[]
   readingGoal: ReadingGoal
-  onUpdateReadingGoal: (changes: { targetBooks?: number; targetDays?: number }) => Promise<void> | void
-  onToggleReadingCheckIn: () => Promise<void> | void
+  onUpdateReadingGoal: (changes: { targetBooks?: number; targetDays?: number }) => Promise<boolean | void> | boolean | void
+  onToggleReadingCheckIn: () => Promise<boolean | void> | boolean | void
 }) {
   const [editing, setEditing] = useState(false)
   const [inputVal, setInputVal] = useState(String(readingGoal.targetBooks || 40))
@@ -2488,7 +2533,8 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
                 <input value={inputVal} onChange={e => setInputVal(e.target.value)} type="number" className="w-20 rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-center text-sm text-stone-100 outline-none focus:border-amber-300" />
                 <button onClick={async () => {
                   const targetBooks = clamp(Number(inputVal), 1, 999)
-                  await onUpdateReadingGoal({ targetBooks })
+                  const saved = await onUpdateReadingGoal({ targetBooks })
+                  if (saved === false) return
                   setInputVal(String(targetBooks))
                   setEditing(false)
                 }} className="rounded-lg bg-amber-300 px-3 text-sm font-bold text-stone-950">
@@ -2524,7 +2570,8 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
                 <input value={dayInputVal} onChange={e => setDayInputVal(e.target.value)} type="number" className="w-20 rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-center text-sm text-stone-100 outline-none focus:border-amber-300" />
                 <button onClick={async () => {
                   const targetDays = clamp(Number(dayInputVal), 1, 366)
-                  await onUpdateReadingGoal({ targetDays })
+                  const saved = await onUpdateReadingGoal({ targetDays })
+                  if (saved === false) return
                   setDayInputVal(String(targetDays))
                   setEditingDays(false)
                 }} className="rounded-lg bg-amber-300 px-3 text-sm font-bold text-stone-950">
@@ -2591,7 +2638,7 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
           <div className="space-y-3">
             {currentlyReading.map(({ entry, book }) => (
               <div key={book.id} className="flex gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3">
-                <img src={book.cover} alt={book.title} className="h-16 w-11 rounded object-cover" />
+                <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-16 w-11 rounded object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
                   <p className="mb-2 text-xs text-stone-500">{book.author}</p>
@@ -2612,7 +2659,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
   shelf: ShelfEntry[]
   books: Book[]
   onClose: () => void
-  onPost: (post: Post) => void
+  onPost: (post: Post) => Promise<boolean | void> | boolean | void
 }) {
   const myBooks = shelf
     .filter(entry => entry.userId === currentUser.id && canPostWithStatus(entry.status))
@@ -2647,11 +2694,11 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
     setChapter(String(next))
   }
 
-  function handlePost() {
+  async function handlePost() {
     if (!canPost || !selectedBook) return
     const selectedChapter = clamp(Number(chapter), 1, selectedBook.totalChapters)
     const percent = percentFromChapter(selectedBook, selectedChapter)
-    onPost({
+    const posted = await onPost({
       id: `p${Date.now()}`,
       userId: currentUser.id,
       bookId: selectedBook.id,
@@ -2664,6 +2711,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
       likes: [],
       comments: 0,
     })
+    if (posted === false) return
     onClose()
   }
 
@@ -2749,7 +2797,7 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
   books: Book[]
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
-  onToggleFollow: (userId: string) => void
+  onToggleFollow: (userId: string) => Promise<boolean | void> | boolean | void
 }) {
   const [readerQuery, setReaderQuery] = useState('')
   const currentlyReading = shelf
@@ -2801,7 +2849,7 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
           <div className="space-y-3">
             {currentlyReading.map(({ entry, book }) => (
               <button key={book.id} onClick={() => onBookClick(book.id)} className="flex w-full gap-3 text-left">
-                <img src={book.cover} alt={book.title} className="h-14 w-10 rounded object-cover" />
+                <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-14 w-10 rounded object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
                   <p className="mb-1 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</p>
@@ -2827,6 +2875,43 @@ function EmptyState({ text }: { text: string }) {
   return <div className="px-6 py-14 text-center text-sm text-stone-500">{text}</div>
 }
 
+function ToastStack({ toasts, onDismiss }: { toasts: ToastMessage[]; onDismiss: (id: number) => void }) {
+  if (!toasts.length) return null
+
+  return (
+    <div className="fixed bottom-[calc(max(env(safe-area-inset-bottom),0px)+5.75rem)] left-3 right-3 z-[70] grid gap-2 md:bottom-5 md:left-auto md:right-5 md:w-96">
+      {toasts.map(toast => (
+        <div
+          key={toast.id}
+          role="status"
+          className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-2xl shadow-black/40 ${
+            toast.type === 'success'
+              ? 'border-emerald-300/30 bg-emerald-950/95 text-emerald-50'
+              : 'border-red-300/30 bg-red-950/95 text-red-50'
+          }`}
+        >
+          <span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${toast.type === 'success' ? 'bg-emerald-300' : 'bg-red-300'}`} />
+          <p className="min-w-0 flex-1 leading-relaxed">{toast.text}</p>
+          <button onClick={() => onDismiss(toast.id)} className="shrink-0 rounded px-1 text-base leading-none opacity-70 hover:opacity-100" aria-label="Fechar aviso">
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ActionLoadingIndicator({ active }: { active: boolean }) {
+  if (!active) return null
+
+  return (
+    <div className="fixed left-1/2 top-3 z-[80] -translate-x-1/2 rounded-full border border-amber-300/30 bg-stone-950/95 px-4 py-2 text-sm font-bold text-amber-100 shadow-2xl shadow-black/40 backdrop-blur">
+      <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-300 border-t-transparent align-[-1px]" />
+      Atualizando...
+    </div>
+  )
+}
+
 function storedPage() {
   const value = localStorage.getItem('folio_page')
   return ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications'].includes(value || '') ? value as Page : 'timeline'
@@ -2849,6 +2934,40 @@ export default function App() {
   const [notifications, setNotifications] = useState<FolioNotification[]>([])
   const [readingGoal, setReadingGoal] = useState<ReadingGoal>({ targetBooks: 40, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
   const [loadingApp, setLoadingApp] = useState(Boolean(token))
+  const [toasts, setToasts] = useState<ToastMessage[]>([])
+  const [actionLoadingCount, setActionLoadingCount] = useState(0)
+
+  function dismissToast(id: number) {
+    setToasts(current => current.filter(toast => toast.id !== id))
+  }
+
+  function showToast(type: ToastMessage['type'], text: string) {
+    const id = Date.now() + Math.random()
+    setToasts(current => [...current.slice(-2), { id, type, text }])
+    window.setTimeout(() => dismissToast(id), 3800)
+  }
+
+  function beginActionLoading() {
+    setActionLoadingCount(count => count + 1)
+  }
+
+  function endActionLoading() {
+    setActionLoadingCount(count => Math.max(0, count - 1))
+  }
+
+  async function runAction(action: () => Promise<void>, feedback: ActionFeedback) {
+    beginActionLoading()
+    try {
+      await action()
+      if (!feedback.silentSuccess && feedback.success) showToast('success', feedback.success)
+      return true
+    } catch (error) {
+      showToast('error', errorMessage(error, feedback.error))
+      return false
+    } finally {
+      endActionLoading()
+    }
+  }
 
   async function loadBootstrap(activeToken = token) {
     if (!activeToken) return
@@ -2945,105 +3064,186 @@ export default function App() {
     }
   }
 
-  async function handleUpdateShelfEntry(bookId: string, changes: Partial<ShelfEntry>) {
-    if (!currentUser) return
-    await apiRequest(`/folio/shelf/${encodeURIComponent(bookId)}`, { method: 'PATCH', body: JSON.stringify(changes) }, token)
-    await loadBootstrap()
+  async function handleUpdateShelfEntry(bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback) {
+    if (!currentUser) return false
+    return runAction(async () => {
+      await apiRequest(`/folio/shelf/${encodeURIComponent(bookId)}`, { method: 'PATCH', body: JSON.stringify(changes) }, token)
+      await loadBootstrap()
+    }, feedback || {
+      error: 'Nao foi possivel atualizar a estante.',
+      silentSuccess: true,
+    })
   }
 
   async function handleRemoveShelfEntry(bookId: string) {
-    if (!currentUser) return
-    await apiRequest(`/folio/shelf/${encodeURIComponent(bookId)}`, { method: 'DELETE' }, token)
-    await loadBootstrap()
+    if (!currentUser) return false
+    return runAction(async () => {
+      await apiRequest(`/folio/shelf/${encodeURIComponent(bookId)}`, { method: 'DELETE' }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Livro removido da estante.',
+      error: 'Nao foi possivel remover este livro da estante.',
+    })
   }
 
   async function handleAddBook(bookId: string, status: BookStatus) {
-    if (!currentUser) return
-    await apiRequest('/folio/shelf', { method: 'POST', body: JSON.stringify({ bookId, status, progress: status === 'read' ? 100 : 0 }) }, token)
-    await loadBootstrap()
+    if (!currentUser) return false
+    return runAction(async () => {
+      await apiRequest('/folio/shelf', { method: 'POST', body: JSON.stringify({ bookId, status, progress: status === 'read' ? 100 : 0 }) }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Livro adicionado à estante.',
+      error: 'Nao foi possivel adicionar este livro à estante.',
+    })
   }
 
   async function handleSaveBook(book: Book) {
-    await apiRequest('/folio/books', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...book,
-        rating: book.rating,
-      }),
-    }, token)
-    await loadBootstrap()
+    return runAction(async () => {
+      await apiRequest('/folio/books', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...book,
+          rating: book.rating,
+        }),
+      }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Livro salvo com sucesso.',
+      error: 'Nao foi possivel salvar este livro.',
+    })
   }
 
   async function handleSetBookActive(bookId: string, active: boolean) {
-    await apiRequest(`/folio/books/${encodeURIComponent(bookId)}/${active ? 'active' : 'inactive'}`, { method: 'PATCH' }, token)
-    await loadBootstrap()
+    return runAction(async () => {
+      await apiRequest(`/folio/books/${encodeURIComponent(bookId)}/${active ? 'active' : 'inactive'}`, { method: 'PATCH' }, token)
+      await loadBootstrap()
+    }, {
+      success: active ? 'Livro reativado com sucesso.' : 'Livro inativado com sucesso.',
+      error: active ? 'Nao foi possivel reativar este livro.' : 'Nao foi possivel inativar este livro.',
+    })
   }
 
   async function handleDeleteBook(bookId: string) {
-    await apiRequest(`/folio/books/${encodeURIComponent(bookId)}`, { method: 'DELETE' }, token)
-    await loadBootstrap()
+    return runAction(async () => {
+      await apiRequest(`/folio/books/${encodeURIComponent(bookId)}`, { method: 'DELETE' }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Livro excluido da Biblioteca.',
+      error: 'Nao foi possivel excluir este livro.',
+    })
   }
 
   async function handleUploadBookCover(file: File) {
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await fetch(`${API_BASE_URL}/folio/books/cover`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      body: formData,
-    })
-    if (!response.ok) throw new Error(await response.text())
-    const data = await response.json() as { url: string }
-    return data.url
+    beginActionLoading()
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await fetch(`${API_BASE_URL}/folio/books/cover`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      })
+      if (!response.ok) throw new Error(await response.text())
+      const data = await response.json() as { url: string }
+      showToast('success', 'Capa enviada com sucesso.')
+      return data.url
+    } catch (error) {
+      showToast('error', errorMessage(error, 'Nao foi possivel enviar a capa.'))
+      throw error
+    } finally {
+      endActionLoading()
+    }
   }
 
   async function handleAddReply(postId: string, text: string) {
-    if (!currentUser) return
-    await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/replies`, { method: 'POST', body: JSON.stringify({ text }) }, token)
-    await loadBootstrap()
+    if (!currentUser) return false
+    return runAction(async () => {
+      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/replies`, { method: 'POST', body: JSON.stringify({ text }) }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Resposta publicada com sucesso.',
+      error: 'Nao foi possivel publicar a resposta.',
+    })
   }
 
   async function handleDeletePost(postId: string) {
-    if (!currentUser) return
-    await apiRequest(`/folio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }, token)
-    await loadBootstrap()
+    if (!currentUser) return false
+    return runAction(async () => {
+      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Publicação apagada.',
+      error: 'Nao foi possivel apagar a publicação.',
+    })
   }
 
   async function handleDeleteReply(replyId: string) {
-    if (!currentUser) return
-    await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}`, { method: 'DELETE' }, token)
-    await loadBootstrap()
+    if (!currentUser) return false
+    return runAction(async () => {
+      await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}`, { method: 'DELETE' }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Resposta apagada.',
+      error: 'Nao foi possivel apagar a resposta.',
+    })
   }
 
   async function handleToggleLike(postId: string) {
-    if (!currentUser) return
-    await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/likes/toggle`, { method: 'POST' }, token)
-    await loadBootstrap()
+    if (!currentUser) return false
+    const post = posts.find(item => item.id === postId)
+    const liked = Boolean(post?.likes.includes(currentUser.id))
+    return runAction(async () => {
+      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/likes/toggle`, { method: 'POST' }, token)
+      await loadBootstrap()
+    }, {
+      success: liked ? 'Curtida removida.' : 'Publicação curtida.',
+      error: liked ? 'Nao foi possivel remover a curtida.' : 'Nao foi possivel curtir a publicação.',
+    })
   }
 
   async function handleToggleFollow(userId: string) {
-    if (!currentUser || userId === currentUser.id) return
-    await apiRequest(`/folio/follows/${userId}/toggle`, { method: 'POST' }, token)
-    await loadBootstrap()
+    if (!currentUser || userId === currentUser.id) return false
+    const following = currentUser.following.includes(userId)
+    return runAction(async () => {
+      await apiRequest(`/folio/follows/${userId}/toggle`, { method: 'POST' }, token)
+      await loadBootstrap()
+    }, {
+      success: following ? 'Você deixou de seguir este perfil.' : 'Perfil seguido com sucesso.',
+      error: following ? 'Nao foi possivel deixar de seguir este perfil.' : 'Nao foi possivel seguir este perfil.',
+    })
   }
 
   async function handleUpdateUser(changes: Partial<User>) {
-    if (!currentUser) return
-    await apiRequest('/folio/me', { method: 'PATCH', body: JSON.stringify(changes) }, token)
-    await loadBootstrap()
+    if (!currentUser) return false
+    return runAction(async () => {
+      await apiRequest('/folio/me', { method: 'PATCH', body: JSON.stringify(changes) }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Perfil atualizado com sucesso.',
+      error: 'Nao foi possivel atualizar o perfil.',
+    })
   }
 
   async function handleUploadAvatar(file: File) {
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await fetch(`${API_BASE_URL}/folio/me/avatar`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      body: formData,
-    })
-    if (!response.ok) throw new Error(await response.text())
-    const data = await response.json() as { url: string }
-    return data.url
+    beginActionLoading()
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await fetch(`${API_BASE_URL}/folio/me/avatar`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      })
+      if (!response.ok) throw new Error(await response.text())
+      const data = await response.json() as { url: string }
+      showToast('success', 'Imagem enviada com sucesso.')
+      return data.url
+    } catch (error) {
+      showToast('error', errorMessage(error, 'Nao foi possivel enviar a imagem.'))
+      throw error
+    } finally {
+      endActionLoading()
+    }
   }
 
   async function handleSearchBooks(query: string, field: BookSearchField) {
@@ -3051,18 +3251,34 @@ export default function App() {
   }
 
   async function handleCreatePost(post: Post) {
-    await apiRequest('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, token)
-    await loadBootstrap()
+    return runAction(async () => {
+      await apiRequest('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Publicação criada com sucesso.',
+      error: 'Nao foi possivel criar a publicação.',
+    })
   }
 
   async function handleUpdateReadingGoal(changes: { targetBooks?: number; targetDays?: number }) {
-    await apiRequest('/folio/reading-goal', { method: 'PATCH', body: JSON.stringify(changes) }, token)
-    await loadBootstrap()
+    return runAction(async () => {
+      await apiRequest('/folio/reading-goal', { method: 'PATCH', body: JSON.stringify(changes) }, token)
+      await loadBootstrap()
+    }, {
+      success: 'Meta atualizada com sucesso.',
+      error: 'Nao foi possivel atualizar a meta.',
+    })
   }
 
   async function handleToggleReadingCheckIn() {
-    await apiRequest('/folio/reading-goal/checkins/toggle', { method: 'POST', body: JSON.stringify({ date: localDateKey() }) }, token)
-    await loadBootstrap()
+    const checked = readingGoal.checkedInToday
+    return runAction(async () => {
+      await apiRequest('/folio/reading-goal/checkins/toggle', { method: 'POST', body: JSON.stringify({ date: localDateKey() }) }, token)
+      await loadBootstrap()
+    }, {
+      success: checked ? 'Check-in desfeito.' : 'Check-in registrado com sucesso.',
+      error: checked ? 'Nao foi possivel desfazer o check-in.' : 'Nao foi possivel registrar o check-in.',
+    })
   }
 
   function handleLogout() {
@@ -3102,6 +3318,8 @@ export default function App() {
         onCreatePost={() => setShowPostModal(true)}
         onLogout={handleLogout}
       />
+      <ActionLoadingIndicator active={actionLoadingCount > 0} />
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
       <div className="flex md:ml-60">
         <main className="min-h-screen min-w-0 flex-1 border-x border-stone-800 pb-24 md:pb-0">
