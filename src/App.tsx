@@ -5,6 +5,7 @@ type PostType = 'comment' | 'reaction' | 'theory'
 type Page = 'timeline' | 'shelf' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications'
 type FilterMode = 'percent' | 'chapter'
 type ProfileListKind = 'following' | 'followers' | 'posts'
+type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 
 interface User {
   id: string
@@ -133,6 +134,16 @@ const STATUS_LABELS: Record<BookStatus, string> = {
   abandoned: 'Abandonei',
 }
 
+const BOOK_SEARCH_FIELD_LABELS: Record<BookSearchField, string> = {
+  all: 'Tudo',
+  title: 'Título',
+  author: 'Autor',
+  series: 'Série',
+  genre: 'Gênero',
+  trope: 'Trope',
+  tag: 'Tag',
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min))
 }
@@ -143,6 +154,44 @@ function chapterFromPercent(book: Book, percent: number) {
 
 function percentFromChapter(book: Book, chapter: number) {
   return clamp(Math.round((chapter / book.totalChapters) * 100), 1, 100)
+}
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function bookMatchesSearch(book: Book, query: string, field: BookSearchField) {
+  const needle = normalizeSearch(query)
+  if (!needle) return false
+  const valuesByField: Record<BookSearchField, string[]> = {
+    all: [
+      book.title,
+      book.author,
+      book.series || '',
+      ...(book.genres || []),
+      ...(book.tropes || []),
+      ...(book.tags || []),
+    ],
+    title: [book.title],
+    author: [book.author],
+    series: [book.series || ''],
+    genre: book.genres || [],
+    trope: book.tropes || [],
+    tag: book.tags || [],
+  }
+  return valuesByField[field].some(value => normalizeSearch(value).includes(needle))
+}
+
+function mergeBooksById(...groups: Book[][]) {
+  const merged = new Map<string, Book>()
+  groups.flat().forEach(book => {
+    if (!merged.has(book.id)) merged.set(book.id, book)
+  })
+  return Array.from(merged.values())
 }
 
 const RATING_OPTIONS = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
@@ -780,12 +829,13 @@ function TimelinePage({ currentUser, users, books, posts, replies, timeline, onB
   )
 }
 
-function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondaryAction }: {
+function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondaryAction, metaLabel }: {
   book: Book
   actionLabel: string
   onAction: () => void
   secondaryLabel?: string
   onSecondaryAction?: () => void
+  metaLabel?: string
 }) {
   return (
     <div className="flex items-center gap-3 rounded-lg bg-stone-950 p-2">
@@ -795,7 +845,10 @@ function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondar
         <div className="flex h-12 w-8 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
       )}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
+          {metaLabel && <span className="rounded-full bg-stone-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-500">{metaLabel}</span>}
+        </div>
         <p className="truncate text-xs text-stone-500">{book.author}</p>
         <p className="text-xs text-stone-600">{book.totalPages} págs. · {book.totalChapters} caps.{book.chaptersEstimated ? ' estimados' : ''}</p>
       </div>
@@ -860,14 +913,7 @@ function numberFromText(value: string, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function splitList(value: string) {
-  return value
-    .split(/[\n,]/)
-    .map(item => item.trim())
-    .filter(Boolean)
-}
-
-function draftFromBook(book: Book | undefined, status: BookStatus): BookFormDraft {
+function draftFromBook(book: Book | undefined, status: BookStatus, shelfEntry?: ShelfEntry): BookFormDraft {
   return {
     title: book?.title || '',
     author: book?.author || '',
@@ -884,30 +930,30 @@ function draftFromBook(book: Book | undefined, status: BookStatus): BookFormDraf
     language: book?.language || '',
     releaseDate: book?.releaseDate || '',
     tags: book?.tags?.join(', ') || '',
-    status,
+    status: shelfEntry?.status || status,
     totalPages: String(book?.totalPages ?? 0),
     totalChapters: String(book?.totalChapters ?? 1),
-    currentPage: '0',
-    format: '',
-    startDate: '',
-    endDate: '',
-    rating: '',
-    spiceRating: '',
-    price: '',
-    store: '',
-    personalTags: '',
-    mainCouple: '',
-    crush: '',
-    favoriteQuotes: '',
-    review: '',
-    cryRating: '',
-    freakoutRating: '',
-    gripRating: '',
-    hangoverRating: '',
-    favorite: false,
-    top10: false,
-    recommend: false,
-    reread: false,
+    currentPage: String(shelfEntry?.currentPage ?? 0),
+    format: shelfEntry?.format || '',
+    startDate: shelfEntry?.startDate?.slice(0, 10) || '',
+    endDate: shelfEntry?.endDate?.slice(0, 10) || '',
+    rating: shelfEntry?.rating ? String(shelfEntry.rating) : '',
+    spiceRating: shelfEntry?.spiceRating ? String(shelfEntry.spiceRating) : '',
+    price: shelfEntry?.price ? String(shelfEntry.price) : '',
+    store: shelfEntry?.store || '',
+    personalTags: shelfEntry?.personalTags?.join(', ') || '',
+    mainCouple: shelfEntry?.mainCouple || '',
+    crush: shelfEntry?.crush || '',
+    favoriteQuotes: shelfEntry?.favoriteQuotes?.join('\n') || '',
+    review: shelfEntry?.review || '',
+    cryRating: shelfEntry?.cryRating ? String(shelfEntry.cryRating) : '',
+    freakoutRating: shelfEntry?.freakoutRating ? String(shelfEntry.freakoutRating) : '',
+    gripRating: shelfEntry?.gripRating ? String(shelfEntry.gripRating) : '',
+    hangoverRating: shelfEntry?.hangoverRating ? String(shelfEntry.hangoverRating) : '',
+    favorite: Boolean(shelfEntry?.favorite),
+    top10: Boolean(shelfEntry?.top10),
+    recommend: Boolean(shelfEntry?.recommend),
+    reread: Boolean(shelfEntry?.reread),
   }
 }
 
@@ -946,15 +992,16 @@ function MultiChoicePicker({ title, searchLabel, countLabel, options, selected, 
   )
 }
 
-function BookFormModal({ initialBook, defaultStatus, mode, onClose, onSave }: {
+function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, onClose, onSave, onUploadCover }: {
   initialBook?: Book
+  initialShelfEntry?: ShelfEntry
   defaultStatus: BookStatus
   mode: 'new' | 'edit'
   onClose: () => void
   onSave: (book: Book, shelfData: Partial<ShelfEntry>) => Promise<void> | void
   onUploadCover: (file: File) => Promise<string>
 }) {
-  const [draft, setDraft] = useState<BookFormDraft>(() => draftFromBook(initialBook, defaultStatus))
+  const [draft, setDraft] = useState<BookFormDraft>(() => draftFromBook(initialBook, defaultStatus, initialShelfEntry))
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
   const [error, setError] = useState('')
@@ -965,27 +1012,28 @@ function BookFormModal({ initialBook, defaultStatus, mode, onClose, onSave }: {
       [key]: prev[key].includes(value) ? prev[key].filter(item => item !== value) : [...prev[key], value],
     }))
   }
-  const canSave = draft.title.trim().length > 0
+  const totalPagesValue = Math.round(numberFromText(draft.totalPages))
+  const totalChaptersValue = Math.round(numberFromText(draft.totalChapters, 1))
+  const canSave = draft.title.trim().length > 0 && draft.author.trim().length > 0 && draft.cover.trim().length > 0 && totalPagesValue > 0 && totalChaptersValue > 0
 
-  async function save(markReadToday = false) {
+  async function save() {
     if (!canSave) {
-      setError('Informe pelo menos o titulo do livro.')
+      setError('Informe titulo, autor, capa, paginas e capitulos.')
       return
     }
 
     setSaving(true)
     setError('')
-    const totalPages = Math.max(0, Math.round(numberFromText(draft.totalPages)))
-    const totalChapters = Math.max(1, Math.round(numberFromText(draft.totalChapters, 1)))
+    const totalPages = Math.max(1, totalPagesValue)
+    const totalChapters = Math.max(1, totalChaptersValue)
     const currentPage = Math.max(0, Math.round(numberFromText(draft.currentPage)))
     const progressFromPage = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0
-    const status = markReadToday ? 'read' : draft.status
+    const status = draft.status
     const progress = status === 'read' ? 100 : clamp(progressFromPage, 0, 100)
-    const today = new Date().toISOString().slice(0, 10)
     const book: Book = {
       id: initialBook?.id || `custom-${Date.now()}`,
       title: draft.title.trim(),
-      author: draft.author.trim() || 'Autor desconhecido',
+      author: draft.author.trim(),
       cover: draft.cover.trim(),
       totalPages,
       totalChapters,
@@ -997,36 +1045,17 @@ function BookFormModal({ initialBook, defaultStatus, mode, onClose, onSave }: {
       series: draft.series.trim(),
       volume: draft.volume.trim(),
       language: draft.language.trim(),
-      releaseDate: draft.releaseDate,
-      unreleased: draft.unreleased,
-      publicShared: draft.publicShared,
+      releaseDate: undefined,
+      unreleased: false,
+      publicShared: true,
       tropes: draft.tropes,
-      tags: splitList(draft.tags),
+      tags: initialBook?.tags || [],
     }
     const shelfData: Partial<ShelfEntry> = {
       status,
       progress,
       currentPage: status === 'read' ? totalPages : currentPage,
-      startDate: draft.startDate || undefined,
-      endDate: markReadToday ? today : draft.endDate || undefined,
-      rating: draft.rating ? numberFromText(draft.rating) : undefined,
-      spiceRating: draft.spiceRating ? numberFromText(draft.spiceRating) : undefined,
       format: draft.format.trim() || undefined,
-      price: draft.price ? numberFromText(draft.price) : undefined,
-      store: draft.store.trim() || undefined,
-      personalTags: splitList(draft.personalTags),
-      mainCouple: draft.mainCouple.trim() || undefined,
-      crush: draft.crush.trim() || undefined,
-      favoriteQuotes: splitList(draft.favoriteQuotes),
-      review: draft.review.trim() || undefined,
-      cryRating: draft.cryRating ? numberFromText(draft.cryRating) : undefined,
-      freakoutRating: draft.freakoutRating ? numberFromText(draft.freakoutRating) : undefined,
-      gripRating: draft.gripRating ? numberFromText(draft.gripRating) : undefined,
-      hangoverRating: draft.hangoverRating ? numberFromText(draft.hangoverRating) : undefined,
-      favorite: draft.favorite,
-      top10: draft.top10,
-      recommend: draft.recommend,
-      reread: draft.reread,
     }
 
     try {
@@ -1045,7 +1074,7 @@ function BookFormModal({ initialBook, defaultStatus, mode, onClose, onSave }: {
         <div className="sticky top-0 z-20 flex items-start justify-between gap-4 border-b border-stone-800 bg-stone-900 px-4 py-3">
           <div>
             <h2 className="font-serif text-xl text-stone-50">{mode === 'new' ? 'Novo livro' : 'Editar livro'}</h2>
-            <p className="mt-1 text-xs text-stone-500">Preencha so o que quiser. O app funciona mesmo com poucos campos.</p>
+            <p className="mt-1 text-xs text-stone-500">Cadastre os dados principais para encontrar e organizar o livro.</p>
           </div>
           <button onClick={onClose} className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs font-bold text-stone-300 hover:bg-stone-800">Fechar</button>
         </div>
@@ -1054,23 +1083,15 @@ function BookFormModal({ initialBook, defaultStatus, mode, onClose, onSave }: {
           <section className="space-y-4 rounded-lg border border-stone-800 bg-stone-950/50 p-4">
             <div>
               <h3 className="font-serif text-lg text-stone-100">Dados principais do livro</h3>
-              <p className="mt-1 text-xs text-stone-500">Informacoes gerais do livro e o que pode ser compartilhado com a Biblioteca Publica do app.</p>
+              <p className="mt-1 text-xs text-stone-500">Titulo, autor, capa, paginas e capitulos sao obrigatorios.</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm font-semibold text-stone-300">Titulo *<input value={draft.title} onChange={e => update('title', e.target.value)} placeholder="Ex.: Quicksilver" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Autor<input value={draft.author} onChange={e => update('author', e.target.value)} placeholder="Ex.: Callie Hart" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Autor *<input value={draft.author} onChange={e => update('author', e.target.value)} placeholder="Ex.: Callie Hart" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
             </div>
-            <label className="flex gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-sm text-stone-300">
-              <input type="checkbox" checked={draft.unreleased} onChange={e => update('unreleased', e.target.checked)} className="mt-1 accent-amber-300" />
-              <span><strong>Este livro ainda nao foi lancado</strong><br /><span className="text-xs text-stone-500">Marque para exibir o livro como proximo lancamento.</span></span>
-            </label>
-            <label className="flex gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-sm text-stone-300">
-              <input type="checkbox" checked={draft.publicShared} onChange={e => update('publicShared', e.target.checked)} className="mt-1 accent-amber-300" />
-              <span><strong>Compartilhar dados comuns na Biblioteca Publica</strong><br /><span className="text-xs text-stone-500">Na biblioteca publica aparecem so titulo, autor, capa, serie, volume, generos, idioma, paginas totais, previsao de lancamento, tropes, tags, quem ja leu e o percentual de leitores que ja leram. Notas, resenhas, frases, hot, progresso e check-ins continuam privados.</span></span>
-            </label>
             <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
               <div className="space-y-3">
-                <label className="text-sm font-semibold text-stone-300">Capa do livro<input value={draft.cover} onChange={e => update('cover', e.target.value)} placeholder="Cole o link da capa ou envie uma imagem abaixo" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+                <label className="text-sm font-semibold text-stone-300">Capa do livro *<input value={draft.cover} onChange={e => update('cover', e.target.value)} placeholder="Cole o link da capa ou envie uma imagem abaixo" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
                 <label className="inline-flex cursor-pointer rounded-lg border border-stone-700 px-3 py-2 text-xs font-bold text-stone-300 hover:bg-stone-800">
                   {uploadingCover ? 'Enviando...' : 'Enviar capa'}
                   <input type="file" accept="image/*" className="hidden" onChange={async e => {
@@ -1106,55 +1127,16 @@ function BookFormModal({ initialBook, defaultStatus, mode, onClose, onSave }: {
 
           <section className="space-y-4 rounded-lg border border-stone-800 bg-stone-950/50 p-4">
             <div>
-              <h3 className="font-serif text-lg text-stone-100">Detalhes da sua leitura</h3>
-              <p className="mt-1 text-xs text-stone-500">Esses dados sao privados e ajudam a organizar sua experiencia de leitura na biblioteca pessoal.</p>
+              <h3 className="font-serif text-lg text-stone-100">Leitura e estrutura</h3>
+              <p className="mt-1 text-xs text-stone-500">Defina como o livro entra na sua estante e a estrutura basica da obra.</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm font-semibold text-stone-300">Idioma<input value={draft.language} onChange={e => update('language', e.target.value)} placeholder="Portugues, Ingles..." className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
               <label className="text-sm font-semibold text-stone-300">Status<select value={draft.status} onChange={e => update('status', e.target.value as BookStatus)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">{(['want', 'reading', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></label>
-              <label className="text-sm font-semibold text-stone-300">Paginas totais<input type="number" min="0" value={draft.totalPages} onChange={e => update('totalPages', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Paginas totais *<input type="number" min="1" value={draft.totalPages} onChange={e => update('totalPages', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
               <label className="text-sm font-semibold text-stone-300">Pagina atual<input type="number" min="0" value={draft.currentPage} onChange={e => update('currentPage', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Capitulos totais<input type="number" min="1" value={draft.totalChapters} onChange={e => update('totalChapters', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Capitulos totais *<input type="number" min="1" value={draft.totalChapters} onChange={e => update('totalChapters', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
               <label className="text-sm font-semibold text-stone-300">Formato<input value={draft.format} onChange={e => update('format', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Data de inicio<input type="date" value={draft.startDate} onChange={e => update('startDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Data de termino<input type="date" value={draft.endDate} onChange={e => update('endDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Previsao de lancamento<input type="date" value={draft.releaseDate} onChange={e => update('releaseDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Nota<input type="number" min="0" max="5" step="0.5" value={draft.rating} onChange={e => update('rating', e.target.value)} placeholder="0 a 5" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Nivel de hot<input type="number" min="0" max="5" step="0.5" value={draft.spiceRating} onChange={e => update('spiceRating', e.target.value)} placeholder="0" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-red-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Valor pago<input type="number" min="0" step="0.01" value={draft.price} onChange={e => update('price', e.target.value)} placeholder="R$" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Loja<input value={draft.store} onChange={e => update('store', e.target.value)} placeholder="Amazon, Livraria..." className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Tags personalizadas<input value={draft.personalTags} onChange={e => update('personalTags', e.target.value)} placeholder="Fadas, dragoes, livro conforto..." className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Tags publicas<input value={draft.tags} onChange={e => update('tags', e.target.value)} placeholder="Tags separadas por virgula" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Casal principal<input value={draft.mainCouple} onChange={e => update('mainCouple', e.target.value)} placeholder="Nome do casal" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Crush literario<input value={draft.crush} onChange={e => update('crush', e.target.value)} placeholder="Personagem favorito/crush" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-            </div>
-          </section>
-
-          <section className="space-y-4 rounded-lg border border-stone-800 bg-stone-950/50 p-4">
-            <div>
-              <h3 className="font-serif text-lg text-stone-100">Sua opiniao sobre o livro</h3>
-              <p className="mt-1 text-xs text-stone-500">Espaco para registrar frases favoritas, resenha e suas reacoes de leitura.</p>
-            </div>
-            <label className="block text-sm font-semibold text-stone-300">Frases favoritas<textarea value={draft.favoriteQuotes} onChange={e => update('favoriteQuotes', e.target.value)} rows={3} placeholder="Uma frase por linha. Se quiser, use: frase - p. 123" className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /><span className="mt-1 block text-xs text-stone-500">As frases digitadas aqui aparecem na Biblioteca, na aba Frases e no Painel.</span></label>
-            <label className="block text-sm font-semibold text-stone-300">Resenha / notas<textarea value={draft.review} onChange={e => update('review', e.target.value)} rows={4} placeholder="O que achou? Final valeu a pena? Chorou? Passou raiva?" className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-            <div className="grid gap-3 sm:grid-cols-4">
-              <label className="text-sm font-semibold text-stone-300">Chorei? 0-5<input type="number" min="0" max="5" value={draft.cryRating} onChange={e => update('cryRating', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Surtei? 0-5<input type="number" min="0" max="5" value={draft.freakoutRating} onChange={e => update('freakoutRating', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Prendeu? 0-5<input type="number" min="0" max="5" value={draft.gripRating} onChange={e => update('gripRating', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Ressaca? 0-5<input type="number" min="0" max="5" value={draft.hangoverRating} onChange={e => update('hangoverRating', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-4">
-              {([
-                ['favorite', 'Favorito?'],
-                ['top10', 'Top 10?'],
-                ['recommend', 'Recomendo?'],
-                ['reread', 'Releria?'],
-              ] as const).map(([key, label]) => (
-                <label key={key} className="flex items-center justify-between gap-3 rounded-lg border border-stone-800 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-300">
-                  {label}
-                  <input type="checkbox" checked={draft[key]} onChange={e => update(key, e.target.checked)} className="accent-amber-300" />
-                </label>
-              ))}
             </div>
           </section>
 
@@ -1164,7 +1146,6 @@ function BookFormModal({ initialBook, defaultStatus, mode, onClose, onSave }: {
         <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-stone-800 bg-stone-900 px-4 py-3">
           <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800">Fechar</button>
           <button onClick={() => save()} disabled={!canSave || saving} className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">{saving ? 'Salvando...' : 'Salvar livro'}</button>
-          <button onClick={() => save(true)} disabled={!canSave || saving} className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-bold text-amber-200 disabled:border-stone-700 disabled:text-stone-500">Marcar como lido hoje</button>
         </div>
       </div>
     </div>
@@ -1180,7 +1161,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   onRemoveShelfEntry: (bookId: string) => void
   onAddBook: (bookId: string, status: BookStatus) => Promise<void> | void
   onImportBook: (book: Book, shelfData: Partial<ShelfEntry>) => Promise<void> | void
-  onSearchBooks: (query: string) => Promise<Book[]>
+  onSearchBooks: (query: string, field: BookSearchField) => Promise<Book[]>
   onUploadCover: (file: File) => Promise<string>
 }) {
   const [activeStatus, setActiveStatus] = useState<BookStatus>('reading')
@@ -1188,12 +1169,13 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   const [progressInput, setProgressInput] = useState('')
   const [chapterInput, setChapterInput] = useState('')
   const [bookQuery, setBookQuery] = useState('')
+  const [bookSearchField, setBookSearchField] = useState<BookSearchField>('all')
   const [newBookStatus, setNewBookStatus] = useState<BookStatus>('reading')
   const [catalogResults, setCatalogResults] = useState<Book[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogError, setCatalogError] = useState('')
   const [bookSearchAttempted, setBookSearchAttempted] = useState(false)
-  const [bookModal, setBookModal] = useState<{ mode: 'new' | 'edit'; book?: Book } | null>(null)
+  const [bookModal, setBookModal] = useState<{ mode: 'new' | 'edit'; book?: Book; shelfEntry?: ShelfEntry } | null>(null)
   const statuses: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
   const myShelf = shelf.filter(s => s.userId === currentUser.id)
   const statusCounts = statuses.reduce((acc, status) => ({ ...acc, [status]: myShelf.filter(entry => entry.status === status).length }), {} as Record<BookStatus, number>)
@@ -1201,23 +1183,23 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     .filter(entry => entry.status === activeStatus)
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
     .filter(item => item.book)
-  const availableBooks = books
-    .filter(book => !myShelf.some(entry => entry.bookId === book.id))
-    .filter(book => `${book.title} ${book.author}`.toLowerCase().includes(bookQuery.toLowerCase()))
-    .slice(0, 4)
-  const importableResults = catalogResults.filter(book => !myShelf.some(entry => entry.bookId === book.id))
 
   async function searchCatalog() {
     const query = bookQuery.trim()
     if (query.length < 2) return
+    const localResults = books
+      .filter(book => bookMatchesSearch(book, query, bookSearchField))
+      .sort((a, b) => Number(normalizeSearch(b.title).startsWith(normalizeSearch(query))) - Number(normalizeSearch(a.title).startsWith(normalizeSearch(query))))
+      .slice(0, 12)
     setCatalogLoading(true)
     setCatalogError('')
     setBookSearchAttempted(true)
     try {
-      setCatalogResults(await onSearchBooks(query))
+      const apiResults = await onSearchBooks(query, bookSearchField)
+      setCatalogResults(mergeBooksById(localResults, apiResults).slice(0, 20))
     } catch {
-      setCatalogError('Não consegui consultar agora. Tente novamente em instantes.')
-      setCatalogResults([])
+      setCatalogResults(localResults)
+      setCatalogError(localResults.length ? 'Mostrando resultados da base do app. Não consegui consultar a API agora.' : 'Não consegui consultar agora. Tente novamente em instantes.')
     } finally {
       setCatalogLoading(false)
     }
@@ -1241,13 +1223,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   }
 
   async function saveBookForm(book: Book, shelfData: Partial<ShelfEntry>) {
-    const existingBook = books.some(item => item.id === book.id)
-    if (existingBook) {
-      await onAddBook(book.id, shelfData.status || newBookStatus)
-      await onUpdateShelfEntry(book.id, shelfData)
-    } else {
-      await onImportBook(book, shelfData)
-    }
+    await onImportBook(book, { ...shelfData, status: shelfData.status || newBookStatus })
     setBookQuery('')
     setCatalogResults([])
     setBookSearchAttempted(false)
@@ -1277,12 +1253,21 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                 setBookQuery(e.target.value)
                 setBookSearchAttempted(false)
                 setCatalogError('')
+                setCatalogResults([])
               }}
               placeholder="Pesquisar por título ou autor"
               className="mt-2 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
             />
           </label>
           <div className="mt-2 flex flex-wrap gap-2">
+            <select value={bookSearchField} onChange={e => {
+              setBookSearchField(e.target.value as BookSearchField)
+              setBookSearchAttempted(false)
+              setCatalogResults([])
+              setCatalogError('')
+            }} className="min-w-28 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">
+              {(Object.keys(BOOK_SEARCH_FIELD_LABELS) as BookSearchField[]).map(field => <option key={field} value={field}>{BOOK_SEARCH_FIELD_LABELS[field]}</option>)}
+            </select>
             <select value={newBookStatus} onChange={e => setNewBookStatus(e.target.value as BookStatus)} className="min-w-0 flex-1 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">
               {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
             </select>
@@ -1295,49 +1280,44 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
           </div>
           {bookQuery && (
             <div className="mt-3 space-y-2">
-              {availableBooks.length > 0 && (
+              {catalogResults.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Catálogo do protótipo</p>
-                  {availableBooks.map(book => (
-                    <BookSearchRow
-                      key={book.id}
-                      book={book}
-                      actionLabel="Adicionar"
-                      onAction={() => {
-                        onAddBook(book.id, newBookStatus)
-                        setBookQuery('')
-                        setBookSearchAttempted(false)
-                        setActiveStatus(newBookStatus)
-                      }}
-                      secondaryLabel="Editar"
-                      onSecondaryAction={() => setBookModal({ mode: 'edit', book })}
-                    />
-                  ))}
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Resultados de busca</p>
+                  {catalogResults.map(book => {
+                    const shelfEntry = myShelf.find(entry => entry.bookId === book.id)
+                    const registeredBook = books.some(item => item.id === book.id)
+                    const secondaryLabel = shelfEntry ? 'Abrir' : registeredBook ? 'Adicionar' : 'Importar'
+                    const metaLabel = shelfEntry ? 'Na estante' : registeredBook ? 'Base do app' : 'API Google Books'
+                    return (
+                      <BookSearchRow
+                        key={book.id}
+                        book={book}
+                        metaLabel={metaLabel}
+                        actionLabel="Editar"
+                        onAction={() => setBookModal({ mode: 'edit', book, shelfEntry })}
+                        secondaryLabel={secondaryLabel}
+                        onSecondaryAction={() => {
+                          if (shelfEntry) {
+                            onBookClick(book.id)
+                            return
+                          }
+                          if (registeredBook) {
+                            onAddBook(book.id, newBookStatus)
+                          } else {
+                            onImportBook(book, { status: newBookStatus, progress: newBookStatus === 'read' ? 100 : 0 })
+                          }
+                          setBookQuery('')
+                          setCatalogResults([])
+                          setBookSearchAttempted(false)
+                          setActiveStatus(newBookStatus)
+                        }}
+                      />
+                    )
+                  })}
                 </div>
               )}
               {catalogError && <p className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{catalogError}</p>}
-              {importableResults.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Resultados de busca</p>
-                  {importableResults.map(book => (
-                    <BookSearchRow
-                      key={book.id}
-                      book={book}
-                      actionLabel="Editar"
-                      onAction={() => setBookModal({ mode: 'edit', book })}
-                      secondaryLabel="Importar"
-                      onSecondaryAction={() => {
-                        onImportBook(book, { status: newBookStatus, progress: newBookStatus === 'read' ? 100 : 0 })
-                        setBookQuery('')
-                        setCatalogResults([])
-                        setBookSearchAttempted(false)
-                        setActiveStatus(newBookStatus)
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-              {!availableBooks.length && !importableResults.length && !catalogLoading && !catalogError && (
+              {!catalogResults.length && !catalogLoading && !catalogError && (
                 <p className="text-sm text-stone-500">
                   {bookSearchAttempted ? 'Nenhum livro encontrado com esse nome.' : 'Digite e clique em Buscar para consultar o catálogo.'}
                 </p>
@@ -1470,6 +1450,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
         <BookFormModal
           mode={bookModal.mode}
           initialBook={bookModal.book}
+          initialShelfEntry={bookModal.shelfEntry}
           defaultStatus={newBookStatus}
           onClose={() => setBookModal(null)}
           onSave={saveBookForm}
@@ -1514,6 +1495,14 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   const activeList = tab === 'theories' ? theories : comments
   const visible = activeList.filter(isVisible)
   const hidden = activeList.filter(post => !isVisible(post))
+  const detailRows = [
+    ['Série', book.series || 'Não informado'],
+    ['Volume', book.volume || 'Não informado'],
+    ['Idioma', book.language || 'Não informado'],
+    ['Origem', book.source === 'googlebooks' ? 'Google Books' : book.source === 'manual' ? 'Cadastro manual' : book.source || 'Não informado'],
+  ]
+  const tropeList = book.tropes || []
+  const tagList = book.tags || []
 
   return (
     <section>
@@ -1676,6 +1665,34 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
             <h3 className="mb-2 font-serif text-lg text-stone-100">Sinopse</h3>
             <p className="text-sm leading-relaxed text-stone-300">{book.synopsis}</p>
           </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {detailRows.map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{label}</p>
+                <p className="mt-1 text-sm font-semibold text-stone-200">{value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <h3 className="mb-2 text-sm font-bold text-stone-200">Gêneros</h3>
+              <div className="flex flex-wrap gap-2">
+                {book.genres.length ? book.genres.map(genre => <span key={genre} className="rounded-full border border-stone-700 bg-stone-900 px-2 py-1 text-xs text-stone-300">{genre}</span>) : <span className="text-sm text-stone-500">Não informado</span>}
+              </div>
+            </div>
+            <div>
+              <h3 className="mb-2 text-sm font-bold text-stone-200">Tropes</h3>
+              <div className="flex flex-wrap gap-2">
+                {tropeList.length ? tropeList.map(trope => <span key={trope} className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-1 text-xs text-amber-200">{trope}</span>) : <span className="text-sm text-stone-500">Não informado</span>}
+              </div>
+            </div>
+            <div>
+              <h3 className="mb-2 text-sm font-bold text-stone-200">Tags</h3>
+              <div className="flex flex-wrap gap-2">
+                {tagList.length ? tagList.map(tag => <span key={tag} className="rounded-full border border-stone-700 bg-stone-900 px-2 py-1 text-xs text-stone-300">{tag}</span>) : <span className="text-sm text-stone-500">Não informado</span>}
+              </div>
+            </div>
+          </div>
           <div className="grid grid-cols-3 gap-3">
             {[
               ['Páginas', book.totalPages],
@@ -1726,7 +1743,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   )
 }
 
-function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onBookClick, onUpdateUser, onUserClick, onToggleFollow, onDeletePost, onOpenProfileList, onLogout, onUploadAvatar }: {
+function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClick, onUpdateUser, onToggleFollow, onOpenProfileList, onLogout, onUploadAvatar }: {
   currentUser: User
   profileUser: User
   users: User[]
@@ -1752,21 +1769,14 @@ function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onB
   const [avatarFileName, setAvatarFileName] = useState('')
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [avatarError, setAvatarError] = useState('')
+  const [shelfFilter, setShelfFilter] = useState<BookStatus>('reading')
   const myShelf = shelf.filter(entry => entry.userId === profileUser.id)
-  const myPosts = posts.filter(post => post.userId === profileUser.id).sort((a, b) => a.percent - b.percent)
+  const myPosts = posts.filter(post => post.userId === profileUser.id)
   const visibleShelf = myShelf
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId) }))
     .filter((item): item is { entry: ShelfEntry; book: Book } => Boolean(item.book))
-  const stats = [
-    ['Livros lidos', myShelf.filter(entry => entry.status === 'read').length],
-    ['Páginas lidas', profileUser.pagesRead.toLocaleString('pt-BR')],
-    ['Lendo agora', myShelf.filter(entry => entry.status === 'reading').length],
-    ['TBR', myShelf.filter(entry => entry.status === 'want').length],
-  ]
-  const socialLists = [
-    ['Seguindo', profileUser.following],
-    ['Seguidores', profileUser.followers],
-  ] as const
+  const filteredShelf = visibleShelf.filter(({ entry }) => entry.status === shelfFilter)
+  const shelfFilters: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
 
   return (
     <section>
@@ -1882,54 +1892,36 @@ function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onB
         </div>
       </div>
 
-      <div className="border-b border-stone-800 p-4 md:p-5">
-        <h3 className="mb-3 font-serif text-lg text-stone-100">Rede</h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {socialLists.map(([label, ids]) => (
-            <div key={label} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
-              <h4 className="mb-2 text-sm font-bold text-stone-300">{label}</h4>
-              <div className="space-y-2">
-                {ids.length ? ids.slice(0, 5).map(id => {
-                  const user = users.find(item => item.id === id)
-                  if (!user) return null
-                  return (
-                    <button key={id} onClick={() => onUserClick(id)} className="flex w-full items-center gap-2 rounded-lg bg-stone-950 p-2 text-left">
-                      <Avatar user={user} size="sm" />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-stone-100">{user.name}</p>
-                        <p className="text-xs text-stone-500">@{user.handle}</p>
-                      </div>
-                    </button>
-                  )
-                }) : <p className="text-sm text-stone-500">Nada por aqui ainda.</p>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="border-b border-stone-800 p-4 md:p-5">
-        <h3 className="mb-3 font-serif text-lg text-stone-100">Estatísticas</h3>
-        <div className="grid grid-cols-2 gap-3">
-          {stats.map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-              <div className="font-serif text-2xl text-amber-300">{value}</div>
-              <div className="text-xs text-stone-500">{label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       <div className="p-4 md:p-5">
-        <h3 className="mb-3 font-serif text-lg text-stone-100">Estante</h3>
-        <div className="mb-6 space-y-3">
-          {visibleShelf.length ? visibleShelf.map(({ entry, book }) => (
+        <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+          {shelfFilters.map(status => {
+            const count = myShelf.filter(entry => entry.status === status).length
+            return (
+              <button
+                key={status}
+                onClick={() => setShelfFilter(status)}
+                className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-bold transition ${
+                  shelfFilter === status ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-800 bg-stone-900 text-stone-300 hover:bg-stone-800'
+                }`}
+              >
+                {STATUS_LABELS[status]} {count ? `· ${count}` : ''}
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="space-y-3">
+          {filteredShelf.length ? filteredShelf.map(({ entry, book }) => (
             <button key={entry.bookId} onClick={() => onBookClick(book.id)} className="flex w-full gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3 text-left">
-              <img src={book.cover} alt={book.title} className="h-16 w-11 rounded object-cover" />
+              {book.cover ? (
+                <img src={book.cover} alt={book.title} className="h-20 w-14 rounded object-cover" />
+              ) : (
+                <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
+              )}
               <div className="min-w-0 flex-1">
                 <div className="mb-1 flex flex-wrap items-center gap-2">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
-                  <span className="rounded-full border border-stone-700 px-2 py-0.5 text-xs text-stone-400">{STATUS_LABELS[entry.status]}</span>
+                  {entry.status === 'reading' || entry.status === 'rereading' ? <ProgressBadge percent={entry.progress} chapter={chapterFromPercent(book, Math.max(entry.progress, 1))} /> : null}
                 </div>
                 <p className="mb-2 text-xs text-stone-500">{book.author} · {entry.progress}% lido</p>
                 {entry.status === 'read' && (
@@ -1941,35 +1933,12 @@ function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onB
                 )}
               </div>
             </button>
-          )) : <p className="text-sm text-stone-500">Nenhum livro na estante ainda.</p>}
+          )) : <EmptyState text={`Nenhum livro em ${STATUS_LABELS[shelfFilter]}.`} />}
         </div>
-        <h3 className="mb-3 font-serif text-lg text-stone-100">Leitura</h3>
-        {myPosts.length ? (
-          <div className="space-y-3">
-            {myPosts.map(post => {
-              const book = books.find(item => item.id === post.bookId)
-              return (
-                <div key={post.id} className="flex gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3 text-left">
-                  {book && <img src={book.cover} alt={book.title} className="h-14 w-10 shrink-0 rounded object-cover" />}
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      {book && <button onClick={() => onBookClick(book.id)} className="truncate text-xs font-bold text-amber-300 hover:text-amber-200">{book.title}</button>}
-                      <ProgressBadge percent={post.percent} chapter={post.chapter} />
-                      {isOwnProfile && <button onClick={() => onDeletePost(post.id)} className="ml-auto text-xs font-bold text-red-300 hover:text-red-200">apagar</button>}
-                    </div>
-                    {post.reactionEmoji && <span className="text-xl">{post.reactionEmoji}</span>}
-                    {post.text && <p className="line-clamp-2 text-sm text-stone-300">{post.text}</p>}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : <p className="text-sm text-stone-500">Suas leituras e publicações aparecerão aqui em ordem de progresso.</p>}
       </div>
     </section>
   )
 }
-
 function ProfileListPage({ kind, currentUser, profileUser, users, books, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onDeletePost, onDeleteReply }: {
   kind: ProfileListKind
   currentUser: User
@@ -2614,8 +2583,8 @@ export default function App() {
     return data.url
   }
 
-  async function handleSearchBooks(query: string) {
-    return apiRequest<Book[]>(`/folio/books/search?q=${encodeURIComponent(query)}`, {}, token)
+  async function handleSearchBooks(query: string, field: BookSearchField) {
+    return apiRequest<Book[]>(`/folio/books/search?q=${encodeURIComponent(query)}&field=${encodeURIComponent(field)}`, {}, token)
   }
 
   async function handleCreatePost(post: Post) {
