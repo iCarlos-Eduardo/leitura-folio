@@ -442,6 +442,7 @@ function Header({ title, children }: { title: string; children?: React.ReactNode
 }
 
 function LoginPage({ onLogin }: { onLogin: (name: string, email: string, password: string, mode: 'login' | 'register') => Promise<void> }) {
+  const [authStep, setAuthStep] = useState<'landing' | 'form'>('landing')
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -468,19 +469,39 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
     }
   }
 
-  return (
-    <main className="min-h-screen bg-stone-950 px-4 py-8 text-stone-100">
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center gap-8 md:grid-cols-[1fr_380px]">
-        <section className="order-2 space-y-6 md:order-1">
+  function openAuthForm(nextMode: 'login' | 'register') {
+    setMode(nextMode)
+    setName('')
+    setEmail('')
+    setPassword('')
+    setConfirmPassword('')
+    setError('')
+    setLoading(false)
+    setAuthStep('form')
+  }
+
+  if (authStep === 'landing') {
+    return (
+      <main className="min-h-screen bg-stone-950 px-4 py-8 text-stone-100">
+        <section className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-3xl flex-col items-center justify-center gap-8 text-center">
+          <BrandMark />
           <div>
-            <div className="mb-4">
-              <BrandMark />
-            </div>
-            <h1 className="max-w-2xl font-serif text-4xl leading-tight text-stone-50 sm:text-5xl">
+            <h1 className="mx-auto max-w-2xl font-serif text-4xl leading-tight text-stone-50 sm:text-6xl">
               Twitter literário para comentar livros sem tomar spoiler.
             </h1>
+            <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-stone-400">
+              Organize sua estante, acompanhe capítulos e converse com outros leitores em uma rede feita para proteger sua experiência de leitura.
+            </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid w-full max-w-sm gap-3 sm:grid-cols-2">
+            <button onClick={() => openAuthForm('login')} className="rounded-lg bg-amber-300 px-5 py-3 text-sm font-bold text-stone-950 transition hover:bg-amber-200">
+              Entrar
+            </button>
+            <button onClick={() => openAuthForm('register')} className="rounded-lg border border-stone-700 px-5 py-3 text-sm font-bold text-stone-200 transition hover:bg-stone-900">
+              Cadastrar
+            </button>
+          </div>
+          <div className="grid w-full gap-3 text-left sm:grid-cols-3">
             {['Feed por capítulo', 'Estante e progresso', 'Teorias protegidas'].map(item => (
               <div key={item} className="rounded-lg border border-stone-800 bg-stone-900/70 p-4 text-sm text-stone-300">
                 {item}
@@ -488,11 +509,16 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
             ))}
           </div>
         </section>
+      </main>
+    )
+  }
 
-        <form onSubmit={handleSubmit} className="order-1 rounded-lg border border-stone-800 bg-stone-900 p-5 shadow-2xl shadow-black/30 sm:p-7 md:order-2">
+  return (
+    <main className="min-h-screen bg-stone-950 px-4 py-8 text-stone-100">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-md items-center justify-center">
+        <form onSubmit={handleSubmit} className="w-full rounded-lg border border-stone-800 bg-stone-900 p-5 shadow-2xl shadow-black/30 sm:p-7">
           <div className="mb-6">
             <h2 className="font-serif text-2xl text-stone-50">{mode === 'login' ? 'Entrar' : 'Criar conta'}</h2>
-            <p className="mt-1 text-sm text-stone-400">Agora conectado à API e ao Postgres do servidor.</p>
           </div>
           {mode === 'register' && (
             <label className="mb-4 block text-sm text-stone-300">
@@ -565,6 +591,9 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
             setError('')
           }} className="mt-3 w-full text-center text-sm font-semibold text-stone-400 hover:text-amber-300">
             {mode === 'login' ? 'Criar uma conta nova' : 'Já tenho conta'}
+          </button>
+          <button type="button" onClick={() => setAuthStep('landing')} className="mt-2 w-full text-center text-xs font-semibold text-stone-500 hover:text-stone-300">
+            Voltar
           </button>
         </form>
       </div>
@@ -1217,8 +1246,8 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
               <p className="mt-1 text-xs text-stone-500">Titulo, autor, capa, paginas e capitulos sao obrigatorios.</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-sm font-semibold text-stone-300">Titulo *<input value={draft.title} onChange={e => update('title', e.target.value)} placeholder="Ex.: Quicksilver" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Autor *<input value={draft.author} onChange={e => update('author', e.target.value)} placeholder="Ex.: Callie Hart" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Titulo *<input value={draft.title} onChange={e => update('title', e.target.value)} placeholder="Ex.: Quarta Asa" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Autor *<input value={draft.author} onChange={e => update('author', e.target.value)} placeholder="Ex.: Rebecca Yarros" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
             </div>
             <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
               <div className="space-y-3">
