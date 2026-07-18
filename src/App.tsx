@@ -27,7 +27,7 @@ interface Book {
   totalPages: number
   totalChapters: number
   chaptersEstimated?: boolean
-  source?: 'mock' | 'openlibrary'
+  source?: string
   genres: string[]
   rating: number
   synopsis: string
@@ -629,9 +629,9 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   const [chapterInput, setChapterInput] = useState('')
   const [bookQuery, setBookQuery] = useState('')
   const [newBookStatus, setNewBookStatus] = useState<BookStatus>('reading')
-  const [openLibraryResults, setOpenLibraryResults] = useState<Book[]>([])
-  const [openLibraryLoading, setOpenLibraryLoading] = useState(false)
-  const [openLibraryError, setOpenLibraryError] = useState('')
+  const [catalogResults, setCatalogResults] = useState<Book[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [catalogError, setCatalogError] = useState('')
   const [bookSearchAttempted, setBookSearchAttempted] = useState(false)
   const statuses: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
   const myShelf = shelf.filter(s => s.userId === currentUser.id)
@@ -644,21 +644,21 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     .filter(book => !myShelf.some(entry => entry.bookId === book.id))
     .filter(book => `${book.title} ${book.author}`.toLowerCase().includes(bookQuery.toLowerCase()))
     .slice(0, 4)
-  const importableResults = openLibraryResults.filter(book => !myShelf.some(entry => entry.bookId === book.id))
+  const importableResults = catalogResults.filter(book => !myShelf.some(entry => entry.bookId === book.id))
 
-  async function searchOpenLibrary() {
+  async function searchCatalog() {
     const query = bookQuery.trim()
     if (query.length < 2) return
-    setOpenLibraryLoading(true)
-    setOpenLibraryError('')
+    setCatalogLoading(true)
+    setCatalogError('')
     setBookSearchAttempted(true)
     try {
-      setOpenLibraryResults(await onSearchBooks(query))
+      setCatalogResults(await onSearchBooks(query))
     } catch {
-      setOpenLibraryError('Não consegui consultar agora. Tente novamente em instantes.')
-      setOpenLibraryResults([])
+      setCatalogError('Não consegui consultar agora. Tente novamente em instantes.')
+      setCatalogResults([])
     } finally {
-      setOpenLibraryLoading(false)
+      setCatalogLoading(false)
     }
   }
 
@@ -701,7 +701,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
               onChange={e => {
                 setBookQuery(e.target.value)
                 setBookSearchAttempted(false)
-                setOpenLibraryError('')
+                setCatalogError('')
               }}
               placeholder="Pesquisar por título ou autor"
               className="mt-2 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
@@ -711,8 +711,8 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
             <select value={newBookStatus} onChange={e => setNewBookStatus(e.target.value as BookStatus)} className="min-w-0 flex-1 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">
               {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
             </select>
-            <button onClick={searchOpenLibrary} disabled={bookQuery.trim().length < 2 || openLibraryLoading} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">
-              {openLibraryLoading ? 'Buscando...' : 'Buscar'}
+            <button onClick={searchCatalog} disabled={bookQuery.trim().length < 2 || catalogLoading} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">
+              {catalogLoading ? 'Buscando...' : 'Buscar'}
             </button>
           </div>
           {bookQuery && (
@@ -735,7 +735,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                   ))}
                 </div>
               )}
-              {openLibraryError && <p className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{openLibraryError}</p>}
+              {catalogError && <p className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{catalogError}</p>}
               {importableResults.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Resultados de busca</p>
@@ -747,7 +747,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                       onAction={() => {
                         onImportBook(book, newBookStatus)
                         setBookQuery('')
-                        setOpenLibraryResults([])
+                        setCatalogResults([])
                         setBookSearchAttempted(false)
                         setActiveStatus(newBookStatus)
                       }}
@@ -755,7 +755,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                   ))}
                 </div>
               )}
-              {!availableBooks.length && !importableResults.length && !openLibraryLoading && !openLibraryError && (
+              {!availableBooks.length && !importableResults.length && !catalogLoading && !catalogError && (
                 <p className="text-sm text-stone-500">
                   {bookSearchAttempted ? 'Nenhum livro encontrado com esse nome.' : 'Digite e clique em Buscar para consultar o catálogo.'}
                 </p>
@@ -1092,7 +1092,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
               </div>
             ))}
           </div>
-          {book.source === 'openlibrary' && (
+          {book.source === 'googlebooks' && (
             <p className="text-xs text-stone-500">Dados importados. Páginas e nota vêm do catálogo; capítulos são estimados quando a API não informa divisão por capítulos.</p>
           )}
           {myEntry?.status === 'read' && (
