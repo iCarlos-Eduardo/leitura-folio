@@ -110,7 +110,7 @@ interface Reply {
 
 interface FolioNotification {
   id: string
-  type: 'follow' | 'like' | 'reply' | 'book_comment'
+  type: 'follow' | 'like' | 'reply' | 'book_comment' | 'book_started' | 'book_finished' | 'book_reread' | 'book_abandoned'
   userId: string
   postId?: string
   bookId?: string
@@ -2535,7 +2535,7 @@ function NotificationsPage({ notifications, users, books, onBookClick, onUserCli
   return (
     <section>
       <Header title="Notificações">
-        <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pelo seu capítulo aparecem aqui.</p>
+        <p className="text-sm text-stone-500">Seguidores, curtidas, respostas, comentários e leituras de pessoas conectadas aparecem aqui.</p>
       </Header>
       {notifications.length ? (
         <div>
@@ -2548,6 +2548,10 @@ function NotificationsPage({ notifications, users, books, onBookClick, onUserCli
               like: 'curtiu sua publicação',
               reply: 'respondeu seu comentário',
               book_comment: 'comentou no livro que você está lendo',
+              book_started: 'começou a ler',
+              book_finished: 'terminou de ler',
+              book_reread: 'começou a reler',
+              book_abandoned: 'abandonou',
             }
             return (
               <article key={notification.id} className={`border-b border-stone-800 px-4 py-4 md:px-5 ${notification.read ? 'opacity-70' : ''}`}>
