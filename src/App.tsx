@@ -145,6 +145,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7113' : '')
 const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || API_BASE_URL || 'https://api.sgpf.com.br'
+const BACKGROUND_REFRESH_INTERVAL_MS = 10000
 
 async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -3009,6 +3010,43 @@ export default function App() {
       setLoadingApp(false)
     })
   }, [])
+
+  useEffect(() => {
+    if (!token || !currentUser) return
+
+    let active = true
+    let refreshing = false
+
+    const refreshInBackground = async () => {
+      if (!active || refreshing || document.hidden) return
+      refreshing = true
+      try {
+        await loadBootstrap(token)
+      } catch {
+        // Background sync is best-effort; explicit user actions still show errors.
+      } finally {
+        refreshing = false
+      }
+    }
+
+    const intervalId = window.setInterval(refreshInBackground, BACKGROUND_REFRESH_INTERVAL_MS)
+    const handleFocus = () => {
+      void refreshInBackground()
+    }
+    const handleVisibilityChange = () => {
+      if (!document.hidden) void refreshInBackground()
+    }
+
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [token, currentUser?.id])
 
   useEffect(() => {
     localStorage.setItem('folio_page', page)
