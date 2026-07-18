@@ -6,7 +6,7 @@ type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-lis
 type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 
-const BRAND_NAME = 'Entrelihnas'
+const BRAND_NAME = ''
 const BRAND_LOGO_URL = '/assets/image/logo/logo.jpeg'
 
 interface User {
@@ -14,6 +14,7 @@ interface User {
   name: string
   email: string
   password: string
+  role?: 'admin' | 'reader'
   handle: string
   bio: string
   avatar: string
@@ -44,6 +45,7 @@ interface Book {
   publicShared?: boolean
   tropes?: string[]
   tags?: string[]
+  ratingCount?: number
 }
 
 interface ShelfEntry {
@@ -116,6 +118,14 @@ interface FolioNotification {
   text?: string
   timestamp: string
   read: boolean
+}
+
+interface ReadingGoal {
+  targetDays: number
+  checkIns: string[]
+  currentStreak: number
+  bestStreak: number
+  checkedInToday: boolean
 }
 
 const API_BASE_URL =
@@ -384,6 +394,47 @@ function ratingText(value?: number, label = 'estrelas') {
   return value ? `${value} de 5 ${label}` : 'Sem avaliação'
 }
 
+function ratingSummaryText(rating?: number, ratingCount = 0) {
+  if (!rating || !ratingCount) return 'Sem nota'
+  const ratingValue = Number.isInteger(rating) ? String(rating) : rating.toFixed(1)
+  const countLabel = ratingCount === 1 ? 'avaliação' : 'avaliações'
+  return `★ ${ratingValue} (${ratingCount} ${countLabel})`
+}
+
+function bookRatingText(book: Pick<Book, 'rating' | 'ratingCount'>) {
+  return ratingSummaryText(book.rating, book.ratingCount || 0)
+}
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function canRateStatus(status?: BookStatus) {
+  return status === 'read' || status === 'rereading' || status === 'abandoned'
+}
+
+function canPostWithStatus(status?: BookStatus) {
+  return status === 'reading' || status === 'rereading' || status === 'read' || status === 'abandoned'
+}
+
+function topReadTerms(userId: string, shelf: ShelfEntry[], books: Book[], field: 'genres' | 'tropes') {
+  const counts = new Map<string, number>()
+  shelf
+    .filter(entry => entry.userId === userId && (entry.status === 'read' || entry.status === 'rereading'))
+    .forEach(entry => {
+      const book = books.find(item => item.id === entry.bookId)
+      const terms = field === 'genres' ? book?.genres : book?.tropes
+      ;(terms || []).forEach(term => counts.set(term, (counts.get(term) || 0) + 1))
+    })
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR'))
+    .slice(0, 6)
+}
+
 function formatTime(ts: string) {
   const d = new Date(ts)
   const now = new Date()
@@ -416,8 +467,8 @@ function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }
 function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <img src={BRAND_LOGO_URL} alt={BRAND_NAME} className={`${compact ? 'h-9 w-9' : 'h-20 w-20'} rounded-lg object-cover`} />
-      <span className={`${compact ? 'text-xl' : 'text-3xl'} font-serif text-amber-300`}>{BRAND_NAME}</span>
+      <img src={BRAND_LOGO_URL} alt={BRAND_NAME} className={`${compact ? 'h-12 w-12' : 'h-56 w-56 sm:h-72 sm:w-72'} rounded-lg object-cover`} />
+      <span className={`${compact ? 'text-xl' : 'text-7xl sm:text-8xl'} font-serif text-amber-300`}>{BRAND_NAME}</span>
     </div>
   )
 }
@@ -725,6 +776,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   protectSpoilers?: boolean
 }) {
   const [showReplyBox, setShowReplyBox] = useState(false)
+  const [showAllReplies, setShowAllReplies] = useState(false)
   const [replyText, setReplyText] = useState('')
   const [spoilerAccepted, setSpoilerAccepted] = useState(false)
   const author = users.find(u => u.id === post.userId)!
@@ -735,13 +787,15 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const spoilerState =
     !protectSpoilers || isOwnPost ? 'visible' :
     !myEntry ? 'not-reading' :
-    myEntry.status === 'read' ? 'visible' :
+    myEntry.status === 'read' || myEntry.status === 'rereading' ? 'visible' :
     post.chapter > myChapter ? 'blocked' :
     post.chapter === myChapter && !spoilerAccepted ? 'same-chapter' :
     'visible'
   const canInteractWithContent = spoilerState === 'visible'
   const relatedReplies = replies.filter(reply => reply.postId === post.id)
-  const displayedComments = post.comments + relatedReplies.length
+  const visibleReplies = showAllReplies ? relatedReplies : relatedReplies.slice(0, 2)
+  const hiddenReplyCount = Math.max(0, relatedReplies.length - visibleReplies.length)
+  const displayedComments = relatedReplies.length
   const liked = post.likes.includes(currentUser.id)
 
   function submitReply() {
@@ -825,7 +879,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           )}
           {relatedReplies.length > 0 && canInteractWithContent && (
             <div className="mt-3 space-y-2">
-              {relatedReplies.slice(-2).map(reply => {
+              {visibleReplies.map(reply => {
                 const replyUser = users.find(user => user.id === reply.userId) || currentUser
                 return (
                   <div key={reply.id} className="flex gap-2 rounded-lg bg-stone-950 p-2">
@@ -842,6 +896,14 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                   </div>
                 )
               })}
+              {relatedReplies.length > 2 && (
+                <button
+                  onClick={() => setShowAllReplies(value => !value)}
+                  className="text-xs font-bold text-amber-300 hover:text-amber-200"
+                >
+                  {showAllReplies ? 'ver menos' : `ver mais ${hiddenReplyCount}`}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -878,7 +940,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
         if (!book) return true
         const entry = shelf.find(item => item.userId === currentUser.id && item.bookId === post.bookId)
         if (!entry) return false
-        if (entry.status === 'read') return true
+        if (entry.status === 'read' || entry.status === 'rereading') return true
         const myChapter = chapterFromPercent(book, Math.max(entry.progress, 1))
         return post.chapter <= myChapter
       })
@@ -1251,8 +1313,8 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
             </div>
             <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
               <div className="space-y-3">
-                <label className="text-sm font-semibold text-stone-300">Capa do livro *<input value={draft.cover} onChange={e => update('cover', e.target.value)} placeholder="Cole o link da capa ou envie uma imagem abaixo" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-                <label className="inline-flex cursor-pointer rounded-lg border border-stone-700 px-3 py-2 text-xs font-bold text-stone-300 hover:bg-stone-800">
+                <p className="text-sm font-semibold text-stone-300">Capa do livro *</p>
+                <label className="inline-flex w-fit cursor-pointer rounded-lg border border-stone-700 px-3 py-2 text-xs font-bold text-stone-300 hover:bg-stone-800">
                   {uploadingCover ? 'Enviando...' : 'Enviar capa'}
                   <input type="file" accept="image/*" className="hidden" onChange={async e => {
                     const file = e.target.files?.[0]
@@ -1506,7 +1568,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     const status = e.target.value as BookStatus
                     onUpdateShelfEntry(book.id, {
                       status,
-                      progress: status === 'read' ? 100 : entry.progress,
+                      progress: status === 'read' ? 100 : entry.progress >= 100 ? 0 : entry.progress,
                       endDate: status === 'read' ? new Date().toISOString().slice(0, 10) : undefined,
                     })
                   }}
@@ -1514,7 +1576,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                 >
                   {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
                 </select>
-                {entry.status === 'read' ? (
+                {canRateStatus(entry.status) ? (
                   <div className="grid grid-cols-2 gap-2">
                     <select
                       value={entry.rating ?? ''}
@@ -1566,9 +1628,9 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     <p className="text-sm text-stone-500">Leitura no capítulo {chapterFromPercent(book, Math.max(entry.progress, 1))}</p>
                   )}
                 </>
-              ) : entry.status === 'read' ? (
+              ) : canRateStatus(entry.status) ? (
                 <div>
-                  <p className="mb-2 text-sm text-stone-400">Leitura concluída</p>
+                  <p className="mb-2 text-sm text-stone-400">{entry.status === 'abandoned' ? 'Leitura abandonada' : 'Leitura concluída'}</p>
                   <div className="flex flex-wrap gap-2 text-sm font-bold">
                     {entry.rating && <span className="text-amber-300">{ratingText(entry.rating)}</span>}
                     {entry.spiceRating && <span className="text-red-300">{ratingText(entry.spiceRating, 'pimentas')}</span>}
@@ -1609,6 +1671,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
   const [attempted, setAttempted] = useState(false)
   const [bookModal, setBookModal] = useState<{ mode: 'new' | 'edit'; book?: Book } | null>(null)
   const [newBookStatus, setNewBookStatus] = useState<BookStatus>('want')
+  const isAdmin = currentUser.role === 'admin'
   const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
   const normalizedQuery = query.trim()
   const visibleBooks = useMemo(() => {
@@ -1719,7 +1782,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
                   }
                 }
               }}
-              inactiveLabel={registeredBook ? book.isActive === false ? 'Reativar' : 'Inativar' : undefined}
+              inactiveLabel={isAdmin && registeredBook ? book.isActive === false ? 'Reativar' : 'Inativar' : undefined}
               onInactiveAction={async () => {
                 if (!registeredBook) return
                 const nextActive = book.isActive === false
@@ -1731,7 +1794,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
                   setError(errorMessage(error, nextActive ? 'Nao foi possivel reativar este livro.' : 'Nao foi possivel inativar este livro.'))
                 }
               }}
-              dangerLabel={registeredBook ? 'Excluir' : undefined}
+              dangerLabel={isAdmin && registeredBook ? 'Excluir' : undefined}
               onDangerAction={async () => {
                 if (!registeredBook) return
                 if (!window.confirm('Excluir este livro da Biblioteca? Se ele tiver comentarios, a exclusao sera bloqueada.')) return
@@ -1781,15 +1844,24 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   const [tab, setTab] = useState<'feed' | 'theories' | 'about'>('feed')
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
   const myProgress = myEntry?.progress ?? 0
-  const defaultChapter = chapterFromPercent(book, Math.max(myProgress, 1))
+  const hasFullBookAccess = myEntry?.status === 'read' || myEntry?.status === 'rereading'
+  const defaultChapter = hasFullBookAccess ? book.totalChapters : chapterFromPercent(book, Math.max(myProgress, 1))
   const [chapterLimit, setChapterLimit] = useState(defaultChapter)
   const [chapterInput, setChapterInput] = useState(String(defaultChapter))
   const readers = shelf.filter(entry => entry.bookId === book.id).length
+  const ratings = shelf
+    .filter(entry => entry.bookId === book.id && typeof entry.rating === 'number' && entry.rating > 0)
+    .map(entry => entry.rating!)
+  const averageRating = ratings.length
+    ? ratings.reduce((total, rating) => total + rating, 0) / ratings.length
+    : undefined
+  const platformRating = ratingSummaryText(averageRating, ratings.length)
 
   const postsInBook = posts.filter(post => post.bookId === book.id)
   const comments = postsInBook.filter(post => post.type !== 'theory').sort((a, b) => a.chapter - b.chapter)
   const theories = postsInBook.filter(post => post.type === 'theory').sort((a, b) => a.chapter - b.chapter)
-  const isVisible = (post: Post) => post.chapter <= chapterLimit
+  const visibleChapterLimit = hasFullBookAccess ? book.totalChapters : chapterLimit
+  const isVisible = (post: Post) => post.chapter <= visibleChapterLimit
   const activeList = tab === 'theories' ? theories : comments
   const visible = activeList.filter(isVisible)
   const hidden = activeList.filter(post => !isVisible(post))
@@ -1818,7 +1890,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
             <h2 className="font-serif text-2xl leading-tight text-stone-50">{book.title}</h2>
             <p className="mt-1 text-sm text-stone-400">{book.author}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-stone-500">
-              <span className="font-bold text-amber-300">★ {book.rating}</span>
+              <span className="font-bold text-amber-300">{platformRating}</span>
               <span>{book.totalPages} páginas</span>
               <span>{book.totalChapters} capítulos{book.chaptersEstimated ? ' estimados' : ''}</span>
               <span>{readers} leitores</span>
@@ -1829,11 +1901,11 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
             <div className="mt-4 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <span className="text-xs font-bold uppercase tracking-[0.16em] text-amber-200">Filtro anti-spoiler</span>
-                <span className="text-xs text-stone-400">Seu capítulo: {defaultChapter}</span>
+                <span className="text-xs text-stone-400">{hasFullBookAccess ? 'Livro liberado' : `Seu capítulo: ${defaultChapter}`}</span>
               </div>
               <label className="grid gap-2 text-xs text-stone-400">
-                Mostrar comentários até o capítulo {chapterLimit}
-                <input type="range" min="1" max={book.totalChapters} value={chapterLimit} onChange={e => setChapterLimit(Number(e.target.value))} className="accent-amber-300" />
+                {hasFullBookAccess ? 'Comentários e teorias liberados até o fim do livro' : `Mostrar comentários até o capítulo ${chapterLimit}`}
+                <input type="range" min="1" max={book.totalChapters} value={visibleChapterLimit} disabled={hasFullBookAccess} onChange={e => setChapterLimit(Number(e.target.value))} className="accent-amber-300 disabled:opacity-50" />
               </label>
             </div>
             <div className="mt-3 rounded-lg border border-stone-800 bg-stone-900 p-3">
@@ -1846,10 +1918,10 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                         const status = e.target.value as BookStatus
                         onUpdateShelfEntry(book.id, {
                           status,
-                          progress: status === 'read' ? 100 : myEntry.progress,
+                          progress: status === 'read' ? 100 : myEntry.progress >= 100 ? 0 : myEntry.progress,
                           endDate: status === 'read' ? new Date().toISOString().slice(0, 10) : undefined,
                         })
-                        if (status === 'read') {
+                        if (status === 'read' || status === 'rereading') {
                           setChapterInput(String(book.totalChapters))
                           setChapterLimit(book.totalChapters)
                         }
@@ -1858,7 +1930,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                     >
                       {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
                     </select>
-                    {myEntry.status === 'read' && (
+                    {canRateStatus(myEntry.status) && (
                       <div className="grid grid-cols-2 gap-2">
                         <select
                           value={myEntry.rating ?? ''}
@@ -1961,7 +2033,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
             {[
               ['Páginas', book.totalPages],
               [book.chaptersEstimated ? 'Capítulos estimados' : 'Capítulos', book.totalChapters],
-              ['Avaliação', book.rating ? `★ ${book.rating}` : 'Sem nota'],
+              ['Avaliação', platformRating],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-stone-800 bg-stone-900 p-3 text-center">
                 <div className="font-serif text-xl text-amber-300">{value}</div>
@@ -1972,7 +2044,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
           {book.source === 'googlebooks' && (
             <p className="text-xs text-stone-500">Dados importados. Páginas e nota vêm do catálogo; capítulos são estimados quando a API não informa divisão por capítulos.</p>
           )}
-          {myEntry?.status === 'read' && (
+          {canRateStatus(myEntry?.status) && (
             <div className="rounded-lg border border-stone-800 bg-stone-900 p-4">
               <h3 className="mb-2 font-serif text-lg text-stone-100">Minha avaliação</h3>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -2041,6 +2113,8 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
     .filter((item): item is { entry: ShelfEntry; book: Book } => Boolean(item.book))
   const filteredShelf = visibleShelf.filter(({ entry }) => entry.status === shelfFilter)
   const shelfFilters: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
+  const topGenres = topReadTerms(profileUser.id, shelf, books, 'genres')
+  const topTropes = topReadTerms(profileUser.id, shelf, books, 'tropes')
 
   return (
     <section>
@@ -2050,7 +2124,12 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
           <Avatar user={profileUser} size="lg" />
           <div className="min-w-0 flex-1">
             <h2 className="font-serif text-2xl text-stone-50">{profileUser.name}</h2>
-            <p className="text-sm text-stone-500">@{profileUser.handle}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <p className="text-sm text-stone-500">@{profileUser.handle}</p>
+              <span className="rounded-full border border-stone-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-500">
+                {profileUser.role === 'admin' ? 'Administrador' : 'Leitor'}
+              </span>
+            </div>
             <p className="mt-2 text-sm leading-relaxed text-stone-300">{profileUser.bio}</p>
           </div>
           {isOwnProfile ? (
@@ -2087,13 +2166,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
             <div className="grid gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 sm:grid-cols-[auto_1fr]">
               <Avatar user={{ ...profileUser, avatar: avatar || profileUser.avatar }} size="lg" />
               <div className="min-w-0">
-                <label className="text-sm font-semibold text-stone-300">
-                  Foto
-                  <input value={avatar} onChange={e => {
-                    setAvatar(e.target.value)
-                    setAvatarError('')
-                  }} placeholder="Cole a URL de uma imagem ou envie um arquivo" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" />
-                </label>
+                <p className="text-sm font-semibold text-stone-300">Foto</p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <label className="inline-flex cursor-pointer rounded-lg border border-stone-700 px-3 py-2 text-xs font-bold text-stone-300 hover:bg-stone-800">
                     {uploadingAvatar ? 'Enviando...' : 'Enviar imagem'}
@@ -2154,6 +2227,23 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
             </button>
           ))}
         </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {[
+            ['Gêneros mais lidos', topGenres, 'border-stone-700 bg-stone-900 text-stone-300'],
+            ['Tropes mais lidas', topTropes, 'border-amber-300/30 bg-amber-300/10 text-amber-200'],
+          ].map(([title, items, classes]) => (
+            <div key={title as string} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+              <h3 className="mb-2 text-sm font-bold text-stone-200">{title as string}</h3>
+              <div className="flex flex-wrap gap-2">
+                {(items as [string, number][]).length ? (items as [string, number][]).map(([term, count]) => (
+                  <span key={term} className={`rounded-full border px-2 py-1 text-xs ${classes as string}`}>
+                    {term} · {count}
+                  </span>
+                )) : <span className="text-sm text-stone-500">Sem leituras suficientes ainda.</span>}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="p-4 md:p-5">
@@ -2188,7 +2278,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
                   {entry.status === 'reading' || entry.status === 'rereading' ? <ChapterBadge chapter={chapterFromPercent(book, Math.max(entry.progress, 1))} /> : null}
                 </div>
                 <p className="mb-2 text-xs text-stone-500">{book.author}{entry.status === 'reading' || entry.status === 'rereading' ? ` · Cap. ${chapterFromPercent(book, Math.max(entry.progress, 1))}` : ''}</p>
-                {entry.status === 'read' && (
+                {canRateStatus(entry.status) && (
                   <p className="text-xs font-bold text-stone-300">
                     <span className="text-amber-300">{ratingText(entry.rating)}</span>
                     {' · '}
@@ -2347,18 +2437,39 @@ function NotificationsPage({ notifications, users, books, onBookClick, onUserCli
     </section>
   )
 }
-function GoalsPage({ currentUser, shelf, books }: { currentUser: User; shelf: ShelfEntry[]; books: Book[] }) {
+function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal, onToggleReadingCheckIn }: {
+  currentUser: User
+  shelf: ShelfEntry[]
+  books: Book[]
+  readingGoal: ReadingGoal
+  onUpdateReadingGoal: (targetDays: number) => Promise<void> | void
+  onToggleReadingCheckIn: () => Promise<void> | void
+}) {
   const [goalCount, setGoalCount] = useState(40)
   const [editing, setEditing] = useState(false)
   const [inputVal, setInputVal] = useState('40')
+  const [editingDays, setEditingDays] = useState(false)
+  const [dayInputVal, setDayInputVal] = useState(String(readingGoal.targetDays || 120))
   const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
   const readThisYear = myShelf.filter(entry => entry.status === 'read').length
   const progress = Math.min(100, Math.round((readThisYear / goalCount) * 100))
   const remaining = Math.max(0, goalCount - readThisYear)
+  const dayProgress = Math.min(100, Math.round((readingGoal.checkIns.length / Math.max(1, readingGoal.targetDays)) * 100))
+  const remainingDays = Math.max(0, readingGoal.targetDays - readingGoal.checkIns.length)
   const currentlyReading = myShelf
-    .filter(entry => entry.status === 'reading')
+    .filter(entry => entry.status === 'reading' || entry.status === 'rereading')
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
     .filter(item => item.book)
+  const recentDays = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() - (13 - index))
+    const key = localDateKey(date)
+    return {
+      key,
+      label: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+      checked: readingGoal.checkIns.includes(key),
+    }
+  })
 
   return (
     <section>
@@ -2392,6 +2503,65 @@ function GoalsPage({ currentUser, shelf, books }: { currentUser: User; shelf: Sh
           <div className="mt-2 flex justify-between text-xs text-stone-500">
             <span>{progress}% concluído</span>
             <span>{remaining} restantes</span>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-stone-800 bg-stone-900 p-5">
+          <div className="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="font-serif text-xl text-stone-100">Meta de dias de leitura</h2>
+              <p className="text-sm text-stone-500">Faça check-in nos dias em que leu para acompanhar sua sequência.</p>
+            </div>
+            {editingDays ? (
+              <div className="flex gap-2">
+                <input value={dayInputVal} onChange={e => setDayInputVal(e.target.value)} type="number" className="w-20 rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-center text-sm text-stone-100 outline-none focus:border-amber-300" />
+                <button onClick={async () => {
+                  const targetDays = clamp(Number(dayInputVal), 1, 366)
+                  await onUpdateReadingGoal(targetDays)
+                  setDayInputVal(String(targetDays))
+                  setEditingDays(false)
+                }} className="rounded-lg bg-amber-300 px-3 text-sm font-bold text-stone-950">
+                  OK
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => {
+                setDayInputVal(String(readingGoal.targetDays))
+                setEditingDays(true)
+              }} className="text-sm font-bold text-amber-300">Editar</button>
+            )}
+          </div>
+          <div className="mb-4 flex flex-wrap items-end gap-3">
+            <span className="font-serif text-6xl leading-none text-amber-300">{readingGoal.checkIns.length}</span>
+            <span className="pb-2 text-sm text-stone-400">de {readingGoal.targetDays} dias</span>
+            <button
+              onClick={() => onToggleReadingCheckIn()}
+              className={`ml-auto rounded-lg px-4 py-2 text-sm font-bold ${readingGoal.checkedInToday ? 'border border-amber-300/40 text-amber-200 hover:bg-amber-300/10' : 'bg-amber-300 text-stone-950 hover:bg-amber-200'}`}
+            >
+              {readingGoal.checkedInToday ? 'Desfazer check-in' : 'Check-in de hoje'}
+            </button>
+          </div>
+          <ProgressBar value={dayProgress} />
+          <div className="mt-2 flex justify-between text-xs text-stone-500">
+            <span>{dayProgress}% concluído</span>
+            <span>{remainingDays} restantes</span>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-lg bg-stone-950 p-3">
+              <div className="font-serif text-2xl text-stone-100">{readingGoal.currentStreak}</div>
+              <div className="text-xs text-stone-500">dias seguidos</div>
+            </div>
+            <div className="rounded-lg bg-stone-950 p-3">
+              <div className="font-serif text-2xl text-stone-100">{readingGoal.bestStreak}</div>
+              <div className="text-xs text-stone-500">maior sequência</div>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-7 gap-1.5">
+            {recentDays.map(day => (
+              <div key={day.key} className={`rounded-lg border px-1 py-2 text-center text-[10px] font-bold ${day.checked ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-800 bg-stone-950 text-stone-500'}`}>
+                {day.label}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -2438,13 +2608,13 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
   onPost: (post: Post) => void
 }) {
   const myBooks = shelf
-    .filter(entry => entry.userId === currentUser.id && (entry.status === 'reading' || entry.status === 'rereading'))
+    .filter(entry => entry.userId === currentUser.id && canPostWithStatus(entry.status))
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
     .filter(item => item.book)
   const [selectedBookId, setSelectedBookId] = useState(myBooks[0]?.book.id || '')
   const selectedBook = books.find(book => book.id === selectedBookId) || myBooks[0]?.book
   const selectedEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === selectedBookId)
-  const defaultPercent = selectedEntry?.progress || 1
+  const defaultPercent = selectedEntry?.status === 'read' ? 100 : selectedEntry?.progress || 1
   const [postType, setPostType] = useState<PostType>('comment')
   const [text, setText] = useState('')
   const [reactionEmoji, setReactionEmoji] = useState('🤯')
@@ -2455,7 +2625,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
   function handleBookChange(bookId: string) {
     const nextBook = books.find(book => book.id === bookId)
     const nextEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === bookId)
-    const nextPercent = nextEntry?.progress || 1
+    const nextPercent = nextEntry?.status === 'read' ? 100 : nextEntry?.progress || 1
     setSelectedBookId(bookId)
     setChapter(nextBook ? chapterFromPercent(nextBook, nextPercent) : 1)
   }
@@ -2495,7 +2665,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
 
         <div className="space-y-4 p-4">
           {!myBooks.length ? (
-            <p className="rounded-lg border border-stone-800 bg-stone-950 p-4 text-sm text-stone-400">Adicione um livro como "Lendo" para publicar no feed da obra.</p>
+            <p className="rounded-lg border border-stone-800 bg-stone-950 p-4 text-sm text-stone-400">Adicione um livro como Lendo, Relendo, Lido ou Abandonei para publicar no feed da obra.</p>
           ) : (
             <>
               <label className="block text-sm font-semibold text-stone-300">
@@ -2645,14 +2815,19 @@ function EmptyState({ text }: { text: string }) {
   return <div className="px-6 py-14 text-center text-sm text-stone-500">{text}</div>
 }
 
+function storedPage() {
+  const value = localStorage.getItem('folio_page')
+  return ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications'].includes(value || '') ? value as Page : 'timeline'
+}
+
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('folio_token') || '')
   const [users, setUsers] = useState<User[]>([])
   const [books, setBooks] = useState<Book[]>([])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
-  const [page, setPage] = useState<Page>('timeline')
-  const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
-  const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null)
+  const [page, setPage] = useState<Page>(() => storedPage())
+  const [selectedBookId, setSelectedBookId] = useState<string | null>(() => localStorage.getItem('folio_selected_book_id'))
+  const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(() => localStorage.getItem('folio_selected_profile_user_id'))
   const [profileListKind, setProfileListKind] = useState<ProfileListKind>('following')
   const [showPostModal, setShowPostModal] = useState(false)
   const [shelf, setShelf] = useState<ShelfEntry[]>([])
@@ -2660,6 +2835,7 @@ export default function App() {
   const [replies, setReplies] = useState<Reply[]>([])
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
   const [notifications, setNotifications] = useState<FolioNotification[]>([])
+  const [readingGoal, setReadingGoal] = useState<ReadingGoal>({ targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
   const [loadingApp, setLoadingApp] = useState(Boolean(token))
 
   async function loadBootstrap(activeToken = token) {
@@ -2673,6 +2849,7 @@ export default function App() {
       replies: Reply[]
       timeline: TimelineEvent[]
       notifications?: FolioNotification[]
+      readingGoal?: ReadingGoal
     }>('/folio/bootstrap', {}, activeToken)
 
     setUsers(data.users)
@@ -2682,6 +2859,7 @@ export default function App() {
     setReplies(data.replies)
     setTimeline(data.timeline || [])
     setNotifications(data.notifications || [])
+    setReadingGoal(data.readingGoal || { targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
     setCurrentUser(data.users.find(user => user.id === data.currentUserId) || data.users[0] || null)
     setLoadingApp(false)
   }
@@ -2695,6 +2873,27 @@ export default function App() {
       setLoadingApp(false)
     })
   }, [])
+
+  useEffect(() => {
+    localStorage.setItem('folio_page', page)
+  }, [page])
+
+  useEffect(() => {
+    if (selectedBookId) localStorage.setItem('folio_selected_book_id', selectedBookId)
+    else localStorage.removeItem('folio_selected_book_id')
+  }, [selectedBookId])
+
+  useEffect(() => {
+    if (selectedProfileUserId) localStorage.setItem('folio_selected_profile_user_id', selectedProfileUserId)
+    else localStorage.removeItem('folio_selected_profile_user_id')
+  }, [selectedProfileUserId])
+
+  useEffect(() => {
+    if (page === 'book' && selectedBookId && books.length && !books.some(book => book.id === selectedBookId)) {
+      setSelectedBookId(null)
+      setPage('timeline')
+    }
+  }, [page, selectedBookId, books])
 
   async function handleLogin(name: string, email: string, password: string, mode: 'login' | 'register') {
     const auth = await apiRequest<{ token: string }>('/auth/' + mode, {
@@ -2844,6 +3043,16 @@ export default function App() {
     await loadBootstrap()
   }
 
+  async function handleUpdateReadingGoal(targetDays: number) {
+    await apiRequest('/folio/reading-goal', { method: 'PATCH', body: JSON.stringify({ targetDays }) }, token)
+    await loadBootstrap()
+  }
+
+  async function handleToggleReadingCheckIn() {
+    await apiRequest('/folio/reading-goal/checkins/toggle', { method: 'POST', body: JSON.stringify({ date: localDateKey() }) }, token)
+    await loadBootstrap()
+  }
+
   function handleLogout() {
     setCurrentUser(null)
     localStorage.removeItem('folio_token')
@@ -2852,6 +3061,9 @@ export default function App() {
     setSelectedBookId(null)
     setSelectedProfileUserId(null)
     setProfileListKind('following')
+    localStorage.removeItem('folio_page')
+    localStorage.removeItem('folio_selected_book_id')
+    localStorage.removeItem('folio_selected_profile_user_id')
   }
 
   if (!currentUser) {
@@ -2887,7 +3099,7 @@ export default function App() {
           {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} onBack={() => setPage('timeline')} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
-          {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} />}
+          {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
           {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
         </main>
 
