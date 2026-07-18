@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
@@ -26,6 +26,8 @@ interface Book {
   cover: string
   totalPages: number
   totalChapters: number
+  chaptersEstimated?: boolean
+  source?: 'mock' | 'openlibrary'
   genres: string[]
   rating: number
   synopsis: string
@@ -74,185 +76,32 @@ interface Reply {
   timestamp: string
 }
 
-const USERS: User[] = [
-  {
-    id: 'u1',
-    name: 'Ana Beatriz',
-    email: 'ana@leitora.com',
-    password: 'leitora123',
-    handle: 'anabeatriz',
-    bio: 'Leitora compulsiva. Fantasia, ficção científica e contemporâneo. Meta: 40 livros.',
-    avatar: 'AB',
-    booksRead: 23,
-    pagesRead: 6847,
-    following: ['u2', 'u3', 'u4', 'u5'],
-    followers: ['u2', 'u3', 'u4'],
-  },
-  {
-    id: 'u2',
-    name: 'Pedro Almeida',
-    email: 'pedro@email.com',
-    password: '123',
-    handle: 'pedroalmeida',
-    bio: 'Ficção científica, fantasia épica e comentários grandes demais para caberem na margem.',
-    avatar: 'PA',
-    booksRead: 31,
-    pagesRead: 9200,
-    following: ['u1', 'u3'],
-    followers: ['u1', 'u4', 'u5'],
-  },
-  {
-    id: 'u3',
-    name: 'Laís Costa',
-    email: 'lais@email.com',
-    password: '123',
-    handle: 'laiscosta',
-    bio: 'Romance, contemporâneo e YA. Leituras coletivas nos fins de semana.',
-    avatar: 'LC',
-    booksRead: 47,
-    pagesRead: 13500,
-    following: ['u1', 'u2', 'u4', 'u5'],
-    followers: ['u1', 'u2'],
-  },
-  {
-    id: 'u4',
-    name: 'Carlos Mendes',
-    email: 'carlos@email.com',
-    password: '123',
-    handle: 'carlosmendes',
-    bio: 'Terror e thriller psicológico. Leitor noturno por vocação.',
-    avatar: 'CM',
-    booksRead: 15,
-    pagesRead: 4200,
-    following: ['u1', 'u5'],
-    followers: ['u1', 'u3'],
-  },
-  {
-    id: 'u5',
-    name: 'Maria Fernanda',
-    email: 'maria@email.com',
-    password: '123',
-    handle: 'mariafernanda',
-    bio: 'Clássicos e literatura brasileira. Professora de Letras.',
-    avatar: 'MF',
-    booksRead: 68,
-    pagesRead: 22000,
-    following: ['u1', 'u2', 'u3'],
-    followers: ['u1', 'u2', 'u4'],
-  },
-]
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7113' : '')
 
-const BOOKS: Book[] = [
-  {
-    id: 'b1',
-    title: 'A Biblioteca da Meia-Noite',
-    author: 'Matt Haig',
-    cover: 'https://images.unsplash.com/photo-1512820790803-83ca734da794?w=480&h=680&fit=crop&auto=format',
-    totalPages: 304,
-    totalChapters: 73,
-    genres: ['Contemporâneo', 'Fantasia', 'Filosófico'],
-    rating: 4.3,
-    synopsis:
-      'Entre a vida e a morte existe uma biblioteca infinita onde cada livro representa uma vida que poderia ter sido vivida. Nora Seed explora versões alternativas de si mesma e descobre o que significa continuar.',
-  },
-  {
-    id: 'b2',
-    title: 'Projeto Hail Mary',
-    author: 'Andy Weir',
-    cover: 'https://images.unsplash.com/photo-1454789548928-9efd52dc4031?w=480&h=680&fit=crop&auto=format',
-    totalPages: 476,
-    totalChapters: 29,
-    genres: ['Ficção científica', 'Aventura'],
-    rating: 4.7,
-    synopsis:
-      'Ryland Grace acorda sozinho em uma nave sem lembrar seu nome ou missão. Aos poucos, descobre que pode ser a última chance da humanidade diante de uma ameaça cósmica.',
-  },
-  {
-    id: 'b3',
-    title: 'Mistborn: O Império Final',
-    author: 'Brandon Sanderson',
-    cover: 'https://images.unsplash.com/photo-1518715308788-3005759c61d4?w=480&h=680&fit=crop&auto=format',
-    totalPages: 647,
-    totalChapters: 38,
-    genres: ['Fantasia épica', 'Aventura'],
-    rating: 4.6,
-    synopsis:
-      'Em um mundo onde cinzas caem do céu, um grupo de ladrões planeja derrubar o Lord Ruler, um deus-rei imortal que governa há mil anos.',
-  },
-  {
-    id: 'b4',
-    title: 'Jogos Vorazes',
-    author: 'Suzanne Collins',
-    cover: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=480&h=680&fit=crop&auto=format',
-    totalPages: 374,
-    totalChapters: 27,
-    genres: ['Distopia', 'YA', 'Ação'],
-    rating: 4.2,
-    synopsis:
-      'Katniss Everdeen se voluntaria para os Jogos Vorazes no lugar da irmã e enfrenta uma batalha de sobrevivência transmitida para toda Panem.',
-  },
-  {
-    id: 'b5',
-    title: 'O Problema dos Três Corpos',
-    author: 'Liu Cixin',
-    cover: 'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?w=480&h=680&fit=crop&auto=format',
-    totalPages: 400,
-    totalChapters: 32,
-    genres: ['Ficção científica', 'Hard sci-fi'],
-    rating: 4.4,
-    synopsis:
-      'Um projeto secreto envia sinais ao espaço. Décadas depois, a humanidade descobre que não está sozinha e que a resposta recebida pode mudar tudo.',
-  },
-]
+async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  })
 
-const INITIAL_SHELF: ShelfEntry[] = [
-  { userId: 'u1', bookId: 'b1', status: 'reading', progress: 45, startDate: '2024-01-15' },
-  { userId: 'u1', bookId: 'b2', status: 'read', progress: 100, rating: 4.5, spiceRating: 1, startDate: '2023-11-01', endDate: '2023-11-20' },
-  { userId: 'u1', bookId: 'b4', status: 'read', progress: 100, rating: 4, spiceRating: 2.5, startDate: '2023-09-05', endDate: '2023-09-18' },
-  { userId: 'u1', bookId: 'b3', status: 'want', progress: 0 },
-  { userId: 'u1', bookId: 'b5', status: 'reading', progress: 23, startDate: '2024-02-01' },
-  { userId: 'u2', bookId: 'b1', status: 'reading', progress: 78, startDate: '2024-01-10' },
-  { userId: 'u2', bookId: 'b2', status: 'read', progress: 100 },
-  { userId: 'u2', bookId: 'b5', status: 'reading', progress: 55 },
-  { userId: 'u3', bookId: 'b1', status: 'read', progress: 100 },
-  { userId: 'u3', bookId: 'b4', status: 'read', progress: 100 },
-  { userId: 'u4', bookId: 'b3', status: 'reading', progress: 40 },
-  { userId: 'u5', bookId: 'b2', status: 'want', progress: 0 },
-]
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || `Erro ${response.status}`)
+  }
 
-const INITIAL_POSTS: Post[] = [
-  { id: 'p1', userId: 'u2', bookId: 'b1', chapter: 3, percent: 12, text: 'A premissa está me pegando de jeito. Já quero comentar cada escolha da Nora.', type: 'comment', timestamp: '2024-01-28T14:30:00', likes: ['u1', 'u3'], comments: 2 },
-  { id: 'p2', userId: 'u3', bookId: 'b1', chapter: 9, percent: 28, text: 'A história do Noel me deixou muito sensível. Não esperava conectar tanto com ele.', type: 'comment', timestamp: '2024-01-25T20:15:00', likes: ['u1', 'u2', 'u4'], comments: 4 },
-  { id: 'p3', userId: 'u1', bookId: 'b1', chapter: 14, percent: 38, text: 'Aquela cena na biblioteca mexeu comigo. Matt Haig sabe fazer a gente encarar escolhas.', type: 'comment', timestamp: '2024-01-30T22:00:00', likes: ['u2', 'u3'], comments: 1 },
-  { id: 'p4', userId: 'u4', bookId: 'b1', chapter: 16, percent: 45, text: 'Não consigo parar de ler. São 2h da manhã e ainda estou negociando comigo mesmo.', type: 'comment', timestamp: '2024-01-31T02:00:00', likes: ['u1', 'u2', 'u3', 'u5'], comments: 6 },
-  { id: 'p5', userId: 'u2', bookId: 'b1', chapter: 22, percent: 62, text: 'ESSA REVIRAVOLTA. Não vi vindo e agora estou desconfiando de todo mundo.', type: 'comment', timestamp: '2024-02-01T18:30:00', likes: ['u3', 'u5'], comments: 8 },
-  { id: 'p6', userId: 'u3', bookId: 'b1', chapter: 28, percent: 78, reactionEmoji: '🤯', type: 'reaction', timestamp: '2024-02-03T21:45:00', likes: ['u2', 'u4'], comments: 0 },
-  { id: 'p7', userId: 'u5', bookId: 'b1', chapter: 35, percent: 89, text: 'Já sei que termino hoje. Livro lindo, mas tenho sentimentos contraditórios sobre o final.', type: 'comment', timestamp: '2024-02-05T19:00:00', likes: ['u2', 'u3', 'u4'], comments: 3 },
-  { id: 'p8', userId: 'u2', bookId: 'b1', chapter: 10, percent: 30, text: 'Teoria: a Mrs. Elm não é só uma bibliotecária. Tem algo maior por trás dela.', type: 'theory', timestamp: '2024-01-26T16:00:00', likes: ['u1', 'u3'], comments: 5 },
-  { id: 'p9', userId: 'u3', bookId: 'b1', chapter: 18, percent: 52, text: 'Teoria: cada vida vai ensinar uma coisa diferente. O final deve ser mais sobre escolher continuar.', type: 'theory', timestamp: '2024-01-29T11:00:00', likes: ['u4', 'u5'], comments: 2 },
-  { id: 'p10', userId: 'u5', bookId: 'b1', chapter: 30, percent: 82, text: 'Teoria: o final vai ser ambíguo e isso talvez seja justamente o ponto.', type: 'theory', timestamp: '2024-02-04T15:30:00', likes: ['u1'], comments: 1 },
-  { id: 'p11', userId: 'u1', bookId: 'b2', chapter: 5, percent: 20, text: 'Rocky é o melhor personagem que li em ficção científica em muito tempo.', type: 'comment', timestamp: '2023-11-10T20:00:00', likes: ['u2', 'u3'], comments: 3 },
-  { id: 'p12', userId: 'u2', bookId: 'b2', chapter: 15, percent: 55, reactionEmoji: '😭', type: 'reaction', timestamp: '2024-01-20T22:30:00', likes: ['u1'], comments: 0 },
-  { id: 'p13', userId: 'u4', bookId: 'b3', chapter: 8, percent: 25, text: 'O sistema de Alomancia é genial. Sanderson construiu algo muito próprio aqui.', type: 'comment', timestamp: '2024-01-22T18:00:00', likes: ['u2', 'u5'], comments: 3 },
-]
-
-const TIMELINE_EVENTS: TimelineEvent[] = [
-  { id: 'te1', userId: 'u3', type: 'started', bookId: 'b5', timestamp: '2024-02-05T10:00:00' },
-  { id: 'te2', userId: 'u2', type: 'posted', bookId: 'b1', postId: 'p5', timestamp: '2024-02-01T18:30:00' },
-  { id: 'te3', userId: 'u4', type: 'progress', bookId: 'b3', data: { from: 25, to: 40 }, timestamp: '2024-01-30T15:00:00' },
-  { id: 'te4', userId: 'u5', type: 'finished', bookId: 'b1', timestamp: '2024-02-05T22:00:00' },
-  { id: 'te5', userId: 'u2', type: 'progress', bookId: 'b1', data: { from: 62, to: 78 }, timestamp: '2024-02-03T20:00:00' },
-  { id: 'te6', userId: 'u3', type: 'finished', bookId: 'b4', timestamp: '2024-01-28T21:00:00' },
-]
-
-const INITIAL_REPLIES: Reply[] = [
-  { id: 'r1', postId: 'p4', userId: 'u1', text: 'Eu estava exatamente assim ontem. Esse ponto do livro prende muito.', timestamp: '2024-01-31T09:15:00' },
-  { id: 'r2', postId: 'p8', userId: 'u3', text: 'Também pensei isso. Até aqui faz muito sentido.', timestamp: '2024-01-26T17:20:00' },
-]
+  if (response.status === 204) return undefined as T
+  return response.json() as Promise<T>
+}
 
 const STATUS_LABELS: Record<BookStatus, string> = {
   reading: 'Lendo',
-  want: 'Quero ler',
+  want: 'TBR',
   read: 'Lido',
   rereading: 'Relendo',
   abandoned: 'Abandonei',
@@ -278,7 +127,7 @@ function ratingText(value?: number, label = 'estrelas') {
 
 function formatTime(ts: string) {
   const d = new Date(ts)
-  const now = new Date('2024-02-06T12:00:00')
+  const now = new Date()
   const diffHours = Math.floor((now.getTime() - d.getTime()) / 3600000)
   if (diffHours < 1) return 'agora'
   if (diffHours < 24) return `${diffHours}h`
@@ -324,23 +173,31 @@ function Header({ title, children }: { title: string; children?: React.ReactNode
   )
 }
 
-function LoginPage({ onLogin }: { onLogin: (u: User) => void }) {
+function LoginPage({ onLogin }: { onLogin: (name: string, email: string, password: string, mode: 'login' | 'register') => Promise<void> }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [name, setName] = useState('Ana Beatriz')
   const [email, setEmail] = useState('ana@leitora.com')
   const [password, setPassword] = useState('leitora123')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setError('')
+    if (mode === 'register' && password !== confirmPassword) {
+      setError('As senhas não conferem.')
+      return
+    }
     setLoading(true)
-    setTimeout(() => {
-      const user = USERS.find(u => u.email === email && u.password === password)
-      if (user) onLogin(user)
-      else {
-        setError('Email ou senha incorretos.')
-        setLoading(false)
-      }
-    }, 300)
+    try {
+      await onLogin(name, email, password, mode)
+    } catch {
+      setError(mode === 'login' ? 'Email ou senha incorretos.' : 'Não foi possível criar a conta.')
+      setLoading(false)
+    }
   }
 
   return (
@@ -364,9 +221,22 @@ function LoginPage({ onLogin }: { onLogin: (u: User) => void }) {
 
         <form onSubmit={handleSubmit} className="rounded-lg border border-stone-800 bg-stone-900 p-5 shadow-2xl shadow-black/30 sm:p-7">
           <div className="mb-6">
-            <h2 className="font-serif text-2xl text-stone-50">Entrar</h2>
-            <p className="mt-1 text-sm text-stone-400">Use a conta de teste para navegar pelo protótipo.</p>
+            <h2 className="font-serif text-2xl text-stone-50">{mode === 'login' ? 'Entrar' : 'Criar conta'}</h2>
+            <p className="mt-1 text-sm text-stone-400">Agora conectado à API e ao Postgres do servidor.</p>
           </div>
+          {mode === 'register' && (
+            <label className="mb-4 block text-sm text-stone-300">
+              Nome
+              <input
+                value={name}
+                onChange={e => {
+                  setName(e.target.value)
+                  setError('')
+                }}
+                className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-400"
+              />
+            </label>
+          )}
           <label className="mb-4 block text-sm text-stone-300">
             Email
             <input
@@ -381,19 +251,50 @@ function LoginPage({ onLogin }: { onLogin: (u: User) => void }) {
           </label>
           <label className="mb-4 block text-sm text-stone-300">
             Senha
-            <input
-              type="password"
-              value={password}
-              onChange={e => {
-                setPassword(e.target.value)
-                setError('')
-              }}
-              className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-400"
-            />
+            <div className="mt-1 flex rounded-lg border border-stone-700 bg-stone-950 focus-within:border-amber-400">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={e => {
+                  setPassword(e.target.value)
+                  setError('')
+                }}
+                className="min-w-0 flex-1 rounded-l-lg bg-transparent px-3 py-2.5 text-sm text-stone-100 outline-none"
+              />
+              <button type="button" onClick={() => setShowPassword(value => !value)} className="shrink-0 px-3 text-xs font-bold text-stone-400 hover:text-amber-300">
+                {showPassword ? 'Ocultar' : 'Mostrar'}
+              </button>
+            </div>
           </label>
+          {mode === 'register' && (
+            <label className="mb-4 block text-sm text-stone-300">
+              Confirmar senha
+              <div className="mt-1 flex rounded-lg border border-stone-700 bg-stone-950 focus-within:border-amber-400">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={e => {
+                    setConfirmPassword(e.target.value)
+                    setError('')
+                  }}
+                  className="min-w-0 flex-1 rounded-l-lg bg-transparent px-3 py-2.5 text-sm text-stone-100 outline-none"
+                />
+                <button type="button" onClick={() => setShowConfirmPassword(value => !value)} className="shrink-0 px-3 text-xs font-bold text-stone-400 hover:text-amber-300">
+                  {showConfirmPassword ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+            </label>
+          )}
           {error && <p className="mb-3 text-sm text-red-300">{error}</p>}
           <button disabled={loading} className="w-full rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-bold text-stone-950 transition hover:bg-amber-200 disabled:opacity-70">
-            {loading ? 'Entrando...' : 'Entrar'}
+            {loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Cadastrar'}
+          </button>
+          <button type="button" onClick={() => {
+            setMode(mode === 'login' ? 'register' : 'login')
+            setConfirmPassword('')
+            setError('')
+          }} className="mt-3 w-full text-center text-sm font-semibold text-stone-400 hover:text-amber-300">
+            {mode === 'login' ? 'Criar uma conta nova' : 'Já tenho conta'}
           </button>
         </form>
       </div>
@@ -482,15 +383,18 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
   )
 }
 
-function PostCard({ post, users, books, currentUser, replies, onBookClick, onAddReply, onToggleLike, compactBook = false }: {
+function PostCard({ post, users, books, currentUser, replies, onBookClick, onUserClick, onAddReply, onToggleLike, onDeletePost, onDeleteReply, compactBook = false }: {
   post: Post
   users: User[]
   books: Book[]
   currentUser: User
   replies: Reply[]
   onBookClick: (id: string) => void
+  onUserClick: (id: string) => void
   onAddReply: (postId: string, text: string) => void
   onToggleLike: (postId: string) => void
+  onDeletePost: (postId: string) => void
+  onDeleteReply: (replyId: string) => void
   compactBook?: boolean
 }) {
   const [showReplyBox, setShowReplyBox] = useState(false)
@@ -515,10 +419,15 @@ function PostCard({ post, users, books, currentUser, replies, onBookClick, onAdd
         <Avatar user={author} />
         <div className="min-w-0 flex-1">
           <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-sm font-bold text-stone-100">{author.name}</span>
-            <span className="text-sm text-stone-500">@{author.handle}</span>
+            <button onClick={() => onUserClick(author.id)} className="text-sm font-bold text-stone-100 hover:text-amber-300">{author.name}</button>
+            <button onClick={() => onUserClick(author.id)} className="text-sm text-stone-500 hover:text-stone-300">@{author.handle}</button>
             <span className="text-xs text-stone-600">{formatTime(post.timestamp)}</span>
             {post.type === 'theory' && <span className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-xs font-semibold text-violet-300">teoria</span>}
+            {post.userId === currentUser.id && (
+              <button onClick={() => onDeletePost(post.id)} className="ml-auto rounded px-2 py-0.5 text-xs font-bold text-red-300 hover:bg-red-400/10">
+                Apagar
+              </button>
+            )}
           </div>
           {book && !compactBook && (
             <button onClick={() => onBookClick(book.id)} className="mb-2 flex max-w-full items-center gap-2 text-left">
@@ -562,9 +471,14 @@ function PostCard({ post, users, books, currentUser, replies, onBookClick, onAdd
                 const replyUser = users.find(user => user.id === reply.userId) || currentUser
                 return (
                   <div key={reply.id} className="flex gap-2 rounded-lg bg-stone-950 p-2">
-                    <Avatar user={replyUser} size="sm" />
+                    <button onClick={() => onUserClick(replyUser.id)}><Avatar user={replyUser} size="sm" /></button>
                     <div className="min-w-0">
-                      <p className="text-xs font-bold text-stone-200">@{replyUser.handle}</p>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => onUserClick(replyUser.id)} className="text-xs font-bold text-stone-200 hover:text-amber-300">@{replyUser.handle}</button>
+                        {reply.userId === currentUser.id && (
+                          <button onClick={() => onDeleteReply(reply.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button>
+                        )}
+                      </div>
                       <p className="text-sm text-stone-400">{reply.text}</p>
                     </div>
                   </div>
@@ -578,7 +492,7 @@ function PostCard({ post, users, books, currentUser, replies, onBookClick, onAdd
   )
 }
 
-function TimelinePage({ currentUser, users, books, posts, replies, timeline, onBookClick, onAddReply, onToggleLike, onToggleFollow }: {
+function TimelinePage({ currentUser, users, books, posts, replies, timeline, onBookClick, onUserClick, onAddReply, onToggleLike, onDeletePost, onDeleteReply, onToggleFollow }: {
   currentUser: User
   users: User[]
   books: Book[]
@@ -586,8 +500,11 @@ function TimelinePage({ currentUser, users, books, posts, replies, timeline, onB
   replies: Reply[]
   timeline: TimelineEvent[]
   onBookClick: (id: string) => void
+  onUserClick: (id: string) => void
   onAddReply: (postId: string, text: string) => void
   onToggleLike: (postId: string) => void
+  onDeletePost: (postId: string) => void
+  onDeleteReply: (replyId: string) => void
   onToggleFollow: (userId: string) => void
 }) {
   const [tab, setTab] = useState<'posts' | 'activity'>('posts')
@@ -630,10 +547,10 @@ function TimelinePage({ currentUser, users, books, posts, replies, timeline, onB
               const following = currentUser.following.includes(user.id)
               return (
                 <div key={user.id} className="flex items-center gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3">
-                  <Avatar user={user} size="sm" />
+                  <button onClick={() => onUserClick(user.id)}><Avatar user={user} size="sm" /></button>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-stone-100">{user.name}</p>
-                    <p className="text-xs text-stone-500">@{user.handle}</p>
+                    <button onClick={() => onUserClick(user.id)} className="block max-w-full truncate text-sm font-bold text-stone-100 hover:text-amber-300">{user.name}</button>
+                    <button onClick={() => onUserClick(user.id)} className="text-xs text-stone-500 hover:text-stone-300">@{user.handle}</button>
                   </div>
                   <button onClick={() => onToggleFollow(user.id)} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${following ? 'bg-stone-800 text-stone-300' : 'bg-amber-300 text-stone-950'}`}>
                     {following ? 'Seguindo' : 'Seguir'}
@@ -646,7 +563,7 @@ function TimelinePage({ currentUser, users, books, posts, replies, timeline, onB
       </div>
 
       {tab === 'posts' && (
-        feedPosts.length ? feedPosts.map(post => <PostCard key={post.id} post={post} users={users} books={books} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onAddReply={onAddReply} onToggleLike={onToggleLike} />) : <EmptyState text="Siga leitores para ver publicações aqui." />
+        feedPosts.length ? feedPosts.map(post => <PostCard key={post.id} post={post} users={users} books={books} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} />) : <EmptyState text="Siga leitores para ver publicações aqui." />
       )}
 
       {tab === 'activity' && (
@@ -665,7 +582,7 @@ function TimelinePage({ currentUser, users, books, posts, replies, timeline, onB
                 <Avatar user={user} size="sm" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-stone-400">
-                    <span className="font-bold text-stone-100">{user.name}</span> {textByType[event.type]}{' '}
+                    <button onClick={() => onUserClick(user.id)} className="font-bold text-stone-100 hover:text-amber-300">{user.name}</button> {textByType[event.type]}{' '}
                     {book && <button onClick={() => onBookClick(book.id)} className="font-bold text-amber-300">{book.title}</button>}
                   </p>
                   <p className="mt-1 text-xs text-stone-600">{formatTime(event.timestamp)} · sem spoilers na timeline</p>
@@ -679,13 +596,32 @@ function TimelinePage({ currentUser, users, books, posts, replies, timeline, onB
   )
 }
 
-function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry, onAddBook }: {
+function BookSearchRow({ book, actionLabel, onAction }: { book: Book; actionLabel: string; onAction: () => void }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-stone-950 p-2">
+      <img src={book.cover} alt={book.title} className="h-12 w-8 rounded object-cover" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
+        <p className="truncate text-xs text-stone-500">{book.author}</p>
+        <p className="text-xs text-stone-600">{book.totalPages} págs. · {book.totalChapters} caps.{book.chaptersEstimated ? ' estimados' : ''}</p>
+      </div>
+      <button onClick={onAction} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">
+        {actionLabel}
+      </button>
+    </div>
+  )
+}
+
+function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry, onRemoveShelfEntry, onAddBook, onImportBook, onSearchBooks }: {
   currentUser: User
   shelf: ShelfEntry[]
   books: Book[]
   onBookClick: (id: string) => void
   onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>) => void
+  onRemoveShelfEntry: (bookId: string) => void
   onAddBook: (bookId: string, status: BookStatus) => void
+  onImportBook: (book: Book, status: BookStatus) => void
+  onSearchBooks: (query: string) => Promise<Book[]>
 }) {
   const [activeStatus, setActiveStatus] = useState<BookStatus>('reading')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -693,6 +629,10 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   const [chapterInput, setChapterInput] = useState('')
   const [bookQuery, setBookQuery] = useState('')
   const [newBookStatus, setNewBookStatus] = useState<BookStatus>('reading')
+  const [openLibraryResults, setOpenLibraryResults] = useState<Book[]>([])
+  const [openLibraryLoading, setOpenLibraryLoading] = useState(false)
+  const [openLibraryError, setOpenLibraryError] = useState('')
+  const [bookSearchAttempted, setBookSearchAttempted] = useState(false)
   const statuses: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
   const myShelf = shelf.filter(s => s.userId === currentUser.id)
   const statusCounts = statuses.reduce((acc, status) => ({ ...acc, [status]: myShelf.filter(entry => entry.status === status).length }), {} as Record<BookStatus, number>)
@@ -704,6 +644,23 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     .filter(book => !myShelf.some(entry => entry.bookId === book.id))
     .filter(book => `${book.title} ${book.author}`.toLowerCase().includes(bookQuery.toLowerCase()))
     .slice(0, 4)
+  const importableResults = openLibraryResults.filter(book => !myShelf.some(entry => entry.bookId === book.id))
+
+  async function searchOpenLibrary() {
+    const query = bookQuery.trim()
+    if (query.length < 2) return
+    setOpenLibraryLoading(true)
+    setOpenLibraryError('')
+    setBookSearchAttempted(true)
+    try {
+      setOpenLibraryResults(await onSearchBooks(query))
+    } catch {
+      setOpenLibraryError('Não consegui consultar agora. Tente novamente em instantes.')
+      setOpenLibraryResults([])
+    } finally {
+      setOpenLibraryLoading(false)
+    }
+  }
 
   function startEdit(book: Book, entry: ShelfEntry) {
     setEditingId(book.id)
@@ -741,7 +698,11 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
             Adicionar livro
             <input
               value={bookQuery}
-              onChange={e => setBookQuery(e.target.value)}
+              onChange={e => {
+                setBookQuery(e.target.value)
+                setBookSearchAttempted(false)
+                setOpenLibraryError('')
+              }}
               placeholder="Pesquisar por título ou autor"
               className="mt-2 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
             />
@@ -750,25 +711,55 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
             <select value={newBookStatus} onChange={e => setNewBookStatus(e.target.value as BookStatus)} className="min-w-0 flex-1 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">
               {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
             </select>
+            <button onClick={searchOpenLibrary} disabled={bookQuery.trim().length < 2 || openLibraryLoading} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">
+              {openLibraryLoading ? 'Buscando...' : 'Buscar'}
+            </button>
           </div>
           {bookQuery && (
             <div className="mt-3 space-y-2">
-              {availableBooks.length ? availableBooks.map(book => (
-                <div key={book.id} className="flex items-center gap-3 rounded-lg bg-stone-950 p-2">
-                  <img src={book.cover} alt={book.title} className="h-12 w-8 rounded object-cover" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
-                    <p className="text-xs text-stone-500">{book.author}</p>
-                  </div>
-                  <button onClick={() => {
-                    onAddBook(book.id, newBookStatus)
-                    setBookQuery('')
-                    setActiveStatus(newBookStatus)
-                  }} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">
-                    Adicionar
-                  </button>
+              {availableBooks.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Catálogo do protótipo</p>
+                  {availableBooks.map(book => (
+                    <BookSearchRow
+                      key={book.id}
+                      book={book}
+                      actionLabel="Adicionar"
+                      onAction={() => {
+                        onAddBook(book.id, newBookStatus)
+                        setBookQuery('')
+                        setBookSearchAttempted(false)
+                        setActiveStatus(newBookStatus)
+                      }}
+                    />
+                  ))}
                 </div>
-              )) : <p className="text-sm text-stone-500">Nenhum livro disponível para adicionar.</p>}
+              )}
+              {openLibraryError && <p className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{openLibraryError}</p>}
+              {importableResults.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Resultados de busca</p>
+                  {importableResults.map(book => (
+                    <BookSearchRow
+                      key={book.id}
+                      book={book}
+                      actionLabel="Importar"
+                      onAction={() => {
+                        onImportBook(book, newBookStatus)
+                        setBookQuery('')
+                        setOpenLibraryResults([])
+                        setBookSearchAttempted(false)
+                        setActiveStatus(newBookStatus)
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+              {!availableBooks.length && !importableResults.length && !openLibraryLoading && !openLibraryError && (
+                <p className="text-sm text-stone-500">
+                  {bookSearchAttempted ? 'Nenhum livro encontrado com esse nome.' : 'Digite e clique em Buscar para consultar o catálogo.'}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -881,6 +872,9 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
               ) : (
                 <p className="text-sm text-stone-500">{STATUS_LABELS[entry.status]}</p>
               )}
+              <button onClick={() => onRemoveShelfEntry(book.id)} className="mt-3 w-full rounded-lg border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300 transition hover:bg-red-400/10 hover:text-red-200">
+                Remover da estante
+              </button>
             </div>
           </article>
         ))}
@@ -890,7 +884,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   )
 }
 
-function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onAddReply, onToggleLike, onUpdateShelfEntry, onAddBook }: {
+function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onUserClick, onAddReply, onToggleLike, onDeletePost, onDeleteReply, onUpdateShelfEntry, onAddBook }: {
   book: Book
   shelf: ShelfEntry[]
   posts: Post[]
@@ -898,8 +892,11 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onA
   users: User[]
   currentUser: User
   onBack: () => void
+  onUserClick: (id: string) => void
   onAddReply: (postId: string, text: string) => void
   onToggleLike: (postId: string) => void
+  onDeletePost: (postId: string) => void
+  onDeleteReply: (replyId: string) => void
   onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>) => void
   onAddBook: (bookId: string, status: BookStatus) => void
 }) {
@@ -940,7 +937,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onA
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-stone-500">
               <span className="font-bold text-amber-300">★ {book.rating}</span>
               <span>{book.totalPages} páginas</span>
-              <span>{book.totalChapters} capítulos</span>
+              <span>{book.totalChapters} capítulos{book.chaptersEstimated ? ' estimados' : ''}</span>
               <span>{readers} leitores</span>
             </div>
             <div className="mt-3 flex flex-wrap gap-1">
@@ -1061,7 +1058,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onA
               ) : (
                 <div className="flex flex-wrap gap-2">
                   <button onClick={() => onAddBook(book.id, 'reading')} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">Adicionar como lendo</button>
-                  <button onClick={() => onAddBook(book.id, 'want')} className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-bold text-stone-300">Quero ler</button>
+                  <button onClick={() => onAddBook(book.id, 'want')} className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-bold text-stone-300">TBR</button>
                 </div>
               )}
             </div>
@@ -1084,13 +1081,20 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onA
             <p className="text-sm leading-relaxed text-stone-300">{book.synopsis}</p>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            {[['Páginas', book.totalPages], ['Capítulos', book.totalChapters], ['Avaliação', `★ ${book.rating}`]].map(([label, value]) => (
+            {[
+              ['Páginas', book.totalPages],
+              [book.chaptersEstimated ? 'Capítulos estimados' : 'Capítulos', book.totalChapters],
+              ['Avaliação', book.rating ? `★ ${book.rating}` : 'Sem nota'],
+            ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-stone-800 bg-stone-900 p-3 text-center">
                 <div className="font-serif text-xl text-amber-300">{value}</div>
                 <div className="text-xs text-stone-500">{label}</div>
               </div>
             ))}
           </div>
+          {book.source === 'openlibrary' && (
+            <p className="text-xs text-stone-500">Dados importados. Páginas e nota vêm do catálogo; capítulos são estimados quando a API não informa divisão por capítulos.</p>
+          )}
           {myEntry?.status === 'read' && (
             <div className="rounded-lg border border-stone-800 bg-stone-900 p-4">
               <h3 className="mb-2 font-serif text-lg text-stone-100">Minha avaliação</h3>
@@ -1110,7 +1114,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onA
       ) : (
         <div>
           {!visible.length && !hidden.length && <EmptyState text={tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
-          {visible.map(post => <PostCard key={post.id} post={post} users={users} books={[book]} currentUser={currentUser} replies={replies} onBookClick={() => {}} onAddReply={onAddReply} onToggleLike={onToggleLike} compactBook />)}
+          {visible.map(post => <PostCard key={post.id} post={post} users={users} books={[book]} currentUser={currentUser} replies={replies} onBookClick={() => {}} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} compactBook />)}
           {hidden.length > 0 && (
             <div className="m-4 rounded-lg border border-stone-800 bg-stone-900 p-5 text-center">
               <div className="mb-2 text-3xl">🔒</div>
@@ -1126,44 +1130,64 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onA
   )
 }
 
-function ProfilePage({ currentUser, shelf, posts, books, onBookClick, onUpdateUser }: {
+function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onBookClick, onUpdateUser, onUserClick, onToggleFollow, onDeletePost }: {
   currentUser: User
+  profileUser: User
+  users: User[]
   shelf: ShelfEntry[]
   posts: Post[]
   books: Book[]
   onBookClick: (id: string) => void
   onUpdateUser: (changes: Partial<User>) => void
+  onUserClick: (userId: string) => void
+  onToggleFollow: (userId: string) => void
+  onDeletePost: (postId: string) => void
 }) {
+  const isOwnProfile = currentUser.id === profileUser.id
+  const followingThisUser = currentUser.following.includes(profileUser.id)
   const [editing, setEditing] = useState(false)
-  const [name, setName] = useState(currentUser.name)
-  const [handle, setHandle] = useState(currentUser.handle)
-  const [bio, setBio] = useState(currentUser.bio)
-  const [avatar, setAvatar] = useState(currentUser.avatar.startsWith('http') ? currentUser.avatar : '')
-  const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
-  const myPosts = posts.filter(post => post.userId === currentUser.id).sort((a, b) => a.percent - b.percent)
+  const [name, setName] = useState(profileUser.name)
+  const [handle, setHandle] = useState(profileUser.handle)
+  const [bio, setBio] = useState(profileUser.bio)
+  const [avatar, setAvatar] = useState(profileUser.avatar.startsWith('http') ? profileUser.avatar : '')
+  const myShelf = shelf.filter(entry => entry.userId === profileUser.id)
+  const myPosts = posts.filter(post => post.userId === profileUser.id).sort((a, b) => a.percent - b.percent)
+  const visibleShelf = myShelf
+    .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId) }))
+    .filter((item): item is { entry: ShelfEntry; book: Book } => Boolean(item.book))
   const stats = [
     ['Livros lidos', myShelf.filter(entry => entry.status === 'read').length],
-    ['Páginas lidas', currentUser.pagesRead.toLocaleString('pt-BR')],
+    ['Páginas lidas', profileUser.pagesRead.toLocaleString('pt-BR')],
     ['Lendo agora', myShelf.filter(entry => entry.status === 'reading').length],
-    ['Lista de desejos', myShelf.filter(entry => entry.status === 'want').length],
+    ['TBR', myShelf.filter(entry => entry.status === 'want').length],
   ]
+  const socialLists = [
+    ['Seguindo', profileUser.following],
+    ['Seguidores', profileUser.followers],
+  ] as const
 
   return (
     <section>
-      <Header title="Perfil" />
+      <Header title={isOwnProfile ? 'Perfil' : `@${profileUser.handle}`} />
       <div className="border-b border-stone-800 p-4 md:p-5">
         <div className="flex gap-4">
-          <Avatar user={currentUser} size="lg" />
+          <Avatar user={profileUser} size="lg" />
           <div className="min-w-0 flex-1">
-            <h2 className="font-serif text-2xl text-stone-50">{currentUser.name}</h2>
-            <p className="text-sm text-stone-500">@{currentUser.handle}</p>
-            <p className="mt-2 text-sm leading-relaxed text-stone-300">{currentUser.bio}</p>
+            <h2 className="font-serif text-2xl text-stone-50">{profileUser.name}</h2>
+            <p className="text-sm text-stone-500">@{profileUser.handle}</p>
+            <p className="mt-2 text-sm leading-relaxed text-stone-300">{profileUser.bio}</p>
           </div>
-          <button onClick={() => setEditing(value => !value)} className="h-9 rounded-lg border border-stone-700 px-3 text-xs font-bold text-stone-300 hover:bg-stone-900">
-            {editing ? 'Fechar' : 'Editar'}
-          </button>
+          {isOwnProfile ? (
+            <button onClick={() => setEditing(value => !value)} className="h-9 rounded-lg border border-stone-700 px-3 text-xs font-bold text-stone-300 hover:bg-stone-900">
+              {editing ? 'Fechar' : 'Editar'}
+            </button>
+          ) : (
+            <button onClick={() => onToggleFollow(profileUser.id)} className={`h-9 rounded-lg px-3 text-xs font-bold ${followingThisUser ? 'bg-stone-800 text-stone-300' : 'bg-amber-300 text-stone-950'}`}>
+              {followingThisUser ? 'Seguindo' : 'Seguir'}
+            </button>
+          )}
         </div>
-        {editing && (
+        {isOwnProfile && editing && (
           <div className="mt-5 grid gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm font-semibold text-stone-300">
@@ -1185,8 +1209,8 @@ function ProfilePage({ currentUser, shelf, posts, books, onBookClick, onUpdateUs
             </label>
             <div className="flex justify-end">
               <button onClick={() => {
-                const fallbackAvatar = name.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || currentUser.avatar
-                onUpdateUser({ name: name.trim() || currentUser.name, handle: handle.trim() || currentUser.handle, bio: bio.trim(), avatar: avatar.trim() || fallbackAvatar })
+                const fallbackAvatar = name.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || profileUser.avatar
+                onUpdateUser({ name: name.trim() || profileUser.name, handle: handle.trim() || profileUser.handle, bio: bio.trim(), avatar: avatar.trim() || fallbackAvatar })
                 setEditing(false)
               }} className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950">
                 Salvar perfil
@@ -1195,10 +1219,36 @@ function ProfilePage({ currentUser, shelf, posts, books, onBookClick, onUpdateUs
           </div>
         )}
         <div className="mt-5 grid grid-cols-3 gap-3 text-center">
-          {[['Seguindo', currentUser.following.length], ['Seguidores', currentUser.followers.length], ['Posts', myPosts.length]].map(([label, value]) => (
+          {[['Seguindo', profileUser.following.length], ['Seguidores', profileUser.followers.length], ['Posts', myPosts.length]].map(([label, value]) => (
             <div key={label} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
               <div className="font-serif text-xl text-stone-100">{value}</div>
               <div className="text-xs text-stone-500">{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-b border-stone-800 p-4 md:p-5">
+        <h3 className="mb-3 font-serif text-lg text-stone-100">Rede</h3>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {socialLists.map(([label, ids]) => (
+            <div key={label} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+              <h4 className="mb-2 text-sm font-bold text-stone-300">{label}</h4>
+              <div className="space-y-2">
+                {ids.length ? ids.slice(0, 5).map(id => {
+                  const user = users.find(item => item.id === id)
+                  if (!user) return null
+                  return (
+                    <button key={id} onClick={() => onUserClick(id)} className="flex w-full items-center gap-2 rounded-lg bg-stone-950 p-2 text-left">
+                      <Avatar user={user} size="sm" />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-stone-100">{user.name}</p>
+                        <p className="text-xs text-stone-500">@{user.handle}</p>
+                      </div>
+                    </button>
+                  )
+                }) : <p className="text-sm text-stone-500">Nada por aqui ainda.</p>}
+              </div>
             </div>
           ))}
         </div>
@@ -1217,39 +1267,63 @@ function ProfilePage({ currentUser, shelf, posts, books, onBookClick, onUpdateUs
       </div>
 
       <div className="p-4 md:p-5">
-        <h3 className="mb-3 font-serif text-lg text-stone-100">Replay da leitura</h3>
+        <h3 className="mb-3 font-serif text-lg text-stone-100">Estante</h3>
+        <div className="mb-6 space-y-3">
+          {visibleShelf.length ? visibleShelf.map(({ entry, book }) => (
+            <button key={entry.bookId} onClick={() => onBookClick(book.id)} className="flex w-full gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3 text-left">
+              <img src={book.cover} alt={book.title} className="h-16 w-11 rounded object-cover" />
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
+                  <span className="rounded-full border border-stone-700 px-2 py-0.5 text-xs text-stone-400">{STATUS_LABELS[entry.status]}</span>
+                </div>
+                <p className="mb-2 text-xs text-stone-500">{book.author} · {entry.progress}% lido</p>
+                {entry.status === 'read' && (
+                  <p className="text-xs font-bold text-stone-300">
+                    <span className="text-amber-300">{ratingText(entry.rating)}</span>
+                    {' · '}
+                    <span className="text-red-300">{ratingText(entry.spiceRating, 'pimentas')}</span>
+                  </p>
+                )}
+              </div>
+            </button>
+          )) : <p className="text-sm text-stone-500">Nenhum livro na estante ainda.</p>}
+        </div>
+        <h3 className="mb-3 font-serif text-lg text-stone-100">Leitura</h3>
         {myPosts.length ? (
           <div className="space-y-3">
             {myPosts.map(post => {
               const book = books.find(item => item.id === post.bookId)
               return (
-                <button key={post.id} onClick={() => book && onBookClick(book.id)} className="flex w-full gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3 text-left">
+                <div key={post.id} className="flex gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3 text-left">
                   {book && <img src={book.cover} alt={book.title} className="h-14 w-10 shrink-0 rounded object-cover" />}
                   <div className="min-w-0 flex-1">
                     <div className="mb-1 flex flex-wrap items-center gap-2">
-                      {book && <span className="truncate text-xs font-bold text-amber-300">{book.title}</span>}
+                      {book && <button onClick={() => onBookClick(book.id)} className="truncate text-xs font-bold text-amber-300 hover:text-amber-200">{book.title}</button>}
                       <ProgressBadge percent={post.percent} chapter={post.chapter} />
+                      {isOwnProfile && <button onClick={() => onDeletePost(post.id)} className="ml-auto text-xs font-bold text-red-300 hover:text-red-200">apagar</button>}
                     </div>
                     {post.reactionEmoji && <span className="text-xl">{post.reactionEmoji}</span>}
                     {post.text && <p className="line-clamp-2 text-sm text-stone-300">{post.text}</p>}
                   </div>
-                </button>
+                </div>
               )
             })}
           </div>
-        ) : <p className="text-sm text-stone-500">Suas reações aparecerão aqui em ordem de progresso.</p>}
+        ) : <p className="text-sm text-stone-500">Suas leituras e publicações aparecerão aqui em ordem de progresso.</p>}
       </div>
     </section>
   )
 }
 
-function NotificationsPage({ currentUser, users, posts, replies, books, onBookClick }: {
+function NotificationsPage({ currentUser, users, posts, replies, books, onBookClick, onUserClick }: {
   currentUser: User
   users: User[]
   posts: Post[]
   replies: Reply[]
   books: Book[]
   onBookClick: (id: string) => void
+  onUserClick: (id: string) => void
 }) {
   const myPosts = posts.filter(post => post.userId === currentUser.id)
   const likeNotifications = myPosts.flatMap(post =>
@@ -1279,10 +1353,10 @@ function NotificationsPage({ currentUser, users, posts, replies, books, onBookCl
             return (
               <article key={notification.id} className="border-b border-stone-800 px-4 py-4 md:px-5">
                 <div className="flex gap-3">
-                  <Avatar user={user} size="sm" />
+                  <button onClick={() => onUserClick(user.id)}><Avatar user={user} size="sm" /></button>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-stone-300">
-                      <span className="font-bold text-stone-100">{user.name}</span>{' '}
+                      <button onClick={() => onUserClick(user.id)} className="font-bold text-stone-100 hover:text-amber-300">{user.name}</button>{' '}
                       {notification.type === 'like' ? 'curtiu sua publicação em' : 'comentou na sua publicação em'}{' '}
                       <button onClick={() => onBookClick(book.id)} className="font-bold text-amber-300">{book.title}</button>
                     </p>
@@ -1528,12 +1602,13 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
   )
 }
 
-function RightPanel({ currentUser, users, shelf, books, onBookClick, onToggleFollow }: {
+function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick, onToggleFollow }: {
   currentUser: User
   users: User[]
   shelf: ShelfEntry[]
   books: Book[]
   onBookClick: (id: string) => void
+  onUserClick: (id: string) => void
   onToggleFollow: (userId: string) => void
 }) {
   const [readerQuery, setReaderQuery] = useState('')
@@ -1561,10 +1636,10 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onToggleFol
             const following = currentUser.following.includes(user.id)
             return (
               <div key={user.id} className="flex items-center gap-3">
-                <Avatar user={user} size="sm" />
+                <button onClick={() => onUserClick(user.id)}><Avatar user={user} size="sm" /></button>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold text-stone-100">{user.name}</p>
-                  <p className="text-xs text-stone-500">@{user.handle}</p>
+                  <button onClick={() => onUserClick(user.id)} className="block max-w-full truncate text-sm font-bold text-stone-100 hover:text-amber-300">{user.name}</button>
+                  <button onClick={() => onUserClick(user.id)} className="text-xs text-stone-500 hover:text-stone-300">@{user.handle}</button>
                 </div>
                 <button onClick={() => onToggleFollow(user.id)} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${following ? 'bg-stone-800 text-stone-300' : 'bg-amber-300 text-stone-950'}`}>
                   {following ? 'Seguindo' : 'Seguir'}
@@ -1614,105 +1689,170 @@ function EmptyState({ text }: { text: string }) {
 }
 
 export default function App() {
-  const [users, setUsers] = useState<User[]>(USERS)
+  const [token, setToken] = useState(() => localStorage.getItem('folio_token') || '')
+  const [users, setUsers] = useState<User[]>([])
+  const [books, setBooks] = useState<Book[]>([])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [page, setPage] = useState<Page>('timeline')
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
+  const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null)
   const [showPostModal, setShowPostModal] = useState(false)
-  const [shelf, setShelf] = useState<ShelfEntry[]>(INITIAL_SHELF)
-  const [posts, setPosts] = useState<Post[]>(INITIAL_POSTS)
-  const [replies, setReplies] = useState<Reply[]>(INITIAL_REPLIES)
+  const [shelf, setShelf] = useState<ShelfEntry[]>([])
+  const [posts, setPosts] = useState<Post[]>([])
+  const [replies, setReplies] = useState<Reply[]>([])
+  const [seenNotificationIds, setSeenNotificationIds] = useState<string[]>([])
+  const [loadingApp, setLoadingApp] = useState(Boolean(token))
+
+  async function loadBootstrap(activeToken = token) {
+    if (!activeToken) return
+    const data = await apiRequest<{
+      currentUserId: string
+      users: User[]
+      books: Book[]
+      shelf: ShelfEntry[]
+      posts: Post[]
+      replies: Reply[]
+      notifications?: { id: string; read: boolean }[]
+    }>('/folio/bootstrap', {}, activeToken)
+
+    setUsers(data.users)
+    setBooks(data.books)
+    setShelf(data.shelf)
+    setPosts(data.posts)
+    setReplies(data.replies)
+    setCurrentUser(data.users.find(user => user.id === data.currentUserId) || data.users[0] || null)
+    setSeenNotificationIds(data.notifications?.filter(item => item.read).map(item => item.id) || [])
+    setLoadingApp(false)
+  }
+
+  useEffect(() => {
+    if (!token) return
+    loadBootstrap(token).catch(() => {
+      localStorage.removeItem('folio_token')
+      setToken('')
+      setCurrentUser(null)
+      setLoadingApp(false)
+    })
+  }, [])
+
+  async function handleLogin(name: string, email: string, password: string, mode: 'login' | 'register') {
+    const auth = await apiRequest<{ token: string }>('/auth/' + mode, {
+      method: 'POST',
+      body: JSON.stringify(mode === 'login' ? { email, password } : { name, email, password }),
+    })
+    localStorage.setItem('folio_token', auth.token)
+    setToken(auth.token)
+    setLoadingApp(true)
+    await loadBootstrap(auth.token)
+  }
 
   function handleBookClick(bookId: string) {
     setSelectedBookId(bookId)
     setPage('book')
   }
 
-  function handleNavigate(nextPage: Page) {
+  function handleUserClick(userId: string) {
+    setSelectedProfileUserId(userId)
+    setSelectedBookId(null)
+    setPage('profile')
+  }
+
+  async function handleNavigate(nextPage: Page) {
     setPage(nextPage)
     if (nextPage !== 'book') setSelectedBookId(null)
-  }
-
-  function handleUpdateShelfEntry(bookId: string, changes: Partial<ShelfEntry>) {
-    if (!currentUser) return
-    setShelf(prev => prev.map(entry => {
-      if (entry.userId !== currentUser.id || entry.bookId !== bookId) return entry
-      const nextProgress = changes.status === 'read' ? 100 : changes.progress !== undefined ? clamp(changes.progress, 0, 100) : entry.progress
-      const nextStatus = nextProgress >= 100 ? 'read' : changes.status ?? entry.status
-      return {
-        ...entry,
-        ...changes,
-        progress: nextProgress,
-        status: nextStatus,
-        endDate: nextStatus === 'read' ? changes.endDate ?? entry.endDate ?? new Date().toISOString().slice(0, 10) : changes.endDate,
-      }
-    }))
-  }
-
-  function handleAddBook(bookId: string, status: BookStatus) {
-    if (!currentUser) return
-    setShelf(prev => {
-      const exists = prev.some(entry => entry.userId === currentUser.id && entry.bookId === bookId)
-      if (exists) return prev
-      return [
-        ...prev,
-        {
-          userId: currentUser.id,
-          bookId,
-          status,
-          progress: status === 'read' ? 100 : 0,
-          endDate: status === 'read' ? new Date().toISOString().slice(0, 10) : undefined,
-        },
-      ]
-    })
-  }
-
-  function handleAddReply(postId: string, text: string) {
-    if (!currentUser) return
-    setReplies(prev => [{ id: `r${Date.now()}`, postId, userId: currentUser.id, text, timestamp: new Date().toISOString() }, ...prev])
-  }
-
-  function handleToggleLike(postId: string) {
-    if (!currentUser) return
-    setPosts(prev => prev.map(post => {
-      if (post.id !== postId) return post
-      const liked = post.likes.includes(currentUser.id)
-      return { ...post, likes: liked ? post.likes.filter(id => id !== currentUser.id) : [...post.likes, currentUser.id] }
-    }))
-  }
-
-  function handleToggleFollow(userId: string) {
-    if (!currentUser || userId === currentUser.id) return
-    const isFollowing = currentUser.following.includes(userId)
-    const updatedCurrent = {
-      ...currentUser,
-      following: isFollowing ? currentUser.following.filter(id => id !== userId) : [...currentUser.following, userId],
+    if (nextPage === 'profile') setSelectedProfileUserId(currentUser?.id || null)
+    if (nextPage === 'notifications') {
+      setSeenNotificationIds(prev => Array.from(new Set([...prev, ...notificationIds])))
+      await apiRequest('/folio/notifications/mark-all-read', { method: 'POST' }, token)
+      await loadBootstrap()
     }
-    setCurrentUser(updatedCurrent)
-    setUsers(prev => prev.map(user => {
-      if (user.id === currentUser.id) return updatedCurrent
-      if (user.id !== userId) return user
-      return {
-        ...user,
-        followers: isFollowing ? user.followers.filter(id => id !== currentUser.id) : [...user.followers, currentUser.id],
-      }
-    }))
   }
 
-  function handleUpdateUser(changes: Partial<User>) {
+  async function handleUpdateShelfEntry(bookId: string, changes: Partial<ShelfEntry>) {
     if (!currentUser) return
-    const updatedUser = { ...currentUser, ...changes }
-    setCurrentUser(updatedUser)
-    setUsers(prev => prev.map(user => user.id === currentUser.id ? updatedUser : user))
+    await apiRequest(`/folio/shelf/${encodeURIComponent(bookId)}`, { method: 'PATCH', body: JSON.stringify(changes) }, token)
+    await loadBootstrap()
   }
 
-  if (!currentUser) return <LoginPage onLogin={setCurrentUser} />
+  async function handleRemoveShelfEntry(bookId: string) {
+    if (!currentUser) return
+    await apiRequest(`/folio/shelf/${encodeURIComponent(bookId)}`, { method: 'DELETE' }, token)
+    await loadBootstrap()
+  }
 
-  const selectedBook = selectedBookId ? BOOKS.find(book => book.id === selectedBookId) : null
+  async function handleAddBook(bookId: string, status: BookStatus) {
+    if (!currentUser) return
+    await apiRequest('/folio/shelf', { method: 'POST', body: JSON.stringify({ bookId, status, progress: status === 'read' ? 100 : 0 }) }, token)
+    await loadBootstrap()
+  }
+
+  async function handleImportBook(book: Book, status: BookStatus) {
+    await apiRequest('/folio/books', { method: 'POST', body: JSON.stringify({ ...book, status, progress: status === 'read' ? 100 : 0 }) }, token)
+    await loadBootstrap()
+  }
+
+  async function handleAddReply(postId: string, text: string) {
+    if (!currentUser) return
+    await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/replies`, { method: 'POST', body: JSON.stringify({ text }) }, token)
+    await loadBootstrap()
+  }
+
+  async function handleDeletePost(postId: string) {
+    if (!currentUser) return
+    await apiRequest(`/folio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }, token)
+    await loadBootstrap()
+  }
+
+  async function handleDeleteReply(replyId: string) {
+    if (!currentUser) return
+    await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}`, { method: 'DELETE' }, token)
+    await loadBootstrap()
+  }
+
+  async function handleToggleLike(postId: string) {
+    if (!currentUser) return
+    await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/likes/toggle`, { method: 'POST' }, token)
+    await loadBootstrap()
+  }
+
+  async function handleToggleFollow(userId: string) {
+    if (!currentUser || userId === currentUser.id) return
+    await apiRequest(`/folio/follows/${userId}/toggle`, { method: 'POST' }, token)
+    await loadBootstrap()
+  }
+
+  async function handleUpdateUser(changes: Partial<User>) {
+    if (!currentUser) return
+    await apiRequest('/folio/me', { method: 'PATCH', body: JSON.stringify(changes) }, token)
+    await loadBootstrap()
+  }
+
+  async function handleSearchBooks(query: string) {
+    return apiRequest<Book[]>(`/folio/books/search?q=${encodeURIComponent(query)}`, {}, token)
+  }
+
+  async function handleCreatePost(post: Post) {
+    await apiRequest('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, token)
+    await loadBootstrap()
+  }
+
+  if (!currentUser) {
+    if (loadingApp) return <div className="flex min-h-screen items-center justify-center bg-stone-950 text-sm text-stone-400">Carregando Folio...</div>
+    return <LoginPage onLogin={handleLogin} />
+  }
+
+  const selectedBook = selectedBookId ? books.find(book => book.id === selectedBookId) : null
+  const selectedProfileUser = users.find(user => user.id === (selectedProfileUserId || currentUser.id)) || currentUser
   const myPostIds = posts.filter(post => post.userId === currentUser.id).map(post => post.id)
-  const notificationCount =
-    posts.filter(post => post.userId === currentUser.id).reduce((total, post) => total + post.likes.filter(userId => userId !== currentUser.id).length, 0) +
-    replies.filter(reply => myPostIds.includes(reply.postId) && reply.userId !== currentUser.id).length
+  const notificationIds = [
+    ...posts
+      .filter(post => post.userId === currentUser.id)
+      .flatMap(post => post.likes.filter(userId => userId !== currentUser.id).map(userId => `like-${post.id}-${userId}`)),
+    ...replies
+      .filter(reply => myPostIds.includes(reply.postId) && reply.userId !== currentUser.id)
+      .map(reply => `reply-${reply.id}`),
+  ]
+  const notificationCount = notificationIds.filter(id => !seenNotificationIds.includes(id)).length
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100">
@@ -1724,23 +1864,26 @@ export default function App() {
         onCreatePost={() => setShowPostModal(true)}
         onLogout={() => {
           setCurrentUser(null)
+          localStorage.removeItem('folio_token')
+          setToken('')
           setPage('timeline')
           setSelectedBookId(null)
+          setSelectedProfileUserId(null)
         }}
       />
 
       <div className="mx-auto flex max-w-6xl md:pl-60">
         <main className="min-h-screen w-full border-x border-stone-800 pb-24 md:max-w-[680px] md:pb-0">
-          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={BOOKS} posts={posts} replies={replies} timeline={TIMELINE_EVENTS} onBookClick={handleBookClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleFollow={handleToggleFollow} />}
-          {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={BOOKS} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
-          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} onBack={() => setPage('timeline')} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
-          {page === 'profile' && <ProfilePage currentUser={currentUser} shelf={shelf} posts={posts} books={BOOKS} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} />}
-          {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={BOOKS} />}
-          {page === 'notifications' && <NotificationsPage currentUser={currentUser} users={users} posts={posts} replies={replies} books={BOOKS} onBookClick={handleBookClick} />}
+          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} posts={posts} replies={replies} timeline={[]} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onToggleFollow={handleToggleFollow} />}
+          {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onImportBook={handleImportBook} onSearchBooks={handleSearchBooks} />}
+          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} onBack={() => setPage('timeline')} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
+          {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} />}
+          {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} />}
+          {page === 'notifications' && <NotificationsPage currentUser={currentUser} users={users} posts={posts} replies={replies} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
         </main>
 
         <div className="hidden w-80 shrink-0 p-4 lg:block">
-          <RightPanel currentUser={currentUser} users={users} shelf={shelf} books={BOOKS} onBookClick={handleBookClick} onToggleFollow={handleToggleFollow} />
+          <RightPanel currentUser={currentUser} users={users} shelf={shelf} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} />
         </div>
       </div>
 
@@ -1748,9 +1891,9 @@ export default function App() {
         <CreatePostModal
           currentUser={currentUser}
           shelf={shelf}
-          books={BOOKS}
+          books={books}
           onClose={() => setShowPostModal(false)}
-          onPost={post => setPosts(prev => [post, ...prev])}
+          onPost={handleCreatePost}
         />
       )}
     </div>
