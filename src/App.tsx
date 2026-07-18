@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
-type Page = 'timeline' | 'shelf' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications'
+type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications'
 type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 
@@ -31,6 +31,7 @@ interface Book {
   totalPages: number
   totalChapters: number
   chaptersEstimated?: boolean
+  isActive?: boolean
   source?: string
   genres: string[]
   rating: number
@@ -90,7 +91,7 @@ interface Post {
 interface TimelineEvent {
   id: string
   userId: string
-  type: 'started' | 'finished' | 'progress' | 'posted'
+  type: 'started' | 'finished' | 'progress' | 'posted' | 'registered'
   bookId?: string
   postId?: string
   data?: Record<string, number>
@@ -103,6 +104,18 @@ interface Reply {
   userId: string
   text: string
   timestamp: string
+}
+
+interface FolioNotification {
+  id: string
+  type: 'follow' | 'like' | 'reply' | 'book_comment'
+  userId: string
+  postId?: string
+  bookId?: string
+  chapter?: number
+  text?: string
+  timestamp: string
+  read: boolean
 }
 
 const API_BASE_URL =
@@ -126,6 +139,17 @@ async function apiRequest<T>(path: string, options: RequestInit = {}, token?: st
 
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
+}
+
+function errorMessage(error: unknown, fallback: string) {
+  const text = error instanceof Error ? error.message : ''
+  if (!text) return fallback
+  try {
+    const parsed = JSON.parse(text) as { message?: string }
+    return parsed.message || fallback
+  } catch {
+    return text
+  }
 }
 
 const STATUS_LABELS: Record<BookStatus, string> = {
@@ -559,8 +583,9 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
   const navItems: { id: Page; icon: string; label: string }[] = [
     { id: 'timeline', icon: '⌂', label: 'Início' },
     { id: 'shelf', icon: '▦', label: 'Estante' },
+    { id: 'library', icon: 'B', label: 'Biblioteca' },
     { id: 'goals', icon: '◎', label: 'Metas' },
-    { id: 'notifications', icon: '◌', label: 'Avisos' },
+    { id: 'notifications', icon: '◌', label: 'Notificações' },
     { id: 'profile', icon: '○', label: 'Perfil' },
   ]
 
@@ -603,7 +628,7 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
       </aside>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-800 bg-stone-950/95 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-2 backdrop-blur-xl md:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-6 items-center gap-1">
+        <div className="mx-auto grid max-w-md grid-cols-7 items-center gap-1">
           {navItems.map(item => (
             <button
               key={item.id}
@@ -791,9 +816,24 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   const [readerQuery, setReaderQuery] = useState('')
   const feedPosts = useMemo(() => {
     const allowed = [...currentUser.following, currentUser.id]
-    return posts.filter(p => allowed.includes(p.userId)).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-  }, [posts, currentUser.following, currentUser.id])
-  const feedActivity = useMemo(() => timeline.filter(e => currentUser.following.includes(e.userId)).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()), [timeline, currentUser.following])
+    return posts
+      .filter(post => allowed.includes(post.userId))
+      .filter(post => {
+        if (post.userId === currentUser.id) return true
+        const book = books.find(item => item.id === post.bookId)
+        if (!book) return true
+        const entry = shelf.find(item => item.userId === currentUser.id && item.bookId === post.bookId)
+        if (!entry) return false
+        if (entry.status === 'read') return true
+        const myChapter = chapterFromPercent(book, Math.max(entry.progress, 1))
+        return post.chapter <= myChapter
+      })
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+  }, [posts, books, shelf, currentUser.following, currentUser.id])
+  const feedActivity = useMemo(() => {
+    const allowed = [...currentUser.following, currentUser.id]
+    return timeline.filter(e => allowed.includes(e.userId)).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+  }, [timeline, currentUser.following, currentUser.id])
   const foundReaders = users
     .filter(user => user.id !== currentUser.id)
     .filter(user => `${user.name} ${user.handle}`.toLowerCase().includes(readerQuery.toLowerCase()))
@@ -843,7 +883,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
       </div>
 
       {tab === 'posts' && (
-        feedPosts.length ? feedPosts.map(post => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} protectSpoilers />) : <EmptyState text="Siga leitores para ver publicações aqui." />
+        feedPosts.length ? feedPosts.map(post => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} protectSpoilers />) : <EmptyState text="Nenhuma publicação liberada pelo seu capítulo atual." />
       )}
 
       {tab === 'activity' && (
@@ -851,10 +891,11 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
           const user = users.find(u => u.id === event.userId)!
           const book = event.bookId ? books.find(b => b.id === event.bookId) : null
           const textByType = {
-            started: 'começou a ler',
+            started: 'está lendo',
             finished: 'terminou',
             progress: 'atualizou a leitura',
             posted: 'publicou em',
+            registered: 'adicionou à estante',
           }
           return (
             <article key={event.id} className="border-b border-stone-800 px-4 py-4 md:px-5">
@@ -876,12 +917,16 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   )
 }
 
-function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondaryAction, metaLabel }: {
+function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondaryAction, inactiveLabel, onInactiveAction, dangerLabel, onDangerAction, metaLabel }: {
   book: Book
   actionLabel: string
-  onAction: () => void
+  onAction: () => void | Promise<void>
   secondaryLabel?: string
-  onSecondaryAction?: () => void
+  onSecondaryAction?: () => void | Promise<void>
+  inactiveLabel?: string
+  onInactiveAction?: () => void | Promise<void>
+  dangerLabel?: string
+  onDangerAction?: () => void | Promise<void>
   metaLabel?: string
 }) {
   return (
@@ -903,6 +948,16 @@ function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondar
         {secondaryLabel && onSecondaryAction && (
           <button onClick={onSecondaryAction} className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs font-bold text-stone-300 hover:bg-stone-900">
             {secondaryLabel}
+          </button>
+        )}
+        {inactiveLabel && onInactiveAction && (
+          <button onClick={onInactiveAction} className="rounded-lg border border-amber-300/40 px-3 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-300/10">
+            {inactiveLabel}
+          </button>
+        )}
+        {dangerLabel && onDangerAction && (
+          <button onClick={onDangerAction} className="rounded-lg border border-red-400/30 px-3 py-1.5 text-xs font-bold text-red-300 hover:bg-red-400/10">
+            {dangerLabel}
           </button>
         )}
         <button onClick={onAction} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">
@@ -1039,7 +1094,7 @@ function MultiChoicePicker({ title, searchLabel, countLabel, options, selected, 
   )
 }
 
-function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, onClose, onSave, onUploadCover }: {
+function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, onClose, onSave, onUploadCover, includeShelfFields = true }: {
   initialBook?: Book
   initialShelfEntry?: ShelfEntry
   defaultStatus: BookStatus
@@ -1047,6 +1102,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
   onClose: () => void
   onSave: (book: Book, shelfData: Partial<ShelfEntry>) => Promise<void> | void
   onUploadCover: (file: File) => Promise<string>
+  includeShelfFields?: boolean
 }) {
   const [draft, setDraft] = useState<BookFormDraft>(() => draftFromBook(initialBook, defaultStatus, initialShelfEntry))
   const [saving, setSaving] = useState(false)
@@ -1073,9 +1129,9 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
     setError('')
     const totalPages = Math.max(1, totalPagesValue)
     const totalChapters = Math.max(1, totalChaptersValue)
-    const currentPage = Math.max(0, Math.round(numberFromText(draft.currentPage)))
+    const currentPage = includeShelfFields ? Math.max(0, Math.round(numberFromText(draft.currentPage))) : 0
     const progressFromPage = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0
-    const status = draft.status
+    const status = includeShelfFields ? draft.status : 'want'
     const progress = status === 'read' ? 100 : clamp(progressFromPage, 0, 100)
     const book: Book = {
       id: initialBook?.id || `custom-${Date.now()}`,
@@ -1085,6 +1141,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
       totalPages,
       totalChapters,
       chaptersEstimated: initialBook?.chaptersEstimated ?? true,
+      isActive: initialBook?.isActive ?? true,
       source: initialBook?.source || 'manual',
       genres: draft.genres,
       rating: initialBook?.rating || 0,
@@ -1174,16 +1231,16 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
 
           <section className="space-y-4 rounded-lg border border-stone-800 bg-stone-950/50 p-4">
             <div>
-              <h3 className="font-serif text-lg text-stone-100">Leitura e estrutura</h3>
-              <p className="mt-1 text-xs text-stone-500">Defina como o livro entra na sua estante e a estrutura basica da obra.</p>
+              <h3 className="font-serif text-lg text-stone-100">{includeShelfFields ? 'Leitura e estrutura' : 'Estrutura da obra'}</h3>
+              <p className="mt-1 text-xs text-stone-500">{includeShelfFields ? 'Defina como o livro entra na sua estante e a estrutura basica da obra.' : 'Cadastre a estrutura basica para o livro aparecer na Biblioteca.'}</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm font-semibold text-stone-300">Idioma<input value={draft.language} onChange={e => update('language', e.target.value)} placeholder="Portugues, Ingles..." className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Status<select value={draft.status} onChange={e => update('status', e.target.value as BookStatus)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">{(['want', 'reading', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></label>
+              {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Status<select value={draft.status} onChange={e => update('status', e.target.value as BookStatus)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">{(['want', 'reading', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></label>}
               <label className="text-sm font-semibold text-stone-300">Paginas totais *<input type="number" min="1" value={draft.totalPages} onChange={e => update('totalPages', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Pagina atual<input type="number" min="0" value={draft.currentPage} onChange={e => update('currentPage', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Pagina atual<input type="number" min="0" value={draft.currentPage} onChange={e => update('currentPage', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
               <label className="text-sm font-semibold text-stone-300">Capitulos totais *<input type="number" min="1" value={draft.totalChapters} onChange={e => update('totalChapters', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              <label className="text-sm font-semibold text-stone-300">Formato<input value={draft.format} onChange={e => update('format', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Formato<input value={draft.format} onChange={e => update('format', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
             </div>
           </section>
 
@@ -1199,7 +1256,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
   )
 }
 
-function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry, onRemoveShelfEntry, onAddBook, onImportBook, onSearchBooks, onUploadCover }: {
+function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry, onRemoveShelfEntry, onAddBook, onSaveBook, onSearchBooks }: {
   currentUser: User
   shelf: ShelfEntry[]
   books: Book[]
@@ -1207,9 +1264,8 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>) => Promise<void> | void
   onRemoveShelfEntry: (bookId: string) => void
   onAddBook: (bookId: string, status: BookStatus) => Promise<void> | void
-  onImportBook: (book: Book, shelfData: Partial<ShelfEntry>) => Promise<void> | void
+  onSaveBook: (book: Book) => Promise<void> | void
   onSearchBooks: (query: string, field: BookSearchField) => Promise<Book[]>
-  onUploadCover: (file: File) => Promise<string>
 }) {
   const [activeStatus, setActiveStatus] = useState<BookStatus>('reading')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -1221,7 +1277,6 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogError, setCatalogError] = useState('')
   const [bookSearchAttempted, setBookSearchAttempted] = useState(false)
-  const [bookModal, setBookModal] = useState<{ mode: 'new' | 'edit'; book?: Book; shelfEntry?: ShelfEntry } | null>(null)
   const statuses: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
   const myShelf = shelf.filter(s => s.userId === currentUser.id)
   const statusCounts = statuses.reduce((acc, status) => ({ ...acc, [status]: myShelf.filter(entry => entry.status === status).length }), {} as Record<BookStatus, number>)
@@ -1266,14 +1321,6 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     setEditingId(null)
   }
 
-  async function saveBookForm(book: Book, shelfData: Partial<ShelfEntry>) {
-    await onImportBook(book, { ...shelfData, status: shelfData.status || newBookStatus })
-    setBookQuery('')
-    setCatalogResults([])
-    setBookSearchAttempted(false)
-    setActiveStatus(shelfData.status || newBookStatus)
-  }
-
   return (
     <section>
       <Header title="Minha estante">
@@ -1315,9 +1362,6 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
             <select value={newBookStatus} onChange={e => setNewBookStatus(e.target.value as BookStatus)} className="min-w-0 flex-1 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">
               {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
             </select>
-            <button onClick={() => setBookModal({ mode: 'new' })} className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-bold text-stone-300 hover:bg-stone-800">
-              Novo livro
-            </button>
             <button onClick={searchCatalog} disabled={bookQuery.trim().length < 2 || catalogLoading} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">
               {catalogLoading ? 'Buscando...' : 'Buscar'}
             </button>
@@ -1330,26 +1374,27 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                   {catalogResults.map(book => {
                     const shelfEntry = myShelf.find(entry => entry.bookId === book.id)
                     const registeredBook = books.some(item => item.id === book.id)
-                    const secondaryLabel = shelfEntry ? 'Abrir' : registeredBook ? 'Adicionar' : 'Importar'
-                    const metaLabel = shelfEntry ? 'Na estante' : registeredBook ? 'Base do app' : 'API Google Books'
+                    const secondaryLabel = !shelfEntry && registeredBook && book.isActive !== false ? 'Adicionar' : undefined
+                    const metaLabel = book.isActive === false ? 'Inativo' : shelfEntry ? 'Na estante' : registeredBook ? 'Biblioteca' : 'API Google Books'
                     return (
                       <BookSearchRow
                         key={book.id}
                         book={book}
                         metaLabel={metaLabel}
-                        actionLabel="Editar"
-                        onAction={() => setBookModal({ mode: 'edit', book, shelfEntry })}
+                        actionLabel={registeredBook ? 'Abrir' : 'Cadastrar'}
+                        onAction={async () => {
+                          if (registeredBook) {
+                            onBookClick(book.id)
+                          } else {
+                            await onSaveBook(book)
+                            setBookQuery('')
+                            setCatalogResults([])
+                            setBookSearchAttempted(false)
+                          }
+                        }}
                         secondaryLabel={secondaryLabel}
                         onSecondaryAction={() => {
-                          if (shelfEntry) {
-                            onBookClick(book.id)
-                            return
-                          }
-                          if (registeredBook) {
-                            onAddBook(book.id, newBookStatus)
-                          } else {
-                            onImportBook(book, { status: newBookStatus, progress: newBookStatus === 'read' ? 100 : 0 })
-                          }
+                          if (registeredBook) onAddBook(book.id, newBookStatus)
                           setBookQuery('')
                           setCatalogResults([])
                           setBookSearchAttempted(false)
@@ -1475,12 +1520,174 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
         ))}
         {!filtered.length && <div className="sm:col-span-2 xl:col-span-3"><EmptyState text="Nenhum livro nessa categoria ainda." /></div>}
       </div>
+    </section>
+  )
+}
+
+function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSaveBook, onSetBookActive, onDeleteBook, onSearchBooks, onUploadCover }: {
+  currentUser: User
+  shelf: ShelfEntry[]
+  books: Book[]
+  onBookClick: (id: string) => void
+  onAddBook: (bookId: string, status: BookStatus) => Promise<void> | void
+  onSaveBook: (book: Book) => Promise<void> | void
+  onSetBookActive: (bookId: string, active: boolean) => Promise<void> | void
+  onDeleteBook: (bookId: string) => Promise<void> | void
+  onSearchBooks: (query: string, field: BookSearchField) => Promise<Book[]>
+  onUploadCover: (file: File) => Promise<string>
+}) {
+  const [query, setQuery] = useState('')
+  const [searchField, setSearchField] = useState<BookSearchField>('all')
+  const [searchResults, setSearchResults] = useState<Book[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [attempted, setAttempted] = useState(false)
+  const [bookModal, setBookModal] = useState<{ mode: 'new' | 'edit'; book?: Book } | null>(null)
+  const [newBookStatus, setNewBookStatus] = useState<BookStatus>('want')
+  const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
+  const normalizedQuery = query.trim()
+  const visibleBooks = useMemo(() => {
+    const local = normalizedQuery
+      ? books.filter(book => bookMatchesSearch(book, normalizedQuery, searchField))
+      : books
+
+    return mergeBooksById(local, searchResults)
+      .sort((a, b) => a.title.localeCompare(b.title))
+      .slice(0, normalizedQuery ? 30 : 60)
+  }, [books, normalizedQuery, searchField, searchResults])
+
+  async function searchLibrary() {
+    if (normalizedQuery.length < 2) return
+    const localResults = books
+      .filter(book => bookMatchesSearch(book, normalizedQuery, searchField))
+      .slice(0, 12)
+
+    setLoading(true)
+    setError('')
+    setAttempted(true)
+    try {
+      const apiResults = await onSearchBooks(normalizedQuery, searchField)
+      setSearchResults(mergeBooksById(localResults, apiResults))
+    } catch {
+      setSearchResults(localResults)
+      setError(localResults.length ? 'Mostrando resultados da Biblioteca local.' : 'Nao consegui buscar livros agora.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function saveBookForm(book: Book) {
+    await onSaveBook(book)
+    setBookModal(null)
+    setQuery('')
+    setSearchResults([])
+    setAttempted(false)
+  }
+
+  return (
+    <section>
+      <Header title="Biblioteca">
+        <div className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <input
+              value={query}
+              onChange={e => {
+                setQuery(e.target.value)
+                setSearchResults([])
+                setAttempted(false)
+                setError('')
+              }}
+              placeholder="Pesquisar por titulo, autor ou genero"
+              className="min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300"
+            />
+            <button onClick={() => setBookModal({ mode: 'new' })} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
+              Cadastrar livro
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <select value={searchField} onChange={e => {
+              setSearchField(e.target.value as BookSearchField)
+              setSearchResults([])
+              setAttempted(false)
+              setError('')
+            }} className="min-w-28 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">
+              {(Object.keys(BOOK_SEARCH_FIELD_LABELS) as BookSearchField[]).map(field => <option key={field} value={field}>{BOOK_SEARCH_FIELD_LABELS[field]}</option>)}
+            </select>
+            <select value={newBookStatus} onChange={e => setNewBookStatus(e.target.value as BookStatus)} className="min-w-0 flex-1 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">
+              {(['want', 'reading', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
+            </select>
+            <button onClick={searchLibrary} disabled={normalizedQuery.length < 2 || loading} className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-bold text-stone-300 hover:bg-stone-800 disabled:opacity-60">
+              {loading ? 'Buscando...' : 'Buscar'}
+            </button>
+          </div>
+          {error && <p className="mt-3 rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</p>}
+          {attempted && !visibleBooks.length && !loading && !error && <p className="mt-3 text-sm text-stone-500">Nenhum livro encontrado.</p>}
+        </div>
+      </Header>
+
+      <div className="space-y-2 p-4">
+        {visibleBooks.map(book => {
+          const registeredBook = books.some(item => item.id === book.id)
+          const shelfEntry = myShelf.find(entry => entry.bookId === book.id)
+          return (
+            <BookSearchRow
+              key={book.id}
+              book={book}
+              metaLabel={book.isActive === false ? 'Inativo' : shelfEntry ? 'Na estante' : registeredBook ? 'Biblioteca' : 'API Google Books'}
+              actionLabel={registeredBook ? 'Editar' : 'Cadastrar'}
+              onAction={async () => {
+                if (registeredBook) {
+                  setBookModal({ mode: 'edit', book })
+                } else {
+                  await saveBookForm(book)
+                }
+              }}
+              secondaryLabel={registeredBook ? book.isActive === false ? undefined : shelfEntry ? 'Abrir' : 'Adicionar' : undefined}
+              onSecondaryAction={async () => {
+                if (shelfEntry) {
+                  onBookClick(book.id)
+                } else if (registeredBook) {
+                  try {
+                    await onAddBook(book.id, newBookStatus)
+                  } catch (error) {
+                    setError(errorMessage(error, 'Nao foi possivel adicionar este livro a estante.'))
+                  }
+                }
+              }}
+              inactiveLabel={registeredBook ? book.isActive === false ? 'Reativar' : 'Inativar' : undefined}
+              onInactiveAction={async () => {
+                if (!registeredBook) return
+                const nextActive = book.isActive === false
+                const confirmed = nextActive || window.confirm('Inativar este livro? Ele continuara salvo para preservar comentarios.')
+                if (!confirmed) return
+                try {
+                  await onSetBookActive(book.id, nextActive)
+                } catch (error) {
+                  setError(errorMessage(error, nextActive ? 'Nao foi possivel reativar este livro.' : 'Nao foi possivel inativar este livro.'))
+                }
+              }}
+              dangerLabel={registeredBook ? 'Excluir' : undefined}
+              onDangerAction={async () => {
+                if (!registeredBook) return
+                if (!window.confirm('Excluir este livro da Biblioteca? Se ele tiver comentarios, a exclusao sera bloqueada.')) return
+                try {
+                  await onDeleteBook(book.id)
+                } catch (error) {
+                  setError(errorMessage(error, 'Nao foi possivel excluir este livro.'))
+                }
+              }}
+            />
+          )
+        })}
+        {!visibleBooks.length && !attempted && <EmptyState text="Nenhum livro cadastrado na Biblioteca ainda." />}
+      </div>
+
       {bookModal && (
         <BookFormModal
           mode={bookModal.mode}
           initialBook={bookModal.book}
-          initialShelfEntry={bookModal.shelfEntry}
           defaultStatus={newBookStatus}
+          includeShelfFields={false}
           onClose={() => setBookModal(null)}
           onSave={saveBookForm}
           onUploadCover={onUploadCover}
@@ -2020,66 +2227,61 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, posts, 
   )
 }
 
-function NotificationsPage({ currentUser, users, posts, replies, books, onBookClick, onUserClick }: {
-  currentUser: User
+function NotificationsPage({ notifications, users, books, onBookClick, onUserClick }: {
+  notifications: FolioNotification[]
   users: User[]
-  posts: Post[]
-  replies: Reply[]
   books: Book[]
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
 }) {
-  const myPosts = posts.filter(post => post.userId === currentUser.id)
-  const likeNotifications = myPosts.flatMap(post =>
-    post.likes
-      .filter(userId => userId !== currentUser.id)
-      .map(userId => ({ id: `like-${post.id}-${userId}`, type: 'like' as const, userId, post, timestamp: post.timestamp }))
-  )
-  const replyNotifications = replies
-    .map(reply => {
-      const post = myPosts.find(item => item.id === reply.postId)
-      return post && reply.userId !== currentUser.id ? { id: `reply-${reply.id}`, type: 'reply' as const, userId: reply.userId, post, reply, timestamp: reply.timestamp } : null
-    })
-    .filter((item): item is NonNullable<typeof item> => Boolean(item))
-  const notifications = [...replyNotifications, ...likeNotifications].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-
   return (
     <section>
-      <Header title="Avisos">
-        <p className="text-sm text-stone-500">Curtidas e respostas nas suas publicações aparecem aqui.</p>
+      <Header title="Notificações">
+        <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pelo seu capítulo aparecem aqui.</p>
       </Header>
       {notifications.length ? (
         <div>
           {notifications.map(notification => {
             const user = users.find(item => item.id === notification.userId)
-            const book = books.find(item => item.id === notification.post.bookId)
-            if (!user || !book) return null
+            const book = notification.bookId ? books.find(item => item.id === notification.bookId) : null
+            if (!user) return null
+            const textByType: Record<FolioNotification['type'], string> = {
+              follow: 'começou a seguir você',
+              like: 'curtiu sua publicação',
+              reply: 'respondeu seu comentário',
+              book_comment: 'comentou no livro que você está lendo',
+            }
             return (
-              <article key={notification.id} className="border-b border-stone-800 px-4 py-4 md:px-5">
+              <article key={notification.id} className={`border-b border-stone-800 px-4 py-4 md:px-5 ${notification.read ? 'opacity-70' : ''}`}>
                 <div className="flex gap-3">
                   <button onClick={() => onUserClick(user.id)}><Avatar user={user} size="sm" /></button>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-stone-300">
                       <button onClick={() => onUserClick(user.id)} className="font-bold text-stone-100 hover:text-amber-300">{user.name}</button>{' '}
-                      {notification.type === 'like' ? 'curtiu sua publicação em' : 'comentou na sua publicação em'}{' '}
-                      <button onClick={() => onBookClick(book.id)} className="font-bold text-amber-300">{book.title}</button>
+                      {textByType[notification.type]}
+                      {book && (
+                        <>
+                          {' em '}
+                          <button onClick={() => onBookClick(book.id)} className="font-bold text-amber-300">{book.title}</button>
+                        </>
+                      )}
+                      {notification.chapter ? <span className="text-stone-500"> · cap. {notification.chapter}</span> : null}
                     </p>
-                    {'reply' in notification && <p className="mt-2 rounded-lg bg-stone-900 p-3 text-sm text-stone-400">{notification.reply.text}</p>}
-                    {notification.post.text && <p className="mt-2 line-clamp-2 text-xs text-stone-600">Seu post: {notification.post.text}</p>}
+                    {notification.text && <p className="mt-2 rounded-lg bg-stone-900 p-3 text-sm text-stone-400">{notification.text}</p>}
                     <p className="mt-1 text-xs text-stone-600">{formatTime(notification.timestamp)}</p>
                   </div>
+                  {!notification.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-300" />}
                 </div>
               </article>
             )
           })}
         </div>
       ) : (
-        <EmptyState text="Quando alguém curtir ou comentar suas publicações, você verá aqui." />
+        <EmptyState text="Quando houver interações novas, você verá tudo aqui." />
       )}
     </section>
   )
 }
-
 function GoalsPage({ currentUser, shelf, books }: { currentUser: User; shelf: ShelfEntry[]; books: Book[] }) {
   const [goalCount, setGoalCount] = useState(40)
   const [editing, setEditing] = useState(false)
@@ -2391,7 +2593,8 @@ export default function App() {
   const [shelf, setShelf] = useState<ShelfEntry[]>([])
   const [posts, setPosts] = useState<Post[]>([])
   const [replies, setReplies] = useState<Reply[]>([])
-  const [seenNotificationIds, setSeenNotificationIds] = useState<string[]>([])
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([])
+  const [notifications, setNotifications] = useState<FolioNotification[]>([])
   const [loadingApp, setLoadingApp] = useState(Boolean(token))
 
   async function loadBootstrap(activeToken = token) {
@@ -2403,7 +2606,8 @@ export default function App() {
       shelf: ShelfEntry[]
       posts: Post[]
       replies: Reply[]
-      notifications?: { id: string; read: boolean }[]
+      timeline: TimelineEvent[]
+      notifications?: FolioNotification[]
     }>('/folio/bootstrap', {}, activeToken)
 
     setUsers(data.users)
@@ -2411,8 +2615,9 @@ export default function App() {
     setShelf(data.shelf)
     setPosts(data.posts)
     setReplies(data.replies)
+    setTimeline(data.timeline || [])
+    setNotifications(data.notifications || [])
     setCurrentUser(data.users.find(user => user.id === data.currentUserId) || data.users[0] || null)
-    setSeenNotificationIds(data.notifications?.filter(item => item.read).map(item => item.id) || [])
     setLoadingApp(false)
   }
 
@@ -2459,7 +2664,6 @@ export default function App() {
     if (nextPage !== 'book') setSelectedBookId(null)
     if (nextPage === 'profile') setSelectedProfileUserId(currentUser?.id || null)
     if (nextPage === 'notifications') {
-      setSeenNotificationIds(prev => Array.from(new Set([...prev, ...notificationIds])))
       await apiRequest('/folio/notifications/mark-all-read', { method: 'POST' }, token)
       await loadBootstrap()
     }
@@ -2483,19 +2687,24 @@ export default function App() {
     await loadBootstrap()
   }
 
-  async function handleImportBook(book: Book, shelfData: Partial<ShelfEntry>) {
-    const status = shelfData.status || 'reading'
+  async function handleSaveBook(book: Book) {
     await apiRequest('/folio/books', {
       method: 'POST',
       body: JSON.stringify({
         ...book,
-        ...shelfData,
         rating: book.rating,
-        personalRating: shelfData.rating,
-        status,
-        progress: shelfData.progress ?? (status === 'read' ? 100 : 0),
       }),
     }, token)
+    await loadBootstrap()
+  }
+
+  async function handleSetBookActive(bookId: string, active: boolean) {
+    await apiRequest(`/folio/books/${encodeURIComponent(bookId)}/${active ? 'active' : 'inactive'}`, { method: 'PATCH' }, token)
+    await loadBootstrap()
+  }
+
+  async function handleDeleteBook(bookId: string) {
+    await apiRequest(`/folio/books/${encodeURIComponent(bookId)}`, { method: 'DELETE' }, token)
     await loadBootstrap()
   }
 
@@ -2592,16 +2801,7 @@ export default function App() {
 
   const selectedBook = selectedBookId ? books.find(book => book.id === selectedBookId) : null
   const selectedProfileUser = users.find(user => user.id === (selectedProfileUserId || currentUser.id)) || currentUser
-  const myPostIds = posts.filter(post => post.userId === currentUser.id).map(post => post.id)
-  const notificationIds = [
-    ...posts
-      .filter(post => post.userId === currentUser.id)
-      .flatMap(post => post.likes.filter(userId => userId !== currentUser.id).map(userId => `like-${post.id}-${userId}`)),
-    ...replies
-      .filter(reply => myPostIds.includes(reply.postId) && reply.userId !== currentUser.id)
-      .map(reply => `reply-${reply.id}`),
-  ]
-  const notificationCount = notificationIds.filter(id => !seenNotificationIds.includes(id)).length
+  const notificationCount = notifications.filter(notification => !notification.read).length
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100">
@@ -2616,13 +2816,14 @@ export default function App() {
 
       <div className="mx-auto flex max-w-6xl md:pl-60">
         <main className="min-h-screen w-full border-x border-stone-800 pb-24 md:max-w-[680px] md:pb-0">
-          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={[]} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onToggleFollow={handleToggleFollow} />}
-          {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onImportBook={handleImportBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
+          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onToggleFollow={handleToggleFollow} />}
+          {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSearchBooks={handleSearchBooks} />}
+          {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
           {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} onBack={() => setPage('timeline')} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} />}
-          {page === 'notifications' && <NotificationsPage currentUser={currentUser} users={users} posts={posts} replies={replies} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
+          {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
         </main>
 
         <div className="hidden w-80 shrink-0 p-4 lg:block">
