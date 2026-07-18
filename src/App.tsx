@@ -180,7 +180,12 @@ function errorMessage(error: unknown, fallback: string) {
 function resolveMediaUrl(value: string) {
   const url = value.trim()
   if (!url) return ''
-  if (/^(https?:|data:|blob:)/i.test(url)) return url
+  if (/^(data:|blob:)/i.test(url)) return url
+  if (url.startsWith('//')) return `https:${url}`
+  if (/^http:\/\//i.test(url) && window.location.protocol === 'https:') {
+    return url.replace(/^http:\/\//i, 'https://')
+  }
+  if (/^https?:\/\//i.test(url)) return encodeURI(url)
   if (url.startsWith('/assets/') || url.startsWith('/icons/')) return url
   if (url.startsWith('/')) return `${MEDIA_BASE_URL.replace(/\/$/, '')}${url}`
   if (/^(uploads|media|files)\//i.test(url)) return `${MEDIA_BASE_URL.replace(/\/$/, '')}/${url}`
@@ -189,7 +194,7 @@ function resolveMediaUrl(value: string) {
 
 function isMediaUrl(value: string) {
   const url = value.trim()
-  return /^(https?:|data:|blob:|\/|uploads\/|media\/|files\/)/i.test(url)
+  return /^(https?:|data:|blob:|\/\/|\/|uploads\/|media\/|files\/)/i.test(url)
 }
 
 const STATUS_LABELS: Record<BookStatus, string> = {
