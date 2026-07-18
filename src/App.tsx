@@ -3,9 +3,11 @@ import { useEffect, useMemo, useState } from 'react'
 type BookStatus = 'reading' | 'want' | 'read' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
 type Page = 'timeline' | 'shelf' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications'
-type FilterMode = 'percent' | 'chapter'
 type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
+
+const BRAND_NAME = 'Entrelihnas'
+const BRAND_LOGO_URL = '/assets/image/logo/logo.jpeg'
 
 interface User {
   id: string
@@ -387,10 +389,19 @@ function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }
   )
 }
 
-function ProgressBadge({ percent, chapter }: { percent: number; chapter?: number }) {
+function BrandMark({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="flex items-center gap-3">
+      <img src={BRAND_LOGO_URL} alt={BRAND_NAME} className={`${compact ? 'h-9 w-9' : 'h-12 w-12'} rounded-lg object-cover`} />
+      <span className={`${compact ? 'text-xl' : 'text-2xl'} font-serif text-amber-300`}>{BRAND_NAME}</span>
+    </div>
+  )
+}
+
+function ChapterBadge({ chapter }: { chapter?: number }) {
   return (
     <span className="inline-flex shrink-0 items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300">
-      {chapter ? `Cap. ${chapter} · ` : ''}{percent}%
+      {chapter ? `Cap. ${chapter}` : 'Capítulo'}
     </span>
   )
 }
@@ -438,7 +449,9 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
       <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center gap-8 md:grid-cols-[1fr_380px]">
         <section className="space-y-6">
           <div>
-            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-amber-300">Folio</p>
+            <div className="mb-4">
+              <BrandMark />
+            </div>
             <h1 className="max-w-2xl font-serif text-4xl leading-tight text-stone-50 sm:text-5xl">
               Twitter literário para comentar livros sem tomar spoiler.
             </h1>
@@ -554,8 +567,8 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
   return (
     <>
       <aside className="fixed left-0 top-0 z-30 hidden h-full w-60 flex-col border-r border-stone-800 bg-stone-950 px-3 py-5 md:flex">
-        <button onClick={() => onNavigate('timeline')} className="mb-6 px-2 text-left font-serif text-2xl text-amber-300">
-          Folio
+        <button onClick={() => onNavigate('timeline')} className="mb-6 rounded-lg px-2 text-left transition hover:bg-stone-900">
+          <BrandMark compact />
         </button>
         <nav className="flex-1 space-y-1">
           {navItems.map(item => (
@@ -616,12 +629,13 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
   )
 }
 
-function PostCard({ post, users, books, currentUser, replies, onBookClick, onUserClick, onAddReply, onToggleLike, onDeletePost, onDeleteReply, compactBook = false }: {
+function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onDeletePost, onDeleteReply, compactBook = false, protectSpoilers = false }: {
   post: Post
   users: User[]
   books: Book[]
   currentUser: User
   replies: Reply[]
+  shelf?: ShelfEntry[]
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
   onAddReply: (postId: string, text: string) => void
@@ -629,11 +643,24 @@ function PostCard({ post, users, books, currentUser, replies, onBookClick, onUse
   onDeletePost: (postId: string) => void
   onDeleteReply: (replyId: string) => void
   compactBook?: boolean
+  protectSpoilers?: boolean
 }) {
   const [showReplyBox, setShowReplyBox] = useState(false)
   const [replyText, setReplyText] = useState('')
+  const [spoilerAccepted, setSpoilerAccepted] = useState(false)
   const author = users.find(u => u.id === post.userId)!
   const book = books.find(b => b.id === post.bookId)
+  const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === post.bookId)
+  const myChapter = book && myEntry ? chapterFromPercent(book, Math.max(myEntry.progress, 1)) : 0
+  const isOwnPost = post.userId === currentUser.id
+  const spoilerState =
+    !protectSpoilers || isOwnPost ? 'visible' :
+    !myEntry ? 'not-reading' :
+    myEntry.status === 'read' ? 'visible' :
+    post.chapter > myChapter ? 'blocked' :
+    post.chapter === myChapter && !spoilerAccepted ? 'same-chapter' :
+    'visible'
+  const canInteractWithContent = spoilerState === 'visible'
   const relatedReplies = replies.filter(reply => reply.postId === post.id)
   const displayedComments = post.comments + relatedReplies.length
   const liked = post.likes.includes(currentUser.id)
@@ -662,28 +689,47 @@ function PostCard({ post, users, books, currentUser, replies, onBookClick, onUse
               </button>
             )}
           </div>
-          {book && !compactBook && (
+            {book && !compactBook && (
             <button onClick={() => onBookClick(book.id)} className="mb-2 flex max-w-full items-center gap-2 text-left">
               <img src={book.cover} alt={book.title} className="h-8 w-6 shrink-0 rounded object-cover" />
               <span className="truncate text-xs font-semibold text-amber-300">{book.title}</span>
-              <ProgressBadge percent={post.percent} chapter={post.chapter} />
+              <ChapterBadge chapter={post.chapter} />
             </button>
           )}
-          {book && compactBook && <div className="mb-2"><ProgressBadge percent={post.percent} chapter={post.chapter} /></div>}
-          {post.reactionEmoji && <div className="mb-2 text-3xl leading-none">{post.reactionEmoji}</div>}
-          {post.text && <p className="mb-3 text-sm leading-relaxed text-stone-300">{post.text}</p>}
+          {book && compactBook && <div className="mb-2"><ChapterBadge chapter={post.chapter} /></div>}
+          {canInteractWithContent ? (
+            <>
+              {post.reactionEmoji && <div className="mb-2 text-3xl leading-none">{post.reactionEmoji}</div>}
+              {post.text && <p className="mb-3 text-sm leading-relaxed text-stone-300">{post.text}</p>}
+            </>
+          ) : (
+            <div className="mb-3 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3">
+              <p className="text-sm font-bold text-amber-200">
+                {spoilerState === 'not-reading' ? 'Comentário oculto: você ainda não está lendo este livro.' : spoilerState === 'blocked' ? `Comentário oculto: capítulo ${post.chapter}.` : `Comentário do seu capítulo atual (${post.chapter}).`}
+              </p>
+              <p className="mt-1 text-xs text-stone-400">
+                {spoilerState === 'same-chapter' ? 'Pode conter detalhes importantes deste capítulo.' : 'Para evitar spoiler, comentários só aparecem até capítulos já ultrapassados.'}
+              </p>
+              {spoilerState === 'same-chapter' && (
+                <button onClick={() => setSpoilerAccepted(true)} className="mt-3 rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">
+                  Tenho certeza, mostrar
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-5 text-xs">
             <button
-              onClick={() => onToggleLike(post.id)}
-              className={`font-semibold ${liked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}
+              onClick={() => canInteractWithContent && onToggleLike(post.id)}
+              disabled={!canInteractWithContent}
+              className={`font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${liked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}
             >
               {liked ? '♥' : '♡'} {post.likes.length}
             </button>
-            <button onClick={() => setShowReplyBox(value => !value)} className="font-semibold text-stone-500 hover:text-amber-300">
+            <button onClick={() => canInteractWithContent && setShowReplyBox(value => !value)} disabled={!canInteractWithContent} className="font-semibold text-stone-500 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
               comentar {displayedComments}
             </button>
           </div>
-          {showReplyBox && (
+          {showReplyBox && canInteractWithContent && (
             <div className="mt-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
               <textarea
                 value={replyText}
@@ -698,7 +744,7 @@ function PostCard({ post, users, books, currentUser, replies, onBookClick, onUse
               </div>
             </div>
           )}
-          {relatedReplies.length > 0 && (
+          {relatedReplies.length > 0 && canInteractWithContent && (
             <div className="mt-3 space-y-2">
               {relatedReplies.slice(-2).map(reply => {
                 const replyUser = users.find(user => user.id === reply.userId) || currentUser
@@ -725,10 +771,11 @@ function PostCard({ post, users, books, currentUser, replies, onBookClick, onUse
   )
 }
 
-function TimelinePage({ currentUser, users, books, posts, replies, timeline, onBookClick, onUserClick, onAddReply, onToggleLike, onDeletePost, onDeleteReply, onToggleFollow }: {
+function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeline, onBookClick, onUserClick, onAddReply, onToggleLike, onDeletePost, onDeleteReply, onToggleFollow }: {
   currentUser: User
   users: User[]
   books: Book[]
+  shelf: ShelfEntry[]
   posts: Post[]
   replies: Reply[]
   timeline: TimelineEvent[]
@@ -796,7 +843,7 @@ function TimelinePage({ currentUser, users, books, posts, replies, timeline, onB
       </div>
 
       {tab === 'posts' && (
-        feedPosts.length ? feedPosts.map(post => <PostCard key={post.id} post={post} users={users} books={books} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} />) : <EmptyState text="Siga leitores para ver publicações aqui." />
+        feedPosts.length ? feedPosts.map(post => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} protectSpoilers />) : <EmptyState text="Siga leitores para ver publicações aqui." />
       )}
 
       {tab === 'activity' && (
@@ -806,7 +853,7 @@ function TimelinePage({ currentUser, users, books, posts, replies, timeline, onB
           const textByType = {
             started: 'começou a ler',
             finished: 'terminou',
-            progress: `atualizou o progresso para ${event.data?.to}%`,
+            progress: 'atualizou a leitura',
             posted: 'publicou em',
           }
           return (
@@ -1166,7 +1213,6 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
 }) {
   const [activeStatus, setActiveStatus] = useState<BookStatus>('reading')
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [progressInput, setProgressInput] = useState('')
   const [chapterInput, setChapterInput] = useState('')
   const [bookQuery, setBookQuery] = useState('')
   const [bookSearchField, setBookSearchField] = useState<BookSearchField>('all')
@@ -1207,13 +1253,11 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
 
   function startEdit(book: Book, entry: ShelfEntry) {
     setEditingId(book.id)
-    setProgressInput(String(entry.progress))
     setChapterInput(String(chapterFromPercent(book, Math.max(entry.progress, 1))))
   }
 
   function saveProgress(book: Book) {
-    const hasChapter = chapterInput.trim().length > 0
-    const nextProgress = hasChapter ? percentFromChapter(book, Number(chapterInput)) : clamp(Number(progressInput), 0, 100)
+    const nextProgress = percentFromChapter(book, Number(chapterInput))
     onUpdateShelfEntry(book.id, {
       progress: nextProgress,
       status: nextProgress >= 100 ? 'read' : activeStatus === 'read' ? 'reading' : activeStatus,
@@ -1386,37 +1430,22 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
               {entry.status === 'reading' || entry.status === 'rereading' ? (
                 <>
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-300">{entry.progress}% lido</span>
+                    <span className="text-xs font-bold text-amber-300">Cap. {chapterFromPercent(book, Math.max(entry.progress, 1))}</span>
                     <button onClick={() => startEdit(book, entry)} className="text-xs font-semibold text-stone-500 hover:text-stone-200">
                       atualizar
                     </button>
                   </div>
                   {editingId === book.id ? (
                     <div className="grid gap-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={progressInput}
-                          onChange={e => {
-                            setProgressInput(e.target.value)
-                            setChapterInput(String(chapterFromPercent(book, Number(e.target.value))))
-                          }}
-                          placeholder="%"
-                          className="min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
-                        />
+                      <div>
                         <input
                           type="number"
                           min="1"
                           max={book.totalChapters}
                           value={chapterInput}
-                          onChange={e => {
-                            setChapterInput(e.target.value)
-                            setProgressInput(String(percentFromChapter(book, Number(e.target.value))))
-                          }}
+                          onChange={e => setChapterInput(e.target.value)}
                           placeholder="Capítulo"
-                          className="min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+                          className="w-full min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
                         />
                       </div>
                       <button onClick={() => saveProgress(book)} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
@@ -1424,7 +1453,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                       </button>
                     </div>
                   ) : (
-                    <ProgressBar value={entry.progress} />
+                    <p className="text-sm text-stone-500">Leitura no capítulo {chapterFromPercent(book, Math.max(entry.progress, 1))}</p>
                   )}
                 </>
               ) : entry.status === 'read' ? (
@@ -1481,17 +1510,14 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
   const myProgress = myEntry?.progress ?? 0
   const defaultChapter = chapterFromPercent(book, Math.max(myProgress, 1))
-  const [filterMode, setFilterMode] = useState<FilterMode>('percent')
-  const [percentLimit, setPercentLimit] = useState(myProgress || 1)
   const [chapterLimit, setChapterLimit] = useState(defaultChapter)
-  const [progressInput, setProgressInput] = useState(String(myProgress || 1))
   const [chapterInput, setChapterInput] = useState(String(defaultChapter))
   const readers = shelf.filter(entry => entry.bookId === book.id).length
 
   const postsInBook = posts.filter(post => post.bookId === book.id)
-  const comments = postsInBook.filter(post => post.type !== 'theory').sort((a, b) => a.percent - b.percent)
-  const theories = postsInBook.filter(post => post.type === 'theory').sort((a, b) => a.percent - b.percent)
-  const isVisible = (post: Post) => filterMode === 'percent' ? post.percent <= percentLimit : post.chapter <= chapterLimit
+  const comments = postsInBook.filter(post => post.type !== 'theory').sort((a, b) => a.chapter - b.chapter)
+  const theories = postsInBook.filter(post => post.type === 'theory').sort((a, b) => a.chapter - b.chapter)
+  const isVisible = (post: Post) => post.chapter <= chapterLimit
   const activeList = tab === 'theories' ? theories : comments
   const visible = activeList.filter(isVisible)
   const hidden = activeList.filter(post => !isVisible(post))
@@ -1531,28 +1557,12 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
             <div className="mt-4 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <span className="text-xs font-bold uppercase tracking-[0.16em] text-amber-200">Filtro anti-spoiler</span>
-                <span className="text-xs text-stone-400">Seu progresso: {myProgress || 0}%</span>
+                <span className="text-xs text-stone-400">Seu capítulo: {defaultChapter}</span>
               </div>
-              <div className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-center">
-                <div className="grid grid-cols-2 rounded-lg bg-stone-950 p-1">
-                  {([['percent', '%'], ['chapter', 'Capítulo']] as const).map(([id, label]) => (
-                    <button key={id} onClick={() => setFilterMode(id)} className={`rounded-md px-3 py-2 text-xs font-bold ${filterMode === id ? 'bg-amber-300 text-stone-950' : 'text-stone-400'}`}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                {filterMode === 'percent' ? (
-                  <label className="grid gap-2 text-xs text-stone-400">
-                    Mostrar comentários até {percentLimit}%
-                    <input type="range" min="1" max="100" value={percentLimit} onChange={e => setPercentLimit(Number(e.target.value))} className="accent-amber-300" />
-                  </label>
-                ) : (
-                  <label className="grid gap-2 text-xs text-stone-400">
-                    Mostrar comentários até o capítulo {chapterLimit}
-                    <input type="range" min="1" max={book.totalChapters} value={chapterLimit} onChange={e => setChapterLimit(Number(e.target.value))} className="accent-amber-300" />
-                  </label>
-                )}
-              </div>
+              <label className="grid gap-2 text-xs text-stone-400">
+                Mostrar comentários até o capítulo {chapterLimit}
+                <input type="range" min="1" max={book.totalChapters} value={chapterLimit} onChange={e => setChapterLimit(Number(e.target.value))} className="accent-amber-300" />
+              </label>
             </div>
             <div className="mt-3 rounded-lg border border-stone-800 bg-stone-900 p-3">
               {myEntry ? (
@@ -1568,9 +1578,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                           endDate: status === 'read' ? new Date().toISOString().slice(0, 10) : undefined,
                         })
                         if (status === 'read') {
-                          setProgressInput('100')
                           setChapterInput(String(book.totalChapters))
-                          setPercentLimit(100)
                           setChapterLimit(book.totalChapters)
                         }
                       }}
@@ -1600,39 +1608,23 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                     )}
                   </div>
                   {(myEntry.status === 'reading' || myEntry.status === 'rereading') && (
-                    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={progressInput}
-                        onChange={e => {
-                          setProgressInput(e.target.value)
-                          setChapterInput(String(chapterFromPercent(book, Number(e.target.value))))
-                        }}
-                        className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
-                        aria-label="Porcentagem lida"
-                      />
+                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
                       <input
                         type="number"
                         min="1"
                         max={book.totalChapters}
                         value={chapterInput}
-                        onChange={e => {
-                          setChapterInput(e.target.value)
-                          setProgressInput(String(percentFromChapter(book, Number(e.target.value))))
-                        }}
+                        onChange={e => setChapterInput(e.target.value)}
                         className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
                         aria-label="Capítulo atual"
                       />
                       <button onClick={() => {
-                        const nextProgress = clamp(Number(progressInput), 0, 100)
+                        const nextProgress = percentFromChapter(book, Number(chapterInput))
                         onUpdateShelfEntry(book.id, {
                           progress: nextProgress,
                           status: nextProgress >= 100 ? 'read' : myEntry.status,
                           endDate: nextProgress >= 100 ? new Date().toISOString().slice(0, 10) : undefined,
                         })
-                        setPercentLimit(nextProgress || 1)
                         setChapterLimit(chapterFromPercent(book, Math.max(nextProgress, 1)))
                       }} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
                         Atualizar
@@ -1727,7 +1719,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
       ) : (
         <div>
           {!visible.length && !hidden.length && <EmptyState text={tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
-          {visible.map(post => <PostCard key={post.id} post={post} users={users} books={[book]} currentUser={currentUser} replies={replies} onBookClick={() => {}} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} compactBook />)}
+          {visible.map(post => <PostCard key={post.id} post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => {}} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} compactBook protectSpoilers />)}
           {hidden.length > 0 && (
             <div className="m-4 rounded-lg border border-stone-800 bg-stone-900 p-5 text-center">
               <div className="mb-2 text-3xl">🔒</div>
@@ -1921,9 +1913,9 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
               <div className="min-w-0 flex-1">
                 <div className="mb-1 flex flex-wrap items-center gap-2">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
-                  {entry.status === 'reading' || entry.status === 'rereading' ? <ProgressBadge percent={entry.progress} chapter={chapterFromPercent(book, Math.max(entry.progress, 1))} /> : null}
+                  {entry.status === 'reading' || entry.status === 'rereading' ? <ChapterBadge chapter={chapterFromPercent(book, Math.max(entry.progress, 1))} /> : null}
                 </div>
-                <p className="mb-2 text-xs text-stone-500">{book.author} · {entry.progress}% lido</p>
+                <p className="mb-2 text-xs text-stone-500">{book.author}{entry.status === 'reading' || entry.status === 'rereading' ? ` · Cap. ${chapterFromPercent(book, Math.max(entry.progress, 1))}` : ''}</p>
                 {entry.status === 'read' && (
                   <p className="text-xs font-bold text-stone-300">
                     <span className="text-amber-300">{ratingText(entry.rating)}</span>
@@ -2159,9 +2151,9 @@ function GoalsPage({ currentUser, shelf, books }: { currentUser: User; shelf: Sh
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
                   <p className="mb-2 text-xs text-stone-500">{book.author}</p>
-                  <ProgressBar value={entry.progress} />
+                  <p className="text-xs text-stone-500">Cap. {chapterFromPercent(book, Math.max(entry.progress, 1))}</p>
                 </div>
-                <span className="text-sm font-bold text-amber-300">{entry.progress}%</span>
+                <span className="text-sm font-bold text-amber-300">Cap. {chapterFromPercent(book, Math.max(entry.progress, 1))}</span>
               </div>
             ))}
           </div>
@@ -2189,7 +2181,6 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
   const [postType, setPostType] = useState<PostType>('comment')
   const [text, setText] = useState('')
   const [reactionEmoji, setReactionEmoji] = useState('🤯')
-  const [percent, setPercent] = useState(defaultPercent)
   const [chapter, setChapter] = useState(selectedBook ? chapterFromPercent(selectedBook, defaultPercent) : 1)
   const emojis = ['😭', '🤯', '♥', '😂', '😡', '🔥', '💔', '😱', '🥹', '👏']
   const canPost = selectedBook && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0)
@@ -2199,26 +2190,18 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
     const nextEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === bookId)
     const nextPercent = nextEntry?.progress || 1
     setSelectedBookId(bookId)
-    setPercent(nextPercent)
     setChapter(nextBook ? chapterFromPercent(nextBook, nextPercent) : 1)
-  }
-
-  function handlePercentChange(value: number) {
-    if (!selectedBook) return
-    const next = clamp(value, 1, 100)
-    setPercent(next)
-    setChapter(chapterFromPercent(selectedBook, next))
   }
 
   function handleChapterChange(value: number) {
     if (!selectedBook) return
     const next = clamp(value, 1, selectedBook.totalChapters)
     setChapter(next)
-    setPercent(percentFromChapter(selectedBook, next))
   }
 
   function handlePost() {
     if (!canPost || !selectedBook) return
+    const percent = percentFromChapter(selectedBook, chapter)
     onPost({
       id: `p${Date.now()}`,
       userId: currentUser.id,
@@ -2256,11 +2239,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
               </label>
 
               {selectedBook && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="text-sm font-semibold text-stone-300">
-                    Porcentagem
-                    <input type="number" min="1" max="100" value={percent} onChange={e => handlePercentChange(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300" />
-                  </label>
+                <div>
                   <label className="text-sm font-semibold text-stone-300">
                     Capítulo
                     <input type="number" min="1" max={selectedBook.totalChapters} value={chapter} onChange={e => handleChapterChange(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300" />
@@ -2364,7 +2343,7 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
       <div className="rounded-lg border border-stone-800 bg-stone-900 p-4">
         <h2 className="mb-3 font-serif text-base text-stone-100">Proteção ativa</h2>
         <p className="text-sm leading-relaxed text-stone-400">
-          Nos feeds de obra, o leitor escolhe capítulo ou porcentagem e só vê publicações até aquele ponto.
+          Nos feeds de obra, comentários são liberados por capítulo para reduzir spoilers.
         </p>
       </div>
       {currentlyReading.length > 0 && (
@@ -2376,8 +2355,7 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
                 <img src={book.cover} alt={book.title} className="h-14 w-10 rounded object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
-                  <p className="mb-1 text-xs text-stone-500">{entry.progress}% lido</p>
-                  <ProgressBar value={entry.progress} />
+                  <p className="mb-1 text-xs text-stone-500">Cap. {chapterFromPercent(book, Math.max(entry.progress, 1))}</p>
                 </div>
               </button>
             ))}
@@ -2603,7 +2581,12 @@ export default function App() {
   }
 
   if (!currentUser) {
-    if (loadingApp) return <div className="flex min-h-screen items-center justify-center bg-stone-950 text-sm text-stone-400">Carregando Folio...</div>
+    if (loadingApp) return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-stone-950 text-sm text-stone-400">
+        <BrandMark />
+        <span>Carregando {BRAND_NAME}...</span>
+      </div>
+    )
     return <LoginPage onLogin={handleLogin} />
   }
 
@@ -2633,7 +2616,7 @@ export default function App() {
 
       <div className="mx-auto flex max-w-6xl md:pl-60">
         <main className="min-h-screen w-full border-x border-stone-800 pb-24 md:max-w-[680px] md:pb-0">
-          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} posts={posts} replies={replies} timeline={[]} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onToggleFollow={handleToggleFollow} />}
+          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={[]} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onToggleFollow={handleToggleFollow} />}
           {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onImportBook={handleImportBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
           {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} onBack={() => setPage('timeline')} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
