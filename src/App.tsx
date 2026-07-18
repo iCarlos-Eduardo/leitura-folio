@@ -456,6 +456,13 @@ function ratingSummaryText(rating?: number, ratingCount = 0) {
   return `★ ${ratingValue} (${ratingCount} ${countLabel})`
 }
 
+function spiceSummaryText(rating?: number, ratingCount = 0) {
+  if (!rating || !ratingCount) return 'Sem pimenta'
+  const ratingValue = Number.isInteger(rating) ? String(rating) : rating.toFixed(1)
+  const countLabel = ratingCount === 1 ? 'avaliação' : 'avaliações'
+  return `🌶 ${ratingValue} (${ratingCount} ${countLabel})`
+}
+
 function bookRatingText(book: Pick<Book, 'rating' | 'ratingCount'>) {
   return ratingSummaryText(book.rating, book.ratingCount || 0)
 }
@@ -1970,10 +1977,17 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   const ratings = shelf
     .filter(entry => entry.bookId === book.id && typeof entry.rating === 'number' && entry.rating > 0)
     .map(entry => entry.rating!)
+  const spiceRatings = shelf
+    .filter(entry => entry.bookId === book.id && typeof entry.spiceRating === 'number' && entry.spiceRating > 0)
+    .map(entry => entry.spiceRating!)
   const averageRating = ratings.length
     ? ratings.reduce((total, rating) => total + rating, 0) / ratings.length
     : undefined
+  const averageSpiceRating = spiceRatings.length
+    ? spiceRatings.reduce((total, rating) => total + rating, 0) / spiceRatings.length
+    : undefined
   const platformRating = ratingSummaryText(averageRating, ratings.length)
+  const platformSpiceRating = spiceSummaryText(averageSpiceRating, spiceRatings.length)
 
   const postsInBook = posts.filter(post => post.bookId === book.id)
   const comments = postsInBook.filter(post => post.type !== 'theory').sort((a, b) => a.chapter - b.chapter)
@@ -1990,7 +2004,6 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
     ['Origem', book.source === 'googlebooks' ? 'Google Books' : book.source === 'manual' ? 'Cadastro manual' : book.source || 'Não informado'],
   ]
   const tropeList = book.tropes || []
-  const tagList = book.tags || []
 
   return (
     <section>
@@ -2009,6 +2022,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
             <p className="mt-1 text-sm text-stone-400">{book.author}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-stone-500">
               <span className="font-bold text-amber-300">{platformRating}</span>
+              <span className="font-bold text-red-300">{platformSpiceRating}</span>
               <span>{book.totalPages} páginas</span>
               <span>{book.totalChapters} capítulos{book.chaptersEstimated ? ' estimados' : ''}</span>
               <span>{readers} leitores</span>
@@ -2131,7 +2145,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
               </div>
             ))}
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <h3 className="mb-2 text-sm font-bold text-stone-200">Gêneros</h3>
               <div className="flex flex-wrap gap-2">
@@ -2144,18 +2158,13 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                 {tropeList.length ? tropeList.map(trope => <span key={trope} className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-1 text-xs text-amber-200">{trope}</span>) : <span className="text-sm text-stone-500">Não informado</span>}
               </div>
             </div>
-            <div>
-              <h3 className="mb-2 text-sm font-bold text-stone-200">Tags</h3>
-              <div className="flex flex-wrap gap-2">
-                {tagList.length ? tagList.map(tag => <span key={tag} className="rounded-full border border-stone-700 bg-stone-900 px-2 py-1 text-xs text-stone-300">{tag}</span>) : <span className="text-sm text-stone-500">Não informado</span>}
-              </div>
-            </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               ['Páginas', book.totalPages],
               [book.chaptersEstimated ? 'Capítulos estimados' : 'Capítulos', book.totalChapters],
               ['Avaliação', platformRating],
+              ['Hot', platformSpiceRating],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-stone-800 bg-stone-900 p-3 text-center">
                 <div className="font-serif text-xl text-amber-300">{value}</div>
