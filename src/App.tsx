@@ -82,7 +82,7 @@ interface Post {
   bookId: string
   chapter: number
   percent: number
-  text?: string
+  text?: string | null
   reactionEmoji?: string
   type: PostType
   timestamp: string
@@ -179,8 +179,8 @@ function errorMessage(error: unknown, fallback: string) {
   }
 }
 
-function resolveMediaUrl(value: string) {
-  const url = value.trim()
+function resolveMediaUrl(value?: string | null) {
+  const url = (value || '').trim()
   if (!url) return ''
   if (/^(data:|blob:)/i.test(url)) return url
   if (url.startsWith('//')) return `https:${url}`
@@ -194,15 +194,16 @@ function resolveMediaUrl(value: string) {
   return url
 }
 
-function isMediaUrl(value: string) {
-  const url = value.trim()
+function isMediaUrl(value?: string | null) {
+  const url = (value || '').trim()
   return /^(https?:|data:|blob:|\/\/|\/|uploads\/|media\/|files\/)/i.test(url)
 }
 
-function postTextParts(text = '') {
-  const lines = text.split('\n')
+function postTextParts(text?: string | null) {
+  const rawText = text || ''
+  const lines = rawText.split('\n')
   const markerIndex = lines.findIndex(line => line.startsWith(POST_IMAGE_MARKER))
-  if (markerIndex < 0) return { text: text.trim(), imageUrl: '' }
+  if (markerIndex < 0) return { text: rawText.trim(), imageUrl: '' }
 
   const imageUrl = lines[markerIndex].slice(POST_IMAGE_MARKER.length).trim()
   const visibleText = lines.filter((_, index) => index !== markerIndex).join('\n').trim()
