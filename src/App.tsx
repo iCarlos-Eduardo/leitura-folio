@@ -121,6 +121,7 @@ interface FolioNotification {
 }
 
 interface ReadingGoal {
+  targetBooks: number
   targetDays: number
   checkIns: string[]
   currentStreak: number
@@ -185,7 +186,8 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function chapterFromPercent(book: Book, percent: number) {
-  return clamp(Math.ceil((book.totalChapters * percent) / 100), 1, book.totalChapters)
+  if (percent <= 0) return 1
+  return clamp(Math.floor((book.totalChapters * percent) / 100), 1, book.totalChapters)
 }
 
 function percentFromChapter(book: Book, chapter: number) {
@@ -782,7 +784,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const author = users.find(u => u.id === post.userId)!
   const book = books.find(b => b.id === post.bookId)
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === post.bookId)
-  const myChapter = book && myEntry ? chapterFromPercent(book, Math.max(myEntry.progress, 1)) : 0
+  const myChapter = book && myEntry ? chapterFromPercent(book, myEntry.progress) : 0
+  const contentLabel = post.type === 'theory' ? 'Teoria' : 'Comentário'
   const isOwnPost = post.userId === currentUser.id
   const spoilerState =
     !protectSpoilers || isOwnPost ? 'visible' :
@@ -838,7 +841,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           ) : (
             <div className="mb-3 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3">
               <p className="text-sm font-bold text-amber-200">
-                {spoilerState === 'not-reading' ? 'Comentário oculto: você ainda não está lendo este livro.' : spoilerState === 'blocked' ? `Comentário oculto: capítulo ${post.chapter}.` : `Comentário do seu capítulo atual (${post.chapter}).`}
+                {spoilerState === 'not-reading' ? `${contentLabel} oculto: você ainda não está lendo este livro.` : spoilerState === 'blocked' ? `${contentLabel} oculto: capítulo ${post.chapter}.` : `${contentLabel} do seu capítulo atual (${post.chapter}).`}
               </p>
               <p className="mt-1 text-xs text-stone-400">
                 {spoilerState === 'same-chapter' ? 'Pode conter detalhes importantes deste capítulo.' : 'Para evitar spoiler, comentários só aparecem até capítulos já ultrapassados.'}
@@ -941,7 +944,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
         const entry = shelf.find(item => item.userId === currentUser.id && item.bookId === post.bookId)
         if (!entry) return false
         if (entry.status === 'read' || entry.status === 'rereading') return true
-        const myChapter = chapterFromPercent(book, Math.max(entry.progress, 1))
+        const myChapter = chapterFromPercent(book, entry.progress)
         return post.chapter <= myChapter
       })
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
@@ -1435,7 +1438,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
 
   function startEdit(book: Book, entry: ShelfEntry) {
     setEditingId(book.id)
-    setChapterInput(String(chapterFromPercent(book, Math.max(entry.progress, 1))))
+    setChapterInput(String(chapterFromPercent(book, entry.progress)))
   }
 
   function saveProgress(book: Book) {
@@ -1596,13 +1599,13 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     </select>
                   </div>
                 ) : (
-                  <span className="rounded-lg border border-stone-800 px-2 py-2 text-xs text-stone-500">Cap. {chapterFromPercent(book, Math.max(entry.progress, 1))}</span>
+                  <span className="rounded-lg border border-stone-800 px-2 py-2 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</span>
                 )}
               </div>
               {entry.status === 'reading' || entry.status === 'rereading' ? (
                 <>
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-300">Cap. {chapterFromPercent(book, Math.max(entry.progress, 1))}</span>
+                    <span className="text-xs font-bold text-amber-300">Cap. {chapterFromPercent(book, entry.progress)}</span>
                     <button onClick={() => startEdit(book, entry)} className="text-xs font-semibold text-stone-500 hover:text-stone-200">
                       atualizar
                     </button>
@@ -1625,7 +1628,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                       </button>
                     </div>
                   ) : (
-                    <p className="text-sm text-stone-500">Leitura no capítulo {chapterFromPercent(book, Math.max(entry.progress, 1))}</p>
+                    <p className="text-sm text-stone-500">Leitura no capítulo {chapterFromPercent(book, entry.progress)}</p>
                   )}
                 </>
               ) : canRateStatus(entry.status) ? (
@@ -1845,7 +1848,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
   const myProgress = myEntry?.progress ?? 0
   const hasFullBookAccess = myEntry?.status === 'read' || myEntry?.status === 'rereading'
-  const defaultChapter = hasFullBookAccess ? book.totalChapters : chapterFromPercent(book, Math.max(myProgress, 1))
+  const defaultChapter = hasFullBookAccess ? book.totalChapters : chapterFromPercent(book, myProgress)
   const [chapterLimit, setChapterLimit] = useState(defaultChapter)
   const [chapterInput, setChapterInput] = useState(String(defaultChapter))
   const readers = shelf.filter(entry => entry.bookId === book.id).length
@@ -1969,7 +1972,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                           status: nextProgress >= 100 ? 'read' : myEntry.status,
                           endDate: nextProgress >= 100 ? new Date().toISOString().slice(0, 10) : undefined,
                         })
-                        setChapterLimit(chapterFromPercent(book, Math.max(nextProgress, 1)))
+                        setChapterLimit(chapterFromPercent(book, nextProgress))
                       }} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
                         Atualizar
                       </button>
@@ -2275,9 +2278,9 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
               <div className="min-w-0 flex-1">
                 <div className="mb-1 flex flex-wrap items-center gap-2">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
-                  {entry.status === 'reading' || entry.status === 'rereading' ? <ChapterBadge chapter={chapterFromPercent(book, Math.max(entry.progress, 1))} /> : null}
+                  {entry.status === 'reading' || entry.status === 'rereading' ? <ChapterBadge chapter={chapterFromPercent(book, entry.progress)} /> : null}
                 </div>
-                <p className="mb-2 text-xs text-stone-500">{book.author}{entry.status === 'reading' || entry.status === 'rereading' ? ` · Cap. ${chapterFromPercent(book, Math.max(entry.progress, 1))}` : ''}</p>
+                <p className="mb-2 text-xs text-stone-500">{book.author}{entry.status === 'reading' || entry.status === 'rereading' ? ` · Cap. ${chapterFromPercent(book, entry.progress)}` : ''}</p>
                 {canRateStatus(entry.status) && (
                   <p className="text-xs font-bold text-stone-300">
                     <span className="text-amber-300">{ratingText(entry.rating)}</span>
@@ -2442,18 +2445,17 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   shelf: ShelfEntry[]
   books: Book[]
   readingGoal: ReadingGoal
-  onUpdateReadingGoal: (targetDays: number) => Promise<void> | void
+  onUpdateReadingGoal: (changes: { targetBooks?: number; targetDays?: number }) => Promise<void> | void
   onToggleReadingCheckIn: () => Promise<void> | void
 }) {
-  const [goalCount, setGoalCount] = useState(40)
   const [editing, setEditing] = useState(false)
-  const [inputVal, setInputVal] = useState('40')
+  const [inputVal, setInputVal] = useState(String(readingGoal.targetBooks || 40))
   const [editingDays, setEditingDays] = useState(false)
   const [dayInputVal, setDayInputVal] = useState(String(readingGoal.targetDays || 120))
   const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
   const readThisYear = myShelf.filter(entry => entry.status === 'read').length
-  const progress = Math.min(100, Math.round((readThisYear / goalCount) * 100))
-  const remaining = Math.max(0, goalCount - readThisYear)
+  const progress = Math.min(100, Math.round((readThisYear / Math.max(1, readingGoal.targetBooks)) * 100))
+  const remaining = Math.max(0, readingGoal.targetBooks - readThisYear)
   const dayProgress = Math.min(100, Math.round((readingGoal.checkIns.length / Math.max(1, readingGoal.targetDays)) * 100))
   const remainingDays = Math.max(0, readingGoal.targetDays - readingGoal.checkIns.length)
   const currentlyReading = myShelf
@@ -2479,25 +2481,30 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
               <h2 className="font-serif text-xl text-stone-100">Meta anual</h2>
-              <p className="text-sm text-stone-500">Organize sua vida de leitura como no Skoob, sem perder o lado social.</p>
+              <p className="text-sm text-stone-500">Organize sua vida de leitura, sem perder o lado social.</p>
             </div>
             {editing ? (
               <div className="flex gap-2">
                 <input value={inputVal} onChange={e => setInputVal(e.target.value)} type="number" className="w-20 rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-center text-sm text-stone-100 outline-none focus:border-amber-300" />
-                <button onClick={() => {
-                  setGoalCount(clamp(Number(inputVal), 1, 999))
+                <button onClick={async () => {
+                  const targetBooks = clamp(Number(inputVal), 1, 999)
+                  await onUpdateReadingGoal({ targetBooks })
+                  setInputVal(String(targetBooks))
                   setEditing(false)
                 }} className="rounded-lg bg-amber-300 px-3 text-sm font-bold text-stone-950">
                   OK
                 </button>
               </div>
             ) : (
-              <button onClick={() => setEditing(true)} className="text-sm font-bold text-amber-300">Editar</button>
+              <button onClick={() => {
+                setInputVal(String(readingGoal.targetBooks))
+                setEditing(true)
+              }} className="text-sm font-bold text-amber-300">Editar</button>
             )}
           </div>
           <div className="mb-4 flex items-end gap-3">
             <span className="font-serif text-6xl leading-none text-amber-300">{readThisYear}</span>
-            <span className="pb-2 text-sm text-stone-400">de {goalCount} livros</span>
+            <span className="pb-2 text-sm text-stone-400">de {readingGoal.targetBooks} livros</span>
           </div>
           <ProgressBar value={progress} />
           <div className="mt-2 flex justify-between text-xs text-stone-500">
@@ -2517,7 +2524,7 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
                 <input value={dayInputVal} onChange={e => setDayInputVal(e.target.value)} type="number" className="w-20 rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-center text-sm text-stone-100 outline-none focus:border-amber-300" />
                 <button onClick={async () => {
                   const targetDays = clamp(Number(dayInputVal), 1, 366)
-                  await onUpdateReadingGoal(targetDays)
+                  await onUpdateReadingGoal({ targetDays })
                   setDayInputVal(String(targetDays))
                   setEditingDays(false)
                 }} className="rounded-lg bg-amber-300 px-3 text-sm font-bold text-stone-950">
@@ -2588,9 +2595,9 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
                   <p className="mb-2 text-xs text-stone-500">{book.author}</p>
-                  <p className="text-xs text-stone-500">Cap. {chapterFromPercent(book, Math.max(entry.progress, 1))}</p>
+                  <p className="text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</p>
                 </div>
-                <span className="text-sm font-bold text-amber-300">Cap. {chapterFromPercent(book, Math.max(entry.progress, 1))}</span>
+                <span className="text-sm font-bold text-amber-300">Cap. {chapterFromPercent(book, entry.progress)}</span>
               </div>
             ))}
           </div>
@@ -2614,36 +2621,41 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
   const [selectedBookId, setSelectedBookId] = useState(myBooks[0]?.book.id || '')
   const selectedBook = books.find(book => book.id === selectedBookId) || myBooks[0]?.book
   const selectedEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === selectedBookId)
-  const defaultPercent = selectedEntry?.status === 'read' ? 100 : selectedEntry?.progress || 1
+  const defaultPercent = selectedEntry?.status === 'read' ? 100 : selectedEntry?.progress ?? 0
   const [postType, setPostType] = useState<PostType>('comment')
   const [text, setText] = useState('')
   const [reactionEmoji, setReactionEmoji] = useState('🤯')
-  const [chapter, setChapter] = useState(selectedBook ? chapterFromPercent(selectedBook, defaultPercent) : 1)
+  const [chapter, setChapter] = useState(selectedBook ? String(chapterFromPercent(selectedBook, defaultPercent)) : '1')
   const emojis = ['😭', '🤯', '♥', '😂', '😡', '🔥', '💔', '😱', '🥹', '👏']
-  const canPost = selectedBook && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0)
+  const canPost = selectedBook && chapter !== '' && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0)
 
   function handleBookChange(bookId: string) {
     const nextBook = books.find(book => book.id === bookId)
     const nextEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === bookId)
-    const nextPercent = nextEntry?.status === 'read' ? 100 : nextEntry?.progress || 1
+    const nextPercent = nextEntry?.status === 'read' ? 100 : nextEntry?.progress ?? 0
     setSelectedBookId(bookId)
-    setChapter(nextBook ? chapterFromPercent(nextBook, nextPercent) : 1)
+    setChapter(nextBook ? String(chapterFromPercent(nextBook, nextPercent)) : '1')
   }
 
-  function handleChapterChange(value: number) {
+  function handleChapterChange(value: string) {
     if (!selectedBook) return
-    const next = clamp(value, 1, selectedBook.totalChapters)
-    setChapter(next)
+    if (value === '') {
+      setChapter('')
+      return
+    }
+    const next = clamp(Number(value), 1, selectedBook.totalChapters)
+    setChapter(String(next))
   }
 
   function handlePost() {
     if (!canPost || !selectedBook) return
-    const percent = percentFromChapter(selectedBook, chapter)
+    const selectedChapter = clamp(Number(chapter), 1, selectedBook.totalChapters)
+    const percent = percentFromChapter(selectedBook, selectedChapter)
     onPost({
       id: `p${Date.now()}`,
       userId: currentUser.id,
       bookId: selectedBook.id,
-      chapter,
+      chapter: selectedChapter,
       percent,
       text: postType === 'reaction' ? undefined : text.trim(),
       reactionEmoji: postType === 'reaction' ? reactionEmoji : undefined,
@@ -2679,7 +2691,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost }: {
                 <div>
                   <label className="text-sm font-semibold text-stone-300">
                     Capítulo
-                    <input type="number" min="1" max={selectedBook.totalChapters} value={chapter} onChange={e => handleChapterChange(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300" />
+                    <input type="number" min="1" max={selectedBook.totalChapters} value={chapter} onChange={e => handleChapterChange(e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300" />
                   </label>
                 </div>
               )}
@@ -2792,7 +2804,7 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
                 <img src={book.cover} alt={book.title} className="h-14 w-10 rounded object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
-                  <p className="mb-1 text-xs text-stone-500">Cap. {chapterFromPercent(book, Math.max(entry.progress, 1))}</p>
+                  <p className="mb-1 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</p>
                 </div>
               </button>
             ))}
@@ -2835,7 +2847,7 @@ export default function App() {
   const [replies, setReplies] = useState<Reply[]>([])
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
   const [notifications, setNotifications] = useState<FolioNotification[]>([])
-  const [readingGoal, setReadingGoal] = useState<ReadingGoal>({ targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
+  const [readingGoal, setReadingGoal] = useState<ReadingGoal>({ targetBooks: 40, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
   const [loadingApp, setLoadingApp] = useState(Boolean(token))
 
   async function loadBootstrap(activeToken = token) {
@@ -2859,7 +2871,7 @@ export default function App() {
     setReplies(data.replies)
     setTimeline(data.timeline || [])
     setNotifications(data.notifications || [])
-    setReadingGoal(data.readingGoal || { targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
+    setReadingGoal(data.readingGoal || { targetBooks: 40, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
     setCurrentUser(data.users.find(user => user.id === data.currentUserId) || data.users[0] || null)
     setLoadingApp(false)
   }
@@ -3043,8 +3055,8 @@ export default function App() {
     await loadBootstrap()
   }
 
-  async function handleUpdateReadingGoal(targetDays: number) {
-    await apiRequest('/folio/reading-goal', { method: 'PATCH', body: JSON.stringify({ targetDays }) }, token)
+  async function handleUpdateReadingGoal(changes: { targetBooks?: number; targetDays?: number }) {
+    await apiRequest('/folio/reading-goal', { method: 'PATCH', body: JSON.stringify(changes) }, token)
     await loadBootstrap()
   }
 
@@ -3120,3 +3132,4 @@ export default function App() {
     </div>
   )
 }
+
