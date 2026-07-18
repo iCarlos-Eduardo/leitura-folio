@@ -416,8 +416,8 @@ function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }
 function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <img src={BRAND_LOGO_URL} alt={BRAND_NAME} className={`${compact ? 'h-9 w-9' : 'h-12 w-12'} rounded-lg object-cover`} />
-      <span className={`${compact ? 'text-xl' : 'text-2xl'} font-serif text-amber-300`}>{BRAND_NAME}</span>
+      <img src={BRAND_LOGO_URL} alt={BRAND_NAME} className={`${compact ? 'h-9 w-9' : 'h-20 w-20'} rounded-lg object-cover`} />
+      <span className={`${compact ? 'text-xl' : 'text-3xl'} font-serif text-amber-300`}>{BRAND_NAME}</span>
     </div>
   )
 }
@@ -471,7 +471,7 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
   return (
     <main className="min-h-screen bg-stone-950 px-4 py-8 text-stone-100">
       <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center gap-8 md:grid-cols-[1fr_380px]">
-        <section className="space-y-6">
+        <section className="order-2 space-y-6 md:order-1">
           <div>
             <div className="mb-4">
               <BrandMark />
@@ -489,7 +489,7 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
           </div>
         </section>
 
-        <form onSubmit={handleSubmit} className="rounded-lg border border-stone-800 bg-stone-900 p-5 shadow-2xl shadow-black/30 sm:p-7">
+        <form onSubmit={handleSubmit} className="order-1 rounded-lg border border-stone-800 bg-stone-900 p-5 shadow-2xl shadow-black/30 sm:p-7 md:order-2">
           <div className="mb-6">
             <h2 className="font-serif text-2xl text-stone-50">{mode === 'login' ? 'Entrar' : 'Criar conta'}</h2>
             <p className="mt-1 text-sm text-stone-400">Agora conectado à API e ao Postgres do servidor.</p>
@@ -572,6 +572,31 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
   )
 }
 
+type NavIconName = 'home' | 'library' | 'goals' | 'notifications' | 'shelf' | 'profile'
+
+function NavIcon({ name }: { name: NavIconName }) {
+  const common = {
+    className: 'h-5 w-5',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.9,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    viewBox: '0 0 24 24',
+    'aria-hidden': true,
+  }
+  const paths: Record<NavIconName, React.ReactNode> = {
+    home: <><path d="M4 10.5 12 4l8 6.5" /><path d="M6.5 9.5V20h11V9.5" /><path d="M10 20v-6h4v6" /></>,
+    library: <><path d="M5 5.5h4.5A3.5 3.5 0 0 1 13 9v10.5A3.5 3.5 0 0 0 9.5 16H5z" /><path d="M19 5.5h-4.5A3.5 3.5 0 0 0 11 9v10.5a3.5 3.5 0 0 1 3.5-3.5H19z" /></>,
+    goals: <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r="1" /></>,
+    notifications: <><path d="M18 9a6 6 0 0 0-12 0c0 7-2 7-2 8h16c0-1-2-1-2-8" /><path d="M10 20a2 2 0 0 0 4 0" /></>,
+    shelf: <><path d="M5 4.5h14v15H5z" /><path d="M9.5 4.5v15" /><path d="M14.5 4.5v15" /><path d="M5 10h14" /><path d="M5 15h14" /></>,
+    profile: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" /></>,
+  }
+
+  return <svg {...common}>{paths[name]}</svg>
+}
+
 function Navigation({ currentUser, page, notificationCount, onNavigate, onCreatePost, onLogout }: {
   currentUser: User
   page: Page
@@ -580,13 +605,13 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
   onCreatePost: () => void
   onLogout: () => void
 }) {
-  const navItems: { id: Page; icon: string; label: string }[] = [
-    { id: 'timeline', icon: '⌂', label: 'Início' },
-    { id: 'shelf', icon: '▦', label: 'Estante' },
-    { id: 'library', icon: 'B', label: 'Biblioteca' },
-    { id: 'goals', icon: '◎', label: 'Metas' },
-    { id: 'notifications', icon: '◌', label: 'Notificações' },
-    { id: 'profile', icon: '○', label: 'Perfil' },
+  const navItems: { id: Page; icon: NavIconName; label: string }[] = [
+    { id: 'timeline', icon: 'home', label: 'Início' },
+    { id: 'library', icon: 'library', label: 'Biblioteca' },
+    { id: 'goals', icon: 'goals', label: 'Metas' },
+    { id: 'notifications', icon: 'notifications', label: 'Notificações' },
+    { id: 'shelf', icon: 'shelf', label: 'Estante' },
+    { id: 'profile', icon: 'profile', label: 'Perfil' },
   ]
 
   return (
@@ -604,7 +629,7 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
                 page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-400 hover:bg-stone-900 hover:text-stone-100'
               }`}
             >
-              <span className="w-5 text-center text-base">{item.icon}</span>
+              <span className="flex w-5 items-center justify-center"><NavIcon name={item.icon} /></span>
               {item.label}
               {item.id === 'notifications' && notificationCount > 0 && (
                 <span className="ml-auto rounded-full bg-red-400 px-1.5 py-0.5 text-[10px] font-bold text-stone-950">{notificationCount}</span>
@@ -627,8 +652,12 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
         </div>
       </aside>
 
+      <button onClick={onCreatePost} className="fixed bottom-[calc(max(env(safe-area-inset-bottom),0px)+4.75rem)] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-amber-300 text-2xl font-bold leading-none text-stone-950 shadow-lg shadow-black/30 transition hover:bg-amber-200 md:hidden" aria-label="Nova publicação">
+        +
+      </button>
+
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-800 bg-stone-950/95 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-2 backdrop-blur-xl md:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-7 items-center gap-1">
+        <div className="mx-auto grid max-w-md grid-cols-6 items-center gap-1">
           {navItems.map(item => (
             <button
               key={item.id}
@@ -637,17 +666,13 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
                 page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-500'
               }`}
             >
-              <span className="text-base leading-none">{item.icon}</span>
+              <span className="mb-0.5 flex items-center justify-center"><NavIcon name={item.icon} /></span>
               {item.label}
               {item.id === 'notifications' && notificationCount > 0 && (
                 <span className="absolute right-2 top-1 rounded-full bg-red-400 px-1 text-[9px] font-bold text-stone-950">{notificationCount}</span>
               )}
             </button>
           ))}
-          <button onClick={onCreatePost} className="flex min-h-12 flex-col items-center justify-center rounded-lg bg-amber-300 text-[11px] font-bold text-stone-950">
-            <span className="text-base leading-none">+</span>
-            Postar
-          </button>
         </div>
       </nav>
     </>
@@ -983,6 +1008,7 @@ interface BookFormDraft {
   tropeQuery: string
   language: string
   releaseDate: string
+  synopsis: string
   tags: string
   status: BookStatus
   totalPages: string
@@ -1031,6 +1057,7 @@ function draftFromBook(book: Book | undefined, status: BookStatus, shelfEntry?: 
     tropeQuery: '',
     language: book?.language || '',
     releaseDate: book?.releaseDate || '',
+    synopsis: book?.synopsis || '',
     tags: book?.tags?.join(', ') || '',
     status: shelfEntry?.status || status,
     totalPages: String(book?.totalPages ?? 0),
@@ -1145,7 +1172,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
       source: initialBook?.source || 'manual',
       genres: draft.genres,
       rating: initialBook?.rating || 0,
-      synopsis: initialBook?.synopsis || '',
+      synopsis: draft.synopsis.trim(),
       series: draft.series.trim(),
       volume: draft.volume.trim(),
       language: draft.language.trim(),
@@ -1225,6 +1252,15 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
               <label className="text-sm font-semibold text-stone-300">Serie<input value={draft.series} onChange={e => update('series', e.target.value)} placeholder="Nome da serie" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
               <label className="text-sm font-semibold text-stone-300">Volume<input value={draft.volume} onChange={e => update('volume', e.target.value)} placeholder="Ex.: 1" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
             </div>
+            <label className="block text-sm font-semibold text-stone-300">
+              Sinopse
+              <textarea
+                value={draft.synopsis}
+                onChange={e => update('synopsis', e.target.value)}
+                placeholder="Resumo do livro, premissa ou descrição da edição"
+                className="mt-1 min-h-28 w-full resize-y rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm leading-relaxed text-stone-100 outline-none focus:border-amber-300"
+              />
+            </label>
             <MultiChoicePicker title="Generos" searchLabel="Buscar genero..." countLabel="selecionados" options={GENRE_OPTIONS} selected={draft.genres} query={draft.genreQuery} onQueryChange={value => update('genreQuery', value)} onToggle={value => toggleListValue('genres', value)} hint="Marque um ou mais generos cadastrados no app." />
             <MultiChoicePicker title="Tropes" searchLabel="Buscar trope..." countLabel="selecionadas" options={TROPE_OPTIONS} selected={draft.tropes} query={draft.tropeQuery} onQueryChange={value => update('tropeQuery', value)} onToggle={value => toggleListValue('tropes', value)} hint="Use a busca e marque uma ou mais tropes cadastradas no app." />
           </section>
@@ -2515,16 +2551,16 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
     .slice(0, 4)
 
   return (
-    <aside className="sticky top-4 space-y-4">
-      <div className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-        <h2 className="mb-3 font-serif text-base text-stone-100">Buscar leitores</h2>
+    <aside className="sticky top-3 space-y-3">
+      <div className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+        <h2 className="mb-2 font-serif text-base text-stone-100">Buscar leitores</h2>
         <input
           value={readerQuery}
           onChange={e => setReaderQuery(e.target.value)}
           placeholder="Pesquisar @ ou nome"
           className="mb-3 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
         />
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {suggestions.map(user => {
             const following = currentUser.following.includes(user.id)
             return (
@@ -2542,15 +2578,15 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
           })}
         </div>
       </div>
-      <div className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-        <h2 className="mb-3 font-serif text-base text-stone-100">Proteção ativa</h2>
+      <div className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+        <h2 className="mb-2 font-serif text-base text-stone-100">Proteção ativa</h2>
         <p className="text-sm leading-relaxed text-stone-400">
           Nos feeds de obra, comentários são liberados por capítulo para reduzir spoilers.
         </p>
       </div>
       {currentlyReading.length > 0 && (
-        <div className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-          <h2 className="mb-3 font-serif text-base text-stone-100">Lendo agora</h2>
+        <div className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+          <h2 className="mb-2 font-serif text-base text-stone-100">Lendo agora</h2>
           <div className="space-y-3">
             {currentlyReading.map(({ entry, book }) => (
               <button key={book.id} onClick={() => onBookClick(book.id)} className="flex w-full gap-3 text-left">
@@ -2814,8 +2850,8 @@ export default function App() {
         onLogout={handleLogout}
       />
 
-      <div className="mx-auto flex max-w-6xl md:pl-60">
-        <main className="min-h-screen w-full border-x border-stone-800 pb-24 md:max-w-[680px] md:pb-0">
+      <div className="flex md:ml-60">
+        <main className="min-h-screen min-w-0 flex-1 border-x border-stone-800 pb-24 md:pb-0">
           {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onToggleFollow={handleToggleFollow} />}
           {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSearchBooks={handleSearchBooks} />}
           {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
@@ -2826,7 +2862,7 @@ export default function App() {
           {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
         </main>
 
-        <div className="hidden w-80 shrink-0 p-4 lg:block">
+        <div className="hidden w-88 shrink-0 p-3 xl:block 2xl:w-96">
           <RightPanel currentUser={currentUser} users={users} shelf={shelf} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} />
         </div>
       </div>
