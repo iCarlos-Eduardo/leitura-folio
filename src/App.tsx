@@ -2228,8 +2228,13 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
                         setUploadingAvatar(true)
                         setAvatarError('')
                         try {
-                          setAvatar(await onUploadAvatar(file))
+                          const uploadedAvatar = await onUploadAvatar(file)
+                          setAvatar(uploadedAvatar)
                           setAvatarFileName(file.name)
+                          const saved = await onUpdateUser({ avatar: uploadedAvatar })
+                          if (saved === false) {
+                            setAvatarError('Imagem enviada, mas nao foi possivel salvar no perfil.')
+                          }
                         } catch {
                           setAvatarError('Nao foi possivel enviar a imagem agora.')
                         } finally {
