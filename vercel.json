@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/auth/:path*",
+      "destination": "https://api.sgpf.com.br/auth/:path*"
+    },
+    {
+      "source": "/folio/:path*",
+      "destination": "https://api.sgpf.com.br/folio/:path*"
+    }
+  ]
+}
