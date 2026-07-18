@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
-type Page = 'timeline' | 'shelf' | 'book' | 'profile' | 'goals' | 'notifications'
+type Page = 'timeline' | 'shelf' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications'
 type FilterMode = 'percent' | 'chapter'
+type ProfileListKind = 'following' | 'followers' | 'posts'
 
 interface User {
   id: string
@@ -31,6 +32,14 @@ interface Book {
   genres: string[]
   rating: number
   synopsis: string
+  series?: string
+  volume?: string
+  language?: string
+  releaseDate?: string
+  unreleased?: boolean
+  publicShared?: boolean
+  tropes?: string[]
+  tags?: string[]
 }
 
 interface ShelfEntry {
@@ -42,6 +51,23 @@ interface ShelfEntry {
   spiceRating?: number
   startDate?: string
   endDate?: string
+  currentPage?: number
+  format?: string
+  price?: number
+  store?: string
+  personalTags?: string[]
+  mainCouple?: string
+  crush?: string
+  favoriteQuotes?: string[]
+  review?: string
+  cryRating?: number
+  freakoutRating?: number
+  gripRating?: number
+  hangoverRating?: number
+  favorite?: boolean
+  top10?: boolean
+  recommend?: boolean
+  reread?: boolean
 }
 
 interface Post {
@@ -120,6 +146,164 @@ function percentFromChapter(book: Book, chapter: number) {
 }
 
 const RATING_OPTIONS = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+const GENRE_OPTIONS = [
+  'Academia Mágica',
+  'Adulto',
+  'Biografia',
+  'Bully Romance',
+  'Chick Lit',
+  'Ciência',
+  'Comédia Romântica',
+  'Cozy Mystery',
+  'Cyberpunk',
+  'Dark Academia Romance',
+  'Dark Fantasy',
+  'Dark Romance',
+  'Desenvolvimento Pessoal',
+  'Distopia',
+  'Drama',
+  'Fantasia',
+  'Fantasia Épica',
+  'Fantasia Urbana',
+  'Ficção',
+  'Ficção Científica',
+  'Ficção Histórica',
+  'Ficção Literária',
+  'Finanças',
+  'Gothic Romance',
+  'Gótico',
+  'História',
+  'Horror',
+  'Horror Psicológico',
+  'Mafia Romance',
+  'MC Romance (Motoclubes)',
+  'Middle Grade',
+  'Mistério',
+  'Mitologia',
+  'Não Ficção',
+  'New Adult',
+  'Paranormal',
+  'Policial',
+  'Psicologia',
+  'Realismo Mágico',
+  'Retelling',
+  'Romance',
+  'Romance Contemporâneo',
+  'Romance de Época',
+  'Romance de Esportes',
+  'Romance Histórico',
+  'Romance LGBTQIA',
+  'Romance Militar',
+  'Romantasia',
+  'Sci-Fi',
+  'Space Opera',
+  'Stalker Romance',
+  'Suspense',
+  'Terror',
+  'Thriller',
+  'Thriller Psicológico',
+  'Young Adult',
+]
+const TROPE_OPTIONS = [
+  'Age Gap',
+  'Alpha Hero',
+  'Amnesia',
+  'Arranged Marriage',
+  "Best Friend's Brother",
+  'Betrayal',
+  'Black Cat x Golden Retriever',
+  'Bodyguard',
+  'Boss x Employee',
+  "Brother's Best Friend",
+  'Burn the World',
+  'Captor/Captive',
+  'Celebrity x Normal Person',
+  'Childhood Friends',
+  'Chosen One',
+  'Cinnamon Roll',
+  'Demon',
+  'Dragon Rider',
+  'Dragons',
+  'Dual POV',
+  'Dubious Consent (quando fizer parte da obra)',
+  'Enemies to Lovers',
+  'Epistolary',
+  'Fae',
+  'Fake Dating',
+  'Fake Engagement',
+  'Fast Burn',
+  'Fated Mates',
+  'Fish Out of Water',
+  'Forbidden Love',
+  'Forced Proximity',
+  'Found Family',
+  'Frenemies to Lovers',
+  'Friends to Lovers',
+  'Gods',
+  'Golden Retriever MMC',
+  'Grumpy x Sunshine',
+  'Guardian',
+  'Hidden Identity',
+  'Ice Queen',
+  'Kidnapping',
+  'Kinky',
+  'Love Triangle',
+  'Mafia',
+  'Magical Academy',
+  'Marriage in Trouble',
+  'Marriage of Convenience',
+  'Masked',
+  'Morally Black Hero',
+  'Morally Grey',
+  'Multiple POV',
+  'Neighbors',
+  'Novela/Conto',
+  'Obsessed Hero',
+  'One Bed',
+  'Playboy Falls First',
+  'Plot Twist',
+  'Poly Romance',
+  'Portal Fantasy',
+  'Possessive Hero',
+  'Professor x Student',
+  'Protective Hero',
+  'Quest',
+  'Redemption Arc',
+  'Rejected Mate',
+  'Revenge',
+  'Rivals to Lovers',
+  'Road Trip',
+  'Roommates',
+  'Royal Family',
+  'Second Chance',
+  'Secret Baby',
+  'Secret Heir',
+  'Secret Identity',
+  'Secret Relationship',
+  'Serial Killer',
+  'Single Dad',
+  'Single Mom',
+  'Slow Burn',
+  'Small Town',
+  'Sports Team',
+  'Stalker',
+  'STEAM',
+  'Strangers to Lovers',
+  'Surprise Pregnancy',
+  'Time Travel',
+  'Touch Her and Die',
+  'Trials',
+  'Vampire',
+  'Vigilante',
+  'Vikings',
+  'Villain Gets the Girl',
+  'Virgin Hero',
+  'Virgin Heroine',
+  'Werewolf',
+  'Why Choose / Reverse Harem',
+  'Witch',
+  'Workplace Romance',
+]
 
 function ratingText(value?: number, label = 'estrelas') {
   return value ? `${value} de 5 ${label}` : 'Sem avaliação'
@@ -143,7 +327,7 @@ function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }
     lg: 'h-16 w-16 text-xl',
   }
 
-  const isImage = user.avatar.startsWith('http') || user.avatar.startsWith('data:')
+  const isImage = user.avatar.startsWith('http') || user.avatar.startsWith('data:') || user.avatar.startsWith('/')
 
   return isImage ? (
     <img src={user.avatar} alt={user.name} className={`${sizes[size]} shrink-0 select-none rounded-full object-cover`} />
@@ -175,9 +359,9 @@ function Header({ title, children }: { title: string; children?: React.ReactNode
 
 function LoginPage({ onLogin }: { onLogin: (name: string, email: string, password: string, mode: 'login' | 'register') => Promise<void> }) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [name, setName] = useState('Ana Beatriz')
-  const [email, setEmail] = useState('ana@leitora.com')
-  const [password, setPassword] = useState('leitora123')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
@@ -330,7 +514,7 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
               key={item.id}
               onClick={() => onNavigate(item.id)}
               className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition ${
-                page === item.id ? 'bg-amber-300/10 text-amber-300' : 'text-stone-400 hover:bg-stone-900 hover:text-stone-100'
+                page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-400 hover:bg-stone-900 hover:text-stone-100'
               }`}
             >
               <span className="w-5 text-center text-base">{item.icon}</span>
@@ -363,7 +547,7 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
               key={item.id}
               onClick={() => onNavigate(item.id)}
               className={`relative flex min-h-12 flex-col items-center justify-center rounded-lg text-[11px] font-semibold ${
-                page === item.id ? 'bg-amber-300/10 text-amber-300' : 'text-stone-500'
+                page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-500'
               }`}
             >
               <span className="text-base leading-none">{item.icon}</span>
@@ -596,32 +780,408 @@ function TimelinePage({ currentUser, users, books, posts, replies, timeline, onB
   )
 }
 
-function BookSearchRow({ book, actionLabel, onAction }: { book: Book; actionLabel: string; onAction: () => void }) {
+function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondaryAction }: {
+  book: Book
+  actionLabel: string
+  onAction: () => void
+  secondaryLabel?: string
+  onSecondaryAction?: () => void
+}) {
   return (
     <div className="flex items-center gap-3 rounded-lg bg-stone-950 p-2">
-      <img src={book.cover} alt={book.title} className="h-12 w-8 rounded object-cover" />
+      {book.cover ? (
+        <img src={book.cover} alt={book.title} className="h-12 w-8 rounded object-cover" />
+      ) : (
+        <div className="flex h-12 w-8 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
+      )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
         <p className="truncate text-xs text-stone-500">{book.author}</p>
         <p className="text-xs text-stone-600">{book.totalPages} págs. · {book.totalChapters} caps.{book.chaptersEstimated ? ' estimados' : ''}</p>
       </div>
-      <button onClick={onAction} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">
-        {actionLabel}
-      </button>
+      <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+        {secondaryLabel && onSecondaryAction && (
+          <button onClick={onSecondaryAction} className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs font-bold text-stone-300 hover:bg-stone-900">
+            {secondaryLabel}
+          </button>
+        )}
+        <button onClick={onAction} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">
+          {actionLabel}
+        </button>
+      </div>
     </div>
   )
 }
 
-function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry, onRemoveShelfEntry, onAddBook, onImportBook, onSearchBooks }: {
+interface BookFormDraft {
+  title: string
+  author: string
+  cover: string
+  coverFileName: string
+  unreleased: boolean
+  publicShared: boolean
+  series: string
+  volume: string
+  genres: string[]
+  genreQuery: string
+  tropes: string[]
+  tropeQuery: string
+  language: string
+  releaseDate: string
+  tags: string
+  status: BookStatus
+  totalPages: string
+  totalChapters: string
+  currentPage: string
+  format: string
+  startDate: string
+  endDate: string
+  rating: string
+  spiceRating: string
+  price: string
+  store: string
+  personalTags: string
+  mainCouple: string
+  crush: string
+  favoriteQuotes: string
+  review: string
+  cryRating: string
+  freakoutRating: string
+  gripRating: string
+  hangoverRating: string
+  favorite: boolean
+  top10: boolean
+  recommend: boolean
+  reread: boolean
+}
+
+function numberFromText(value: string, fallback = 0) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function splitList(value: string) {
+  return value
+    .split(/[\n,]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+function draftFromBook(book: Book | undefined, status: BookStatus): BookFormDraft {
+  return {
+    title: book?.title || '',
+    author: book?.author || '',
+    cover: book?.cover || '',
+    coverFileName: '',
+    unreleased: Boolean(book?.unreleased),
+    publicShared: book?.publicShared ?? true,
+    series: book?.series || '',
+    volume: book?.volume || '',
+    genres: book?.genres || [],
+    genreQuery: '',
+    tropes: book?.tropes || [],
+    tropeQuery: '',
+    language: book?.language || '',
+    releaseDate: book?.releaseDate || '',
+    tags: book?.tags?.join(', ') || '',
+    status,
+    totalPages: String(book?.totalPages ?? 0),
+    totalChapters: String(book?.totalChapters ?? 1),
+    currentPage: '0',
+    format: '',
+    startDate: '',
+    endDate: '',
+    rating: '',
+    spiceRating: '',
+    price: '',
+    store: '',
+    personalTags: '',
+    mainCouple: '',
+    crush: '',
+    favoriteQuotes: '',
+    review: '',
+    cryRating: '',
+    freakoutRating: '',
+    gripRating: '',
+    hangoverRating: '',
+    favorite: false,
+    top10: false,
+    recommend: false,
+    reread: false,
+  }
+}
+
+function MultiChoicePicker({ title, searchLabel, countLabel, options, selected, query, onQueryChange, onToggle, hint }: {
+  title: string
+  searchLabel: string
+  countLabel: string
+  options: string[]
+  selected: string[]
+  query: string
+  onQueryChange: (value: string) => void
+  onToggle: (value: string) => void
+  hint: string
+}) {
+  const filtered = options.filter(option => option.toLowerCase().includes(query.toLowerCase()))
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm font-bold text-stone-200">{title}</h4>
+        <span className="text-xs text-stone-500">{selected.length} {countLabel}</span>
+      </div>
+      <input value={query} onChange={e => onQueryChange(e.target.value)} placeholder={searchLabel} className="mb-3 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" />
+      <div className="grid max-h-60 gap-2 overflow-y-auto rounded-lg border border-stone-800 bg-stone-950 p-2 sm:grid-cols-2">
+        {filtered.map(option => {
+          const active = selected.includes(option)
+          return (
+            <button key={option} onClick={() => onToggle(option)} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold transition ${active ? 'border-amber-300 bg-amber-300/10 text-amber-200' : 'border-stone-800 bg-stone-900 text-stone-300 hover:border-stone-700'}`}>
+              {option}
+            </button>
+          )
+        })}
+      </div>
+      <p className="mt-2 text-xs text-stone-500">{hint}</p>
+    </div>
+  )
+}
+
+function BookFormModal({ initialBook, defaultStatus, mode, onClose, onSave }: {
+  initialBook?: Book
+  defaultStatus: BookStatus
+  mode: 'new' | 'edit'
+  onClose: () => void
+  onSave: (book: Book, shelfData: Partial<ShelfEntry>) => Promise<void> | void
+  onUploadCover: (file: File) => Promise<string>
+}) {
+  const [draft, setDraft] = useState<BookFormDraft>(() => draftFromBook(initialBook, defaultStatus))
+  const [saving, setSaving] = useState(false)
+  const [uploadingCover, setUploadingCover] = useState(false)
+  const [error, setError] = useState('')
+  const update = <K extends keyof BookFormDraft,>(key: K, value: BookFormDraft[K]) => setDraft(prev => ({ ...prev, [key]: value }))
+  const toggleListValue = (key: 'genres' | 'tropes', value: string) => {
+    setDraft(prev => ({
+      ...prev,
+      [key]: prev[key].includes(value) ? prev[key].filter(item => item !== value) : [...prev[key], value],
+    }))
+  }
+  const canSave = draft.title.trim().length > 0
+
+  async function save(markReadToday = false) {
+    if (!canSave) {
+      setError('Informe pelo menos o titulo do livro.')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+    const totalPages = Math.max(0, Math.round(numberFromText(draft.totalPages)))
+    const totalChapters = Math.max(1, Math.round(numberFromText(draft.totalChapters, 1)))
+    const currentPage = Math.max(0, Math.round(numberFromText(draft.currentPage)))
+    const progressFromPage = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0
+    const status = markReadToday ? 'read' : draft.status
+    const progress = status === 'read' ? 100 : clamp(progressFromPage, 0, 100)
+    const today = new Date().toISOString().slice(0, 10)
+    const book: Book = {
+      id: initialBook?.id || `custom-${Date.now()}`,
+      title: draft.title.trim(),
+      author: draft.author.trim() || 'Autor desconhecido',
+      cover: draft.cover.trim(),
+      totalPages,
+      totalChapters,
+      chaptersEstimated: initialBook?.chaptersEstimated ?? true,
+      source: initialBook?.source || 'manual',
+      genres: draft.genres,
+      rating: initialBook?.rating || 0,
+      synopsis: initialBook?.synopsis || '',
+      series: draft.series.trim(),
+      volume: draft.volume.trim(),
+      language: draft.language.trim(),
+      releaseDate: draft.releaseDate,
+      unreleased: draft.unreleased,
+      publicShared: draft.publicShared,
+      tropes: draft.tropes,
+      tags: splitList(draft.tags),
+    }
+    const shelfData: Partial<ShelfEntry> = {
+      status,
+      progress,
+      currentPage: status === 'read' ? totalPages : currentPage,
+      startDate: draft.startDate || undefined,
+      endDate: markReadToday ? today : draft.endDate || undefined,
+      rating: draft.rating ? numberFromText(draft.rating) : undefined,
+      spiceRating: draft.spiceRating ? numberFromText(draft.spiceRating) : undefined,
+      format: draft.format.trim() || undefined,
+      price: draft.price ? numberFromText(draft.price) : undefined,
+      store: draft.store.trim() || undefined,
+      personalTags: splitList(draft.personalTags),
+      mainCouple: draft.mainCouple.trim() || undefined,
+      crush: draft.crush.trim() || undefined,
+      favoriteQuotes: splitList(draft.favoriteQuotes),
+      review: draft.review.trim() || undefined,
+      cryRating: draft.cryRating ? numberFromText(draft.cryRating) : undefined,
+      freakoutRating: draft.freakoutRating ? numberFromText(draft.freakoutRating) : undefined,
+      gripRating: draft.gripRating ? numberFromText(draft.gripRating) : undefined,
+      hangoverRating: draft.hangoverRating ? numberFromText(draft.hangoverRating) : undefined,
+      favorite: draft.favorite,
+      top10: draft.top10,
+      recommend: draft.recommend,
+      reread: draft.reread,
+    }
+
+    try {
+      await onSave(book, shelfData)
+      onClose()
+    } catch {
+      setError('Nao foi possivel salvar este livro agora.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-3 backdrop-blur-md sm:items-center" onClick={e => e.currentTarget === e.target && onClose()}>
+      <div className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-stone-800 bg-stone-900">
+        <div className="sticky top-0 z-20 flex items-start justify-between gap-4 border-b border-stone-800 bg-stone-900 px-4 py-3">
+          <div>
+            <h2 className="font-serif text-xl text-stone-50">{mode === 'new' ? 'Novo livro' : 'Editar livro'}</h2>
+            <p className="mt-1 text-xs text-stone-500">Preencha so o que quiser. O app funciona mesmo com poucos campos.</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs font-bold text-stone-300 hover:bg-stone-800">Fechar</button>
+        </div>
+
+        <div className="space-y-6 p-4">
+          <section className="space-y-4 rounded-lg border border-stone-800 bg-stone-950/50 p-4">
+            <div>
+              <h3 className="font-serif text-lg text-stone-100">Dados principais do livro</h3>
+              <p className="mt-1 text-xs text-stone-500">Informacoes gerais do livro e o que pode ser compartilhado com a Biblioteca Publica do app.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm font-semibold text-stone-300">Titulo *<input value={draft.title} onChange={e => update('title', e.target.value)} placeholder="Ex.: Quicksilver" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Autor<input value={draft.author} onChange={e => update('author', e.target.value)} placeholder="Ex.: Callie Hart" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+            </div>
+            <label className="flex gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-sm text-stone-300">
+              <input type="checkbox" checked={draft.unreleased} onChange={e => update('unreleased', e.target.checked)} className="mt-1 accent-amber-300" />
+              <span><strong>Este livro ainda nao foi lancado</strong><br /><span className="text-xs text-stone-500">Marque para exibir o livro como proximo lancamento.</span></span>
+            </label>
+            <label className="flex gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-sm text-stone-300">
+              <input type="checkbox" checked={draft.publicShared} onChange={e => update('publicShared', e.target.checked)} className="mt-1 accent-amber-300" />
+              <span><strong>Compartilhar dados comuns na Biblioteca Publica</strong><br /><span className="text-xs text-stone-500">Na biblioteca publica aparecem so titulo, autor, capa, serie, volume, generos, idioma, paginas totais, previsao de lancamento, tropes, tags, quem ja leu e o percentual de leitores que ja leram. Notas, resenhas, frases, hot, progresso e check-ins continuam privados.</span></span>
+            </label>
+            <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
+              <div className="space-y-3">
+                <label className="text-sm font-semibold text-stone-300">Capa do livro<input value={draft.cover} onChange={e => update('cover', e.target.value)} placeholder="Cole o link da capa ou envie uma imagem abaixo" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+                <label className="inline-flex cursor-pointer rounded-lg border border-stone-700 px-3 py-2 text-xs font-bold text-stone-300 hover:bg-stone-800">
+                  {uploadingCover ? 'Enviando...' : 'Enviar capa'}
+                  <input type="file" accept="image/*" className="hidden" onChange={async e => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    setUploadingCover(true)
+                    setError('')
+                    try {
+                      update('cover', await onUploadCover(file))
+                      update('coverFileName', file.name)
+                    } catch {
+                      setError('Nao foi possivel enviar a capa agora.')
+                    } finally {
+                      setUploadingCover(false)
+                    }
+                  }} />
+                </label>
+                <p className="text-xs text-stone-500">{draft.coverFileName || 'Nenhum ficheiro selecionado'}</p>
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Previa da capa</p>
+                {draft.cover ? <img src={draft.cover} alt="Previa da capa" className="h-40 w-28 rounded-lg object-cover" /> : <div className="flex h-40 w-28 items-center justify-center rounded-lg border border-stone-800 bg-stone-950 text-xs text-stone-600">Sem capa</div>}
+                <button onClick={() => update('cover', '')} className="mt-2 text-xs font-bold text-red-300 hover:text-red-200">Remover capa</button>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm font-semibold text-stone-300">Serie<input value={draft.series} onChange={e => update('series', e.target.value)} placeholder="Nome da serie" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Volume<input value={draft.volume} onChange={e => update('volume', e.target.value)} placeholder="Ex.: 1" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+            </div>
+            <MultiChoicePicker title="Generos" searchLabel="Buscar genero..." countLabel="selecionados" options={GENRE_OPTIONS} selected={draft.genres} query={draft.genreQuery} onQueryChange={value => update('genreQuery', value)} onToggle={value => toggleListValue('genres', value)} hint="Marque um ou mais generos cadastrados no app." />
+            <MultiChoicePicker title="Tropes" searchLabel="Buscar trope..." countLabel="selecionadas" options={TROPE_OPTIONS} selected={draft.tropes} query={draft.tropeQuery} onQueryChange={value => update('tropeQuery', value)} onToggle={value => toggleListValue('tropes', value)} hint="Use a busca e marque uma ou mais tropes cadastradas no app." />
+          </section>
+
+          <section className="space-y-4 rounded-lg border border-stone-800 bg-stone-950/50 p-4">
+            <div>
+              <h3 className="font-serif text-lg text-stone-100">Detalhes da sua leitura</h3>
+              <p className="mt-1 text-xs text-stone-500">Esses dados sao privados e ajudam a organizar sua experiencia de leitura na biblioteca pessoal.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm font-semibold text-stone-300">Idioma<input value={draft.language} onChange={e => update('language', e.target.value)} placeholder="Portugues, Ingles..." className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Status<select value={draft.status} onChange={e => update('status', e.target.value as BookStatus)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">{(['want', 'reading', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></label>
+              <label className="text-sm font-semibold text-stone-300">Paginas totais<input type="number" min="0" value={draft.totalPages} onChange={e => update('totalPages', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Pagina atual<input type="number" min="0" value={draft.currentPage} onChange={e => update('currentPage', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Capitulos totais<input type="number" min="1" value={draft.totalChapters} onChange={e => update('totalChapters', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Formato<input value={draft.format} onChange={e => update('format', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Data de inicio<input type="date" value={draft.startDate} onChange={e => update('startDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Data de termino<input type="date" value={draft.endDate} onChange={e => update('endDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Previsao de lancamento<input type="date" value={draft.releaseDate} onChange={e => update('releaseDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Nota<input type="number" min="0" max="5" step="0.5" value={draft.rating} onChange={e => update('rating', e.target.value)} placeholder="0 a 5" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Nivel de hot<input type="number" min="0" max="5" step="0.5" value={draft.spiceRating} onChange={e => update('spiceRating', e.target.value)} placeholder="0" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-red-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Valor pago<input type="number" min="0" step="0.01" value={draft.price} onChange={e => update('price', e.target.value)} placeholder="R$" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Loja<input value={draft.store} onChange={e => update('store', e.target.value)} placeholder="Amazon, Livraria..." className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Tags personalizadas<input value={draft.personalTags} onChange={e => update('personalTags', e.target.value)} placeholder="Fadas, dragoes, livro conforto..." className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Tags publicas<input value={draft.tags} onChange={e => update('tags', e.target.value)} placeholder="Tags separadas por virgula" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Casal principal<input value={draft.mainCouple} onChange={e => update('mainCouple', e.target.value)} placeholder="Nome do casal" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Crush literario<input value={draft.crush} onChange={e => update('crush', e.target.value)} placeholder="Personagem favorito/crush" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+            </div>
+          </section>
+
+          <section className="space-y-4 rounded-lg border border-stone-800 bg-stone-950/50 p-4">
+            <div>
+              <h3 className="font-serif text-lg text-stone-100">Sua opiniao sobre o livro</h3>
+              <p className="mt-1 text-xs text-stone-500">Espaco para registrar frases favoritas, resenha e suas reacoes de leitura.</p>
+            </div>
+            <label className="block text-sm font-semibold text-stone-300">Frases favoritas<textarea value={draft.favoriteQuotes} onChange={e => update('favoriteQuotes', e.target.value)} rows={3} placeholder="Uma frase por linha. Se quiser, use: frase - p. 123" className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /><span className="mt-1 block text-xs text-stone-500">As frases digitadas aqui aparecem na Biblioteca, na aba Frases e no Painel.</span></label>
+            <label className="block text-sm font-semibold text-stone-300">Resenha / notas<textarea value={draft.review} onChange={e => update('review', e.target.value)} rows={4} placeholder="O que achou? Final valeu a pena? Chorou? Passou raiva?" className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+            <div className="grid gap-3 sm:grid-cols-4">
+              <label className="text-sm font-semibold text-stone-300">Chorei? 0-5<input type="number" min="0" max="5" value={draft.cryRating} onChange={e => update('cryRating', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Surtei? 0-5<input type="number" min="0" max="5" value={draft.freakoutRating} onChange={e => update('freakoutRating', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Prendeu? 0-5<input type="number" min="0" max="5" value={draft.gripRating} onChange={e => update('gripRating', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+              <label className="text-sm font-semibold text-stone-300">Ressaca? 0-5<input type="number" min="0" max="5" value={draft.hangoverRating} onChange={e => update('hangoverRating', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-4">
+              {([
+                ['favorite', 'Favorito?'],
+                ['top10', 'Top 10?'],
+                ['recommend', 'Recomendo?'],
+                ['reread', 'Releria?'],
+              ] as const).map(([key, label]) => (
+                <label key={key} className="flex items-center justify-between gap-3 rounded-lg border border-stone-800 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-300">
+                  {label}
+                  <input type="checkbox" checked={draft[key]} onChange={e => update(key, e.target.checked)} className="accent-amber-300" />
+                </label>
+              ))}
+            </div>
+          </section>
+
+          {error && <p className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</p>}
+        </div>
+
+        <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-stone-800 bg-stone-900 px-4 py-3">
+          <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800">Fechar</button>
+          <button onClick={() => save()} disabled={!canSave || saving} className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">{saving ? 'Salvando...' : 'Salvar livro'}</button>
+          <button onClick={() => save(true)} disabled={!canSave || saving} className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-bold text-amber-200 disabled:border-stone-700 disabled:text-stone-500">Marcar como lido hoje</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry, onRemoveShelfEntry, onAddBook, onImportBook, onSearchBooks, onUploadCover }: {
   currentUser: User
   shelf: ShelfEntry[]
   books: Book[]
   onBookClick: (id: string) => void
-  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>) => void
+  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>) => Promise<void> | void
   onRemoveShelfEntry: (bookId: string) => void
-  onAddBook: (bookId: string, status: BookStatus) => void
-  onImportBook: (book: Book, status: BookStatus) => void
+  onAddBook: (bookId: string, status: BookStatus) => Promise<void> | void
+  onImportBook: (book: Book, shelfData: Partial<ShelfEntry>) => Promise<void> | void
   onSearchBooks: (query: string) => Promise<Book[]>
+  onUploadCover: (file: File) => Promise<string>
 }) {
   const [activeStatus, setActiveStatus] = useState<BookStatus>('reading')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -633,6 +1193,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogError, setCatalogError] = useState('')
   const [bookSearchAttempted, setBookSearchAttempted] = useState(false)
+  const [bookModal, setBookModal] = useState<{ mode: 'new' | 'edit'; book?: Book } | null>(null)
   const statuses: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
   const myShelf = shelf.filter(s => s.userId === currentUser.id)
   const statusCounts = statuses.reduce((acc, status) => ({ ...acc, [status]: myShelf.filter(entry => entry.status === status).length }), {} as Record<BookStatus, number>)
@@ -679,6 +1240,20 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     setEditingId(null)
   }
 
+  async function saveBookForm(book: Book, shelfData: Partial<ShelfEntry>) {
+    const existingBook = books.some(item => item.id === book.id)
+    if (existingBook) {
+      await onAddBook(book.id, shelfData.status || newBookStatus)
+      await onUpdateShelfEntry(book.id, shelfData)
+    } else {
+      await onImportBook(book, shelfData)
+    }
+    setBookQuery('')
+    setCatalogResults([])
+    setBookSearchAttempted(false)
+    setActiveStatus(shelfData.status || newBookStatus)
+  }
+
   return (
     <section>
       <Header title="Minha estante">
@@ -707,10 +1282,13 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
               className="mt-2 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
             />
           </label>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             <select value={newBookStatus} onChange={e => setNewBookStatus(e.target.value as BookStatus)} className="min-w-0 flex-1 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">
               {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
             </select>
+            <button onClick={() => setBookModal({ mode: 'new' })} className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-bold text-stone-300 hover:bg-stone-800">
+              Novo livro
+            </button>
             <button onClick={searchCatalog} disabled={bookQuery.trim().length < 2 || catalogLoading} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">
               {catalogLoading ? 'Buscando...' : 'Buscar'}
             </button>
@@ -731,6 +1309,8 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                         setBookSearchAttempted(false)
                         setActiveStatus(newBookStatus)
                       }}
+                      secondaryLabel="Editar"
+                      onSecondaryAction={() => setBookModal({ mode: 'edit', book })}
                     />
                   ))}
                 </div>
@@ -743,9 +1323,11 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     <BookSearchRow
                       key={book.id}
                       book={book}
-                      actionLabel="Importar"
-                      onAction={() => {
-                        onImportBook(book, newBookStatus)
+                      actionLabel="Editar"
+                      onAction={() => setBookModal({ mode: 'edit', book })}
+                      secondaryLabel="Importar"
+                      onSecondaryAction={() => {
+                        onImportBook(book, { status: newBookStatus, progress: newBookStatus === 'read' ? 100 : 0 })
                         setBookQuery('')
                         setCatalogResults([])
                         setBookSearchAttempted(false)
@@ -769,7 +1351,11 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
         {filtered.map(({ entry, book }) => (
           <article key={book.id} className="overflow-hidden rounded-lg border border-stone-800 bg-stone-900">
             <button onClick={() => onBookClick(book.id)} className="grid w-full grid-cols-[92px_1fr] text-left sm:block">
-              <img src={book.cover} alt={book.title} className="h-full min-h-36 w-full object-cover sm:h-48" />
+              {book.cover ? (
+                <img src={book.cover} alt={book.title} className="h-full min-h-36 w-full object-cover sm:h-48" />
+              ) : (
+                <div className="flex h-full min-h-36 w-full items-center justify-center bg-stone-800 text-xs text-stone-500 sm:h-48">Sem capa</div>
+              )}
               <div className="p-3">
                 <h2 className="line-clamp-2 font-serif text-base leading-tight text-stone-100">{book.title}</h2>
                 <p className="mt-1 text-sm text-stone-500">{book.author}</p>
@@ -880,6 +1466,16 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
         ))}
         {!filtered.length && <div className="sm:col-span-2 xl:col-span-3"><EmptyState text="Nenhum livro nessa categoria ainda." /></div>}
       </div>
+      {bookModal && (
+        <BookFormModal
+          mode={bookModal.mode}
+          initialBook={bookModal.book}
+          defaultStatus={newBookStatus}
+          onClose={() => setBookModal(null)}
+          onSave={saveBookForm}
+          onUploadCover={onUploadCover}
+        />
+      )}
     </section>
   )
 }
@@ -1130,7 +1726,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   )
 }
 
-function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onBookClick, onUpdateUser, onUserClick, onToggleFollow, onDeletePost }: {
+function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onBookClick, onUpdateUser, onUserClick, onToggleFollow, onDeletePost, onOpenProfileList, onLogout, onUploadAvatar }: {
   currentUser: User
   profileUser: User
   users: User[]
@@ -1142,6 +1738,9 @@ function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onB
   onUserClick: (userId: string) => void
   onToggleFollow: (userId: string) => void
   onDeletePost: (postId: string) => void
+  onOpenProfileList: (kind: ProfileListKind) => void
+  onLogout: () => void
+  onUploadAvatar: (file: File) => Promise<string>
 }) {
   const isOwnProfile = currentUser.id === profileUser.id
   const followingThisUser = currentUser.following.includes(profileUser.id)
@@ -1149,7 +1748,10 @@ function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onB
   const [name, setName] = useState(profileUser.name)
   const [handle, setHandle] = useState(profileUser.handle)
   const [bio, setBio] = useState(profileUser.bio)
-  const [avatar, setAvatar] = useState(profileUser.avatar.startsWith('http') ? profileUser.avatar : '')
+  const [avatar, setAvatar] = useState(profileUser.avatar.startsWith('http') || profileUser.avatar.startsWith('/') ? profileUser.avatar : '')
+  const [avatarFileName, setAvatarFileName] = useState('')
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
   const myShelf = shelf.filter(entry => entry.userId === profileUser.id)
   const myPosts = posts.filter(post => post.userId === profileUser.id).sort((a, b) => a.percent - b.percent)
   const visibleShelf = myShelf
@@ -1178,9 +1780,14 @@ function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onB
             <p className="mt-2 text-sm leading-relaxed text-stone-300">{profileUser.bio}</p>
           </div>
           {isOwnProfile ? (
-            <button onClick={() => setEditing(value => !value)} className="h-9 rounded-lg border border-stone-700 px-3 text-xs font-bold text-stone-300 hover:bg-stone-900">
-              {editing ? 'Fechar' : 'Editar'}
-            </button>
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+              <button onClick={() => setEditing(value => !value)} className="h-9 rounded-lg border border-stone-700 px-3 text-xs font-bold text-stone-300 hover:bg-stone-900">
+                {editing ? 'Fechar' : 'Editar'}
+              </button>
+              <button onClick={onLogout} className="h-9 rounded-lg border border-stone-700 px-3 text-xs font-bold text-stone-300 hover:bg-stone-900 md:hidden">
+                Sair
+              </button>
+            </div>
           ) : (
             <button onClick={() => onToggleFollow(profileUser.id)} className={`h-9 rounded-lg px-3 text-xs font-bold ${followingThisUser ? 'bg-stone-800 text-stone-300' : 'bg-amber-300 text-stone-950'}`}>
               {followingThisUser ? 'Seguindo' : 'Seguir'}
@@ -1203,10 +1810,53 @@ function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onB
               Frase do perfil
               <textarea value={bio} onChange={e => setBio(e.target.value)} rows={3} className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" />
             </label>
-            <label className="text-sm font-semibold text-stone-300">
-              Foto
-              <input value={avatar} onChange={e => setAvatar(e.target.value)} placeholder="Cole a URL de uma imagem" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" />
-            </label>
+            <div className="grid gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 sm:grid-cols-[auto_1fr]">
+              <Avatar user={{ ...profileUser, avatar: avatar || profileUser.avatar }} size="lg" />
+              <div className="min-w-0">
+                <label className="text-sm font-semibold text-stone-300">
+                  Foto
+                  <input value={avatar} onChange={e => {
+                    setAvatar(e.target.value)
+                    setAvatarError('')
+                  }} placeholder="Cole a URL de uma imagem ou envie um arquivo" className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" />
+                </label>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="inline-flex cursor-pointer rounded-lg border border-stone-700 px-3 py-2 text-xs font-bold text-stone-300 hover:bg-stone-800">
+                    {uploadingAvatar ? 'Enviando...' : 'Enviar imagem'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        setUploadingAvatar(true)
+                        setAvatarError('')
+                        try {
+                          setAvatar(await onUploadAvatar(file))
+                          setAvatarFileName(file.name)
+                        } catch {
+                          setAvatarError('Nao foi possivel enviar a imagem agora.')
+                        } finally {
+                          setUploadingAvatar(false)
+                        }
+                      }}
+                    />
+                  </label>
+                  {avatar && (
+                    <button onClick={() => {
+                      setAvatar('')
+                      setAvatarFileName('')
+                      setAvatarError('')
+                    }} className="rounded-lg border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300 hover:bg-red-400/10">
+                      Remover foto
+                    </button>
+                  )}
+                  <span className="text-xs text-stone-500">{avatarFileName || 'Nenhum ficheiro selecionado'}</span>
+                </div>
+                {avatarError && <p className="mt-2 text-xs font-semibold text-red-300">{avatarError}</p>}
+              </div>
+            </div>
             <div className="flex justify-end">
               <button onClick={() => {
                 const fallbackAvatar = name.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || profileUser.avatar
@@ -1219,11 +1869,15 @@ function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onB
           </div>
         )}
         <div className="mt-5 grid grid-cols-3 gap-3 text-center">
-          {[['Seguindo', profileUser.following.length], ['Seguidores', profileUser.followers.length], ['Posts', myPosts.length]].map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+          {[
+            ['Seguindo', profileUser.following.length, 'following'],
+            ['Seguidores', profileUser.followers.length, 'followers'],
+            ['Posts', myPosts.length, 'posts'],
+          ].map(([label, value, kind]) => (
+            <button key={label} onClick={() => onOpenProfileList(kind as ProfileListKind)} className="rounded-lg border border-stone-800 bg-stone-900 p-3 transition hover:border-amber-300/50 hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-300/50">
               <div className="font-serif text-xl text-stone-100">{value}</div>
               <div className="text-xs text-stone-500">{label}</div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -1312,6 +1966,95 @@ function ProfilePage({ currentUser, profileUser, users, shelf, posts, books, onB
           </div>
         ) : <p className="text-sm text-stone-500">Suas leituras e publicações aparecerão aqui em ordem de progresso.</p>}
       </div>
+    </section>
+  )
+}
+
+function ProfileListPage({ kind, currentUser, profileUser, users, books, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onDeletePost, onDeleteReply }: {
+  kind: ProfileListKind
+  currentUser: User
+  profileUser: User
+  users: User[]
+  books: Book[]
+  posts: Post[]
+  replies: Reply[]
+  onBack: () => void
+  onBookClick: (id: string) => void
+  onUserClick: (userId: string) => void
+  onToggleFollow: (userId: string) => void
+  onAddReply: (postId: string, text: string) => void
+  onToggleLike: (postId: string) => void
+  onDeletePost: (postId: string) => void
+  onDeleteReply: (replyId: string) => void
+}) {
+  const titleByKind: Record<ProfileListKind, string> = {
+    following: 'Seguindo',
+    followers: 'Seguidores',
+    posts: 'Posts',
+  }
+  const relationIds = kind === 'following' ? profileUser.following : profileUser.followers
+  const relationUsers = relationIds.map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user))
+  const profilePosts = posts
+    .filter(post => post.userId === profileUser.id)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+  return (
+    <section>
+      <Header title={titleByKind[kind]}>
+        <button onClick={onBack} className="w-fit rounded-lg border border-stone-700 px-3 py-1.5 text-xs font-bold text-stone-300 hover:bg-stone-900">
+          Voltar ao perfil
+        </button>
+      </Header>
+
+      {kind === 'posts' ? (
+        profilePosts.length ? (
+          <div>
+            {profilePosts.map(post => (
+              <PostCard
+                key={post.id}
+                post={post}
+                users={users}
+                books={books}
+                currentUser={currentUser}
+                replies={replies}
+                onBookClick={onBookClick}
+                onUserClick={onUserClick}
+                onAddReply={onAddReply}
+                onToggleLike={onToggleLike}
+                onDeletePost={onDeletePost}
+                onDeleteReply={onDeleteReply}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState text="Nenhuma publicacao ainda." />
+        )
+      ) : (
+        <div className="divide-y divide-stone-800">
+          {relationUsers.length ? relationUsers.map(user => {
+            const following = currentUser.following.includes(user.id)
+            const isCurrentUser = currentUser.id === user.id
+
+            return (
+              <div key={user.id} className="flex items-center gap-3 px-4 py-3 md:px-5">
+                <button onClick={() => onUserClick(user.id)}>
+                  <Avatar user={user} />
+                </button>
+                <button onClick={() => onUserClick(user.id)} className="min-w-0 flex-1 text-left">
+                  <p className="truncate text-sm font-bold text-stone-100">{user.name}</p>
+                  <p className="truncate text-xs text-stone-500">@{user.handle}</p>
+                  {user.bio && <p className="mt-1 line-clamp-2 text-xs text-stone-400">{user.bio}</p>}
+                </button>
+                {!isCurrentUser && (
+                  <button onClick={() => onToggleFollow(user.id)} className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold ${following ? 'bg-stone-800 text-stone-300' : 'bg-amber-300 text-stone-950'}`}>
+                    {following ? 'Seguindo' : 'Seguir'}
+                  </button>
+                )}
+              </div>
+            )
+          }) : <EmptyState text="Nada por aqui ainda." />}
+        </div>
+      )}
     </section>
   )
 }
@@ -1696,6 +2439,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('timeline')
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
   const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null)
+  const [profileListKind, setProfileListKind] = useState<ProfileListKind>('following')
   const [showPostModal, setShowPostModal] = useState(false)
   const [shelf, setShelf] = useState<ShelfEntry[]>([])
   const [posts, setPosts] = useState<Post[]>([])
@@ -1757,6 +2501,12 @@ export default function App() {
     setPage('profile')
   }
 
+  function handleOpenProfileList(kind: ProfileListKind) {
+    setProfileListKind(kind)
+    setSelectedBookId(null)
+    setPage('profile-list')
+  }
+
   async function handleNavigate(nextPage: Page) {
     setPage(nextPage)
     if (nextPage !== 'book') setSelectedBookId(null)
@@ -1786,9 +2536,33 @@ export default function App() {
     await loadBootstrap()
   }
 
-  async function handleImportBook(book: Book, status: BookStatus) {
-    await apiRequest('/folio/books', { method: 'POST', body: JSON.stringify({ ...book, status, progress: status === 'read' ? 100 : 0 }) }, token)
+  async function handleImportBook(book: Book, shelfData: Partial<ShelfEntry>) {
+    const status = shelfData.status || 'reading'
+    await apiRequest('/folio/books', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...book,
+        ...shelfData,
+        rating: book.rating,
+        personalRating: shelfData.rating,
+        status,
+        progress: shelfData.progress ?? (status === 'read' ? 100 : 0),
+      }),
+    }, token)
     await loadBootstrap()
+  }
+
+  async function handleUploadBookCover(file: File) {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`${API_BASE_URL}/folio/books/cover`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData,
+    })
+    if (!response.ok) throw new Error(await response.text())
+    const data = await response.json() as { url: string }
+    return data.url
   }
 
   async function handleAddReply(postId: string, text: string) {
@@ -1827,6 +2601,19 @@ export default function App() {
     await loadBootstrap()
   }
 
+  async function handleUploadAvatar(file: File) {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`${API_BASE_URL}/folio/me/avatar`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData,
+    })
+    if (!response.ok) throw new Error(await response.text())
+    const data = await response.json() as { url: string }
+    return data.url
+  }
+
   async function handleSearchBooks(query: string) {
     return apiRequest<Book[]>(`/folio/books/search?q=${encodeURIComponent(query)}`, {}, token)
   }
@@ -1834,6 +2621,16 @@ export default function App() {
   async function handleCreatePost(post: Post) {
     await apiRequest('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, token)
     await loadBootstrap()
+  }
+
+  function handleLogout() {
+    setCurrentUser(null)
+    localStorage.removeItem('folio_token')
+    setToken('')
+    setPage('timeline')
+    setSelectedBookId(null)
+    setSelectedProfileUserId(null)
+    setProfileListKind('following')
   }
 
   if (!currentUser) {
@@ -1862,22 +2659,16 @@ export default function App() {
         notificationCount={notificationCount}
         onNavigate={handleNavigate}
         onCreatePost={() => setShowPostModal(true)}
-        onLogout={() => {
-          setCurrentUser(null)
-          localStorage.removeItem('folio_token')
-          setToken('')
-          setPage('timeline')
-          setSelectedBookId(null)
-          setSelectedProfileUserId(null)
-        }}
+        onLogout={handleLogout}
       />
 
       <div className="mx-auto flex max-w-6xl md:pl-60">
         <main className="min-h-screen w-full border-x border-stone-800 pb-24 md:max-w-[680px] md:pb-0">
           {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} posts={posts} replies={replies} timeline={[]} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onToggleFollow={handleToggleFollow} />}
-          {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onImportBook={handleImportBook} onSearchBooks={handleSearchBooks} />}
+          {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onImportBook={handleImportBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
           {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} onBack={() => setPage('timeline')} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
-          {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} />}
+          {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
+          {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} />}
           {page === 'notifications' && <NotificationsPage currentUser={currentUser} users={users} posts={posts} replies={replies} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
         </main>
