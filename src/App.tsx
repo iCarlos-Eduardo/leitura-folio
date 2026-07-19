@@ -500,8 +500,10 @@ function topReadTerms(userId: string, shelf: ShelfEntry[], books: Book[], field:
 function formatTime(ts: string) {
   const d = new Date(ts)
   const now = new Date()
-  const diffHours = Math.floor((now.getTime() - d.getTime()) / 3600000)
-  if (diffHours < 1) return 'agora'
+  const diffMinutes = Math.floor(Math.max(0, now.getTime() - d.getTime()) / 60000)
+  if (diffMinutes < 1) return 'agora'
+  if (diffMinutes < 60) return `${diffMinutes}min`
+  const diffHours = Math.floor(diffMinutes / 60)
   if (diffHours < 24) return `${diffHours}h`
   const diffDays = Math.floor(diffHours / 24)
   if (diffDays < 7) return `${diffDays}d`
