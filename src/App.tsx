@@ -482,6 +482,14 @@ function canPostWithStatus(status?: BookStatus) {
   return status === 'reading' || status === 'rereading' || status === 'read' || status === 'abandoned'
 }
 
+function newestFirst<T extends { timestamp: string }>(a: T, b: T) {
+  return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+}
+
+function postsByChapterThenNewest(a: Post, b: Post) {
+  return b.chapter - a.chapter || newestFirst(a, b)
+}
+
 function topReadTerms(userId: string, shelf: ShelfEntry[], books: Book[], field: 'genres' | 'tropes') {
   const counts = new Map<string, number>()
   shelf
@@ -1054,11 +1062,11 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
         const myChapter = chapterFromPercent(book, entry.progress)
         return post.chapter <= myChapter
       })
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .sort(postsByChapterThenNewest)
   }, [posts, books, shelf, currentUser.following, currentUser.id])
   const feedActivity = useMemo(() => {
     const allowed = [...currentUser.following, ...currentUser.followers, currentUser.id]
-    return timeline.filter(e => allowed.includes(e.userId)).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    return timeline.filter(e => allowed.includes(e.userId)).sort(newestFirst)
   }, [timeline, currentUser.following, currentUser.followers, currentUser.id])
   const foundReaders = users
     .filter(user => user.id !== currentUser.id)
@@ -1111,7 +1119,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
       {tab === 'posts' && (
         <PaginatedPostList
           posts={feedPosts}
-          emptyText="Nenhuma publicação liberada pelo seu capítulo atual."
+          emptyText="Nenhuma publicação de quem você segue liberada pelo seu capítulo atual."
           resetKey={`timeline-${currentUser.id}`}
           renderPost={post => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} protectSpoilers />}
         />
@@ -1994,8 +2002,8 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   const platformSpiceRating = spiceSummaryText(averageSpiceRating, spiceRatings.length)
 
   const postsInBook = posts.filter(post => post.bookId === book.id)
-  const comments = postsInBook.filter(post => post.type !== 'theory').sort((a, b) => a.chapter - b.chapter)
-  const theories = postsInBook.filter(post => post.type === 'theory').sort((a, b) => a.chapter - b.chapter)
+  const comments = postsInBook.filter(post => post.type !== 'theory').sort(postsByChapterThenNewest)
+  const theories = postsInBook.filter(post => post.type === 'theory').sort(postsByChapterThenNewest)
   const visibleChapterLimit = hasFullBookAccess ? book.totalChapters : chapterLimit
   const isVisible = (post: Post) => post.chapter <= visibleChapterLimit
   const activeList = tab === 'theories' ? theories : comments
