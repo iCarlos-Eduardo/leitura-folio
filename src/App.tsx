@@ -93,7 +93,7 @@ interface Post {
 interface TimelineEvent {
   id: string
   userId: string
-  type: 'started' | 'finished' | 'progress' | 'posted' | 'registered'
+  type: 'started' | 'finished' | 'rereading' | 'abandoned' | 'progress' | 'posted' | 'registered'
   bookId?: string
   postId?: string
   data?: Record<string, number>
@@ -110,7 +110,7 @@ interface Reply {
 
 interface FolioNotification {
   id: string
-  type: 'follow' | 'like' | 'reply' | 'book_comment' | 'book_started' | 'book_finished' | 'book_reread' | 'book_abandoned'
+  type: 'follow' | 'like' | 'reply' | 'book_comment'
   userId: string
   postId?: string
   bookId?: string
@@ -1055,9 +1055,9 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
   }, [posts, books, shelf, currentUser.following, currentUser.id])
   const feedActivity = useMemo(() => {
-    const allowed = [...currentUser.following, currentUser.id]
+    const allowed = [...currentUser.following, ...currentUser.followers, currentUser.id]
     return timeline.filter(e => allowed.includes(e.userId)).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-  }, [timeline, currentUser.following, currentUser.id])
+  }, [timeline, currentUser.following, currentUser.followers, currentUser.id])
   const foundReaders = users
     .filter(user => user.id !== currentUser.id)
     .filter(user => `${user.name} ${user.handle}`.toLowerCase().includes(readerQuery.toLowerCase()))
@@ -1122,6 +1122,8 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
           const textByType = {
             started: 'está lendo',
             finished: 'terminou',
+            rereading: 'começou a reler',
+            abandoned: 'abandonou',
             progress: 'atualizou a leitura',
             posted: 'publicou em',
             registered: 'adicionou à estante',
@@ -2162,7 +2164,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               ['Páginas', book.totalPages],
-              [book.chaptersEstimated ? 'Capítulos estimados' : 'Capítulos', book.totalChapters],
+              [book.chaptersEstimated ? 'Capítulos' : 'Capítulos', book.totalChapters],
               ['Avaliação', platformRating],
               ['Hot', platformSpiceRating],
             ].map(([label, value]) => (
@@ -2535,7 +2537,7 @@ function NotificationsPage({ notifications, users, books, onBookClick, onUserCli
   return (
     <section>
       <Header title="Notificações">
-        <p className="text-sm text-stone-500">Seguidores, curtidas, respostas, comentários e leituras de pessoas conectadas aparecem aqui.</p>
+        <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pelo seu capítulo aparecem aqui.</p>
       </Header>
       {notifications.length ? (
         <div>
@@ -2548,10 +2550,6 @@ function NotificationsPage({ notifications, users, books, onBookClick, onUserCli
               like: 'curtiu sua publicação',
               reply: 'respondeu seu comentário',
               book_comment: 'comentou no livro que você está lendo',
-              book_started: 'começou a ler',
-              book_finished: 'terminou de ler',
-              book_reread: 'começou a reler',
-              book_abandoned: 'abandonou',
             }
             return (
               <article key={notification.id} className={`border-b border-stone-800 px-4 py-4 md:px-5 ${notification.read ? 'opacity-70' : ''}`}>
