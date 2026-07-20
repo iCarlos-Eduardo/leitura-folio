@@ -114,7 +114,7 @@ interface Reply {
 
 interface FolioNotification {
   id: string
-  type: 'follow' | 'like' | 'reply' | 'book_comment'
+  type: 'follow' | 'like' | 'reply' | 'reply_like' | 'reply_reply' | 'book_comment'
   userId: string
   postId?: string
   bookId?: string
@@ -2699,7 +2699,9 @@ function NotificationsPage({ notifications, users, books, onBookClick, onUserCli
             const textByType: Record<FolioNotification['type'], string> = {
               follow: 'começou a seguir você',
               like: 'curtiu sua publicação',
-              reply: 'respondeu seu comentário',
+              reply: 'comentou na sua publicação',
+              reply_like: 'curtiu seu comentário',
+              reply_reply: 'respondeu seu comentário',
               book_comment: 'comentou no livro que você está lendo',
             }
             return (
@@ -3539,9 +3541,9 @@ export default function App() {
     if (!currentUser) return false
     return runAction(async () => {
       const path = parentReplyId
-        ? `/folio/replies/${encodeURIComponent(parentReplyId)}/replies`
+        ? '/folio/replies/replies'
         : `/folio/posts/${encodeURIComponent(postId)}/replies`
-      await apiRequest(path, { method: 'POST', body: JSON.stringify({ text }) }, token)
+      await apiRequest(path, { method: 'POST', body: JSON.stringify(parentReplyId ? { text, parentReplyId } : { text }) }, token)
       await loadBootstrap()
     }, {
       success: 'Resposta publicada com sucesso.',
@@ -3589,7 +3591,7 @@ export default function App() {
     const reply = replies.find(item => item.id === replyId)
     const liked = Boolean(reply?.likes?.includes(currentUser.id))
     return runAction(async () => {
-      await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}/likes/toggle`, { method: 'POST' }, token)
+      await apiRequest('/folio/replies/likes/toggle', { method: 'POST', body: JSON.stringify({ replyId }) }, token)
       await loadBootstrap()
     }, {
       success: liked ? 'Curtida removida.' : 'Comentário curtido.',
