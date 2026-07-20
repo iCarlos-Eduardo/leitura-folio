@@ -5,6 +5,7 @@ type PostType = 'comment' | 'reaction' | 'theory'
 type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications'
 type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
+type ColorTheme = 'light' | 'dark'
 
 const BRAND_NAME = ''
 const BRAND_LOGO_URL = '/assets/image/logo/logo.jpeg'
@@ -495,10 +496,6 @@ function newestFirst<T extends { timestamp: string }>(a: T, b: T) {
   return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
 }
 
-function postsByChapterThenNewest(a: Post, b: Post) {
-  return b.chapter - a.chapter || newestFirst(a, b)
-}
-
 function topReadTerms(userId: string, shelf: ShelfEntry[], books: Book[], field: 'genres' | 'tropes') {
   const counts = new Map<string, number>()
   shelf
@@ -758,10 +755,76 @@ function NavIcon({ name }: { name: NavIconName }) {
   return <svg {...common}>{paths[name]}</svg>
 }
 
-function Navigation({ currentUser, page, notificationCount, onNavigate, onCreatePost, onLogout }: {
+function ThemeToggle({ theme, onToggle, compact = false }: { theme: ColorTheme; onToggle: () => void; compact?: boolean }) {
+  const dark = theme === 'dark'
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={dark}
+      aria-label={dark ? 'Usar modo claro' : 'Usar modo escuro'}
+      className={`${compact ? 'h-10 w-10 justify-center rounded-lg' : 'mb-3 w-full rounded-lg px-4 py-2.5'} flex items-center gap-2 border border-stone-700 bg-stone-900 text-sm font-bold text-stone-200 transition hover:bg-stone-800 hover:text-stone-100`}
+    >
+      <span className="text-base leading-none">{dark ? '☀' : '☾'}</span>
+      {!compact && <span>{dark ? 'Modo claro' : 'Modo escuro'}</span>}
+    </button>
+  )
+}
+
+function MobileQuickActions({ theme, onToggleTheme, onCreatePost }: {
+  theme: ColorTheme
+  onToggleTheme: () => void
+  onCreatePost: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const dark = theme === 'dark'
+
+  function runAction(action: () => void) {
+    action()
+    setOpen(false)
+  }
+
+  return (
+    <div className="fixed bottom-[calc(max(env(safe-area-inset-bottom),0px)+4.75rem)] right-4 z-50 md:hidden">
+      {open && (
+        <div className="mb-2 grid w-44 gap-2 rounded-lg border border-stone-800 bg-stone-950/95 p-2 shadow-2xl shadow-black/30 backdrop-blur-xl">
+          <button
+            type="button"
+            onClick={() => runAction(onCreatePost)}
+            className="flex items-center gap-2 rounded-lg bg-amber-300 px-3 py-2 text-left text-sm font-bold text-stone-950 transition hover:bg-amber-200"
+          >
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-stone-950/10 text-base leading-none">+</span>
+            Publicar
+          </button>
+          <button
+            type="button"
+            onClick={() => runAction(onToggleTheme)}
+            className="flex items-center gap-2 rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-left text-sm font-bold text-stone-200 transition hover:bg-stone-800 hover:text-stone-100"
+          >
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-stone-800 text-base leading-none">{dark ? '☀' : '☾'}</span>
+            {dark ? 'Modo claro' : 'Modo escuro'}
+          </button>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen(value => !value)}
+        aria-expanded={open}
+        aria-label="Ações rápidas"
+        className="ml-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-300 text-2xl font-bold leading-none text-stone-950 shadow-lg shadow-black/30 transition hover:bg-amber-200"
+      >
+        {open ? '×' : '+'}
+      </button>
+    </div>
+  )
+}
+
+function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme, onNavigate, onCreatePost, onLogout }: {
   currentUser: User
   page: Page
   notificationCount: number
+  theme: ColorTheme
+  onToggleTheme: () => void
   onNavigate: (p: Page) => void
   onCreatePost: () => void
   onLogout: () => void
@@ -801,6 +864,7 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
         <button onClick={onCreatePost} className="mb-4 rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-bold text-stone-950 transition hover:bg-amber-200">
           Nova publicação
         </button>
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <div className="flex items-center gap-3 border-t border-stone-800 pt-4">
           <Avatar user={currentUser} size="sm" />
           <div className="min-w-0 flex-1">
@@ -813,9 +877,7 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
         </div>
       </aside>
 
-      <button onClick={onCreatePost} className="fixed bottom-[calc(max(env(safe-area-inset-bottom),0px)+4.75rem)] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-amber-300 text-2xl font-bold leading-none text-stone-950 shadow-lg shadow-black/30 transition hover:bg-amber-200 md:hidden" aria-label="Nova publicação">
-        +
-      </button>
+      <MobileQuickActions theme={theme} onToggleTheme={onToggleTheme} onCreatePost={onCreatePost} />
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-800 bg-stone-950/95 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-2 backdrop-blur-xl md:hidden">
         <div className="mx-auto grid max-w-md grid-cols-6 items-center gap-1">
@@ -1061,7 +1123,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
     const allowed = [...currentUser.following, currentUser.id]
     return posts
       .filter(post => allowed.includes(post.userId))
-      .sort(postsByChapterThenNewest)
+      .sort(newestFirst)
   }, [posts, currentUser.following, currentUser.id])
   const feedActivity = useMemo(() => {
     const allowed = [...currentUser.following, ...currentUser.followers, currentUser.id]
@@ -2002,8 +2064,8 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   const platformSpiceRating = spiceSummaryText(averageSpiceRating, spiceRatings.length)
 
   const postsInBook = posts.filter(post => post.bookId === book.id)
-  const comments = postsInBook.filter(post => post.type !== 'theory').sort(postsByChapterThenNewest)
-  const theories = postsInBook.filter(post => post.type === 'theory').sort(postsByChapterThenNewest)
+  const comments = postsInBook.filter(post => post.type !== 'theory').sort(newestFirst)
+  const theories = postsInBook.filter(post => post.type === 'theory').sort(newestFirst)
   const visibleChapterLimit = hasFullBookAccess ? book.totalChapters : chapterLimit
   const activeList = tab === 'theories' ? theories : comments
   const detailRows = [
@@ -3075,11 +3137,18 @@ function storedPage() {
   return ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications'].includes(value || '') ? value as Page : 'timeline'
 }
 
+function storedColorTheme(): ColorTheme {
+  const theme = localStorage.getItem('folio_theme') === 'dark' ? 'dark' : 'light'
+  document.documentElement.dataset.theme = theme
+  return theme
+}
+
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('folio_token') || '')
   const [users, setUsers] = useState<User[]>([])
   const [books, setBooks] = useState<Book[]>([])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [theme, setTheme] = useState<ColorTheme>(() => storedColorTheme())
   const [page, setPage] = useState<Page>(() => storedPage())
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => localStorage.getItem('folio_selected_book_id'))
   const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(() => localStorage.getItem('folio_selected_profile_user_id'))
@@ -3111,6 +3180,10 @@ export default function App() {
 
   function endActionLoading() {
     setActionLoadingCount(count => Math.max(0, count - 1))
+  }
+
+  function handleToggleTheme() {
+    setTheme(current => current === 'dark' ? 'light' : 'dark')
   }
 
   async function runAction(action: () => Promise<void>, feedback: ActionFeedback) {
@@ -3199,6 +3272,11 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [token, currentUser?.id])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem('folio_theme', theme)
+  }, [theme])
 
   useEffect(() => {
     localStorage.setItem('folio_page', page)
@@ -3531,6 +3609,8 @@ export default function App() {
         currentUser={currentUser}
         page={page}
         notificationCount={notificationCount}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
         onNavigate={handleNavigate}
         onCreatePost={() => setShowPostModal(true)}
         onLogout={handleLogout}

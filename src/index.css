@@ -18,18 +18,58 @@
   --color-amber-400: #6f3c13;
   --color-amber-300: #6f3c13;
   --color-amber-200: #b66b2d;
+  --color-amber-100: #ead1bd;
   --color-amber-50: #f6f1e8;
   --color-red-400: #A56F63;
   --color-red-300: #A56F63;
   --color-red-200: #A56F63;
   --color-red-100: #A56F63;
+  --color-violet-400: #7c5ab8;
+  --color-violet-300: #6d4ea4;
+}
+
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-stone-950: #0d0b09;
+  --color-stone-900: #18130f;
+  --color-stone-800: #2d241c;
+  --color-stone-700: #4d3c2f;
+  --color-stone-600: #725b48;
+  --color-stone-500: #a08d7b;
+  --color-stone-400: #c1b4a6;
+  --color-stone-300: #ddd5ca;
+  --color-stone-200: #eee8df;
+  --color-stone-100: #f8f3eb;
+  --color-stone-50: #fffaf2;
+  --color-amber-700: #9a5a18;
+  --color-amber-500: #d1842f;
+  --color-amber-400: #ee9f3a;
+  --color-amber-300: #f5bd69;
+  --color-amber-200: #ffd996;
+  --color-amber-100: #ffedc8;
+  --color-amber-50: #fff8e8;
+  --color-red-400: #f87171;
+  --color-red-300: #fca5a5;
+  --color-red-200: #fecaca;
+  --color-red-100: #fee2e2;
+  --color-violet-400: #a78bfa;
+  --color-violet-300: #c4b5fd;
 }
 
 body {
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-  background: #f6f1e8;
-  color: #241306;
+  background: var(--color-stone-950);
+  color: var(--color-stone-100);
   -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-amber-300);
+  color: var(--color-stone-950);
 }
 
 .font-serif {
@@ -38,7 +78,7 @@ body {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #6f3c13 transparent;
+  scrollbar-color: var(--color-stone-700) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -50,6 +90,6 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #6f3c13;
+  background: var(--color-stone-700);
   border-radius: 2px;
 }
