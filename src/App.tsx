@@ -2917,7 +2917,9 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
     .filter(entry => entry.userId === currentUser.id && canPostWithStatus(entry.status))
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
     .filter(item => item.book)
+    .sort((a, b) => a.book.title.localeCompare(b.book.title, 'pt-BR'))
   const [selectedBookId, setSelectedBookId] = useState(myBooks[0]?.book.id || '')
+  const [bookQuery, setBookQuery] = useState('')
   const selectedBook = books.find(book => book.id === selectedBookId) || myBooks[0]?.book
   const selectedEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === selectedBookId)
   const defaultPercent = selectedEntry?.status === 'read' ? 100 : selectedEntry?.progress ?? 0
@@ -2931,6 +2933,9 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
   const [uploadingPostImage, setUploadingPostImage] = useState(false)
   const emojis = ['😭', '🤯', '♥', '😂', '😡', '🔥', '💔', '😱', '🥹', '👏']
   const canPost = selectedBook && chapter !== '' && !uploadingPostImage && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0 || Boolean(postImageUrl))
+  const filteredBooks = myBooks
+    .filter(({ book }) => !bookQuery.trim() || bookMatchesSearch(book, bookQuery, 'title') || bookMatchesSearch(book, bookQuery, 'author'))
+    .slice(0, 8)
 
   function handleBookChange(bookId: string) {
     const nextBook = books.find(book => book.id === bookId)
@@ -2987,10 +2992,34 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
             <>
               <label className="block text-sm font-semibold text-stone-300">
                 Livro
-                <select value={selectedBookId} onChange={e => handleBookChange(e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300">
-                  {myBooks.map(({ book }) => <option key={book.id} value={book.id}>{book.title}</option>)}
-                </select>
+                <input
+                  value={bookQuery}
+                  onChange={e => setBookQuery(e.target.value)}
+                  placeholder="Buscar por título ou autor"
+                  className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300"
+                />
               </label>
+              <div className="max-h-52 space-y-2 overflow-y-auto rounded-lg border border-stone-800 bg-stone-950 p-2">
+                {filteredBooks.map(({ entry, book }) => {
+                  const active = book.id === selectedBookId
+                  return (
+                    <button
+                      key={book.id}
+                      type="button"
+                      onClick={() => handleBookChange(book.id)}
+                      className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition ${active ? 'border-amber-300 bg-amber-300/10 text-amber-200' : 'border-stone-800 bg-stone-900 text-stone-300 hover:border-stone-700 hover:bg-stone-800'}`}
+                    >
+                      <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-10 w-7 shrink-0 rounded object-cover" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold">{book.title}</span>
+                        <span className="block truncate text-xs text-stone-500">{book.author} · {STATUS_LABELS[entry.status]}</span>
+                      </span>
+                      {active && <span className="text-sm font-bold text-amber-300">✓</span>}
+                    </button>
+                  )
+                })}
+                {!filteredBooks.length && <p className="px-3 py-4 text-center text-sm text-stone-500">Nenhum livro encontrado na sua estante.</p>}
+              </div>
 
               {selectedBook && (
                 <div>
