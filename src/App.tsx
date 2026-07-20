@@ -277,6 +277,15 @@ function bookMatchesSearch(book: Book, query: string, field: BookSearchField) {
   return valuesByField[field].some(value => normalizeSearch(value).includes(needle))
 }
 
+function readerMatchesSearch(user: User, query: string) {
+  const needle = normalizeSearch(query)
+  if (!needle) return true
+  const handle = normalizeSearch(user.handle)
+  const handleWithAt = `@${handle}`
+  const name = normalizeSearch(user.name)
+  return name.includes(needle) || handle.includes(needle.replace(/^@+/, '')) || handleWithAt.includes(needle)
+}
+
 function mergeBooksById(...groups: Book[][]) {
   const merged = new Map<string, Book>()
   groups.flat().forEach(book => {
@@ -831,7 +840,7 @@ function Navigation({ currentUser, page, notificationCount, onNavigate, onCreate
   )
 }
 
-function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onDeletePost, onDeleteReply, compactBook = false, protectSpoilers = false }: {
+function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onDeletePost, onDeleteReply, compactBook = false, protectSpoilers = false, spoilerChapterLimit }: {
   post: Post
   users: User[]
   books: Book[]
@@ -846,6 +855,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
   compactBook?: boolean
   protectSpoilers?: boolean
+  spoilerChapterLimit?: number
 }) {
   const [showReplyBox, setShowReplyBox] = useState(false)
   const [showAllReplies, setShowAllReplies] = useState(false)
@@ -855,14 +865,15 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const book = books.find(b => b.id === post.bookId)
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === post.bookId)
   const myChapter = book && myEntry ? chapterFromPercent(book, myEntry.progress) : 0
+  const safeChapterLimit = spoilerChapterLimit ?? myChapter
   const contentLabel = post.type === 'theory' ? 'Teoria' : 'Comentário'
   const isOwnPost = post.userId === currentUser.id
   const spoilerState =
-    !protectSpoilers || isOwnPost ? 'visible' :
+    !protectSpoilers || isOwnPost || spoilerAccepted ? 'visible' :
     !myEntry ? 'not-reading' :
     myEntry.status === 'read' || myEntry.status === 'rereading' ? 'visible' :
-    post.chapter > myChapter ? 'blocked' :
-    post.chapter === myChapter && !spoilerAccepted ? 'same-chapter' :
+    post.chapter > safeChapterLimit ? 'blocked' :
+    post.chapter === safeChapterLimit ? 'same-chapter' :
     'visible'
   const canInteractWithContent = spoilerState === 'visible'
   const relatedReplies = replies.filter(reply => reply.postId === post.id)
@@ -921,16 +932,14 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           ) : (
             <div className="mb-3 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3">
               <p className="text-sm font-bold text-amber-200">
-                {spoilerState === 'not-reading' ? `${contentLabel} oculto: você ainda não está lendo este livro.` : spoilerState === 'blocked' ? `${contentLabel} oculto: capítulo ${post.chapter}.` : `${contentLabel} do seu capítulo atual (${post.chapter}).`}
+                {spoilerState === 'not-reading' ? `${contentLabel} pode conter spoiler deste livro.` : spoilerState === 'blocked' ? `${contentLabel} pode conter spoiler do capítulo ${post.chapter}.` : `${contentLabel} do seu capítulo atual (${post.chapter}).`}
               </p>
               <p className="mt-1 text-xs text-stone-400">
-                {spoilerState === 'same-chapter' ? 'Pode conter detalhes importantes deste capítulo.' : 'Para evitar spoiler, comentários só aparecem até capítulos já ultrapassados.'}
+                {spoilerState === 'not-reading' ? 'Você ainda não adicionou este livro à estante, então o progresso não foi identificado.' : spoilerState === 'same-chapter' ? 'Pode conter detalhes importantes deste capítulo.' : `Seu filtro está no capítulo ${safeChapterLimit}.`}
               </p>
-              {spoilerState === 'same-chapter' && (
-                <button onClick={() => setSpoilerAccepted(true)} className="mt-3 rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">
-                  Tenho certeza, mostrar
-                </button>
-              )}
+              <button onClick={() => setSpoilerAccepted(true)} className="mt-3 rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">
+                Ver mesmo assim
+              </button>
             </div>
           )}
           <div className="flex items-center gap-5 text-xs">
@@ -1052,25 +1061,15 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
     const allowed = [...currentUser.following, currentUser.id]
     return posts
       .filter(post => allowed.includes(post.userId))
-      .filter(post => {
-        if (post.userId === currentUser.id) return true
-        const book = books.find(item => item.id === post.bookId)
-        if (!book) return true
-        const entry = shelf.find(item => item.userId === currentUser.id && item.bookId === post.bookId)
-        if (!entry) return false
-        if (entry.status === 'read' || entry.status === 'rereading') return true
-        const myChapter = chapterFromPercent(book, entry.progress)
-        return post.chapter <= myChapter
-      })
       .sort(postsByChapterThenNewest)
-  }, [posts, books, shelf, currentUser.following, currentUser.id])
+  }, [posts, currentUser.following, currentUser.id])
   const feedActivity = useMemo(() => {
     const allowed = [...currentUser.following, ...currentUser.followers, currentUser.id]
     return timeline.filter(e => allowed.includes(e.userId)).sort(newestFirst)
   }, [timeline, currentUser.following, currentUser.followers, currentUser.id])
   const foundReaders = users
     .filter(user => user.id !== currentUser.id)
-    .filter(user => `${user.name} ${user.handle}`.toLowerCase().includes(readerQuery.toLowerCase()))
+    .filter(user => readerMatchesSearch(user, readerQuery))
     .slice(0, 4)
 
   return (
@@ -1119,7 +1118,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
       {tab === 'posts' && (
         <PaginatedPostList
           posts={feedPosts}
-          emptyText="Nenhuma publicação de quem você segue liberada pelo seu capítulo atual."
+          emptyText="Nenhuma publicação de quem você segue ainda."
           resetKey={`timeline-${currentUser.id}`}
           renderPost={post => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} protectSpoilers />}
         />
@@ -1979,6 +1978,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   onAddBook: (bookId: string, status: BookStatus) => Promise<boolean | void> | boolean | void
 }) {
   const [tab, setTab] = useState<'feed' | 'theories' | 'about'>('feed')
+  const [newShelfStatus, setNewShelfStatus] = useState<BookStatus>('reading')
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
   const myProgress = myEntry?.progress ?? 0
   const hasFullBookAccess = myEntry?.status === 'read' || myEntry?.status === 'rereading'
@@ -2005,10 +2005,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
   const comments = postsInBook.filter(post => post.type !== 'theory').sort(postsByChapterThenNewest)
   const theories = postsInBook.filter(post => post.type === 'theory').sort(postsByChapterThenNewest)
   const visibleChapterLimit = hasFullBookAccess ? book.totalChapters : chapterLimit
-  const isVisible = (post: Post) => post.chapter <= visibleChapterLimit
   const activeList = tab === 'theories' ? theories : comments
-  const visible = activeList.filter(isVisible)
-  const hidden = activeList.filter(post => !isVisible(post))
   const detailRows = [
     ['Série', book.series || 'Não informado'],
     ['Volume', book.volume || 'Não informado'],
@@ -2125,9 +2122,15 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                   )}
                 </>
               ) : (
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => onAddBook(book.id, 'reading')} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">Adicionar como lendo</button>
-                  <button onClick={() => onAddBook(book.id, 'want')} className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-bold text-stone-300">TBR</button>
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <select
+                    value={newShelfStatus}
+                    onChange={e => setNewShelfStatus(e.target.value as BookStatus)}
+                    className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
+                  >
+                    {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
+                  </select>
+                  <button onClick={() => onAddBook(book.id, newShelfStatus)} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">Adicionar à estante</button>
                 </div>
               )}
             </div>
@@ -2205,21 +2208,12 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
         </div>
       ) : (
         <div>
-          {!visible.length && !hidden.length && <EmptyState text={tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
+          {!activeList.length && <EmptyState text={tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
           <PaginatedPostList
-            posts={visible}
+            posts={activeList}
             resetKey={`book-${book.id}-${tab}-${visibleChapterLimit}`}
-            renderPost={post => <PostCard key={post.id} post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => {}} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} compactBook protectSpoilers />}
+            renderPost={post => <PostCard key={post.id} post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => {}} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} />}
           />
-          {hidden.length > 0 && (
-            <div className="m-4 rounded-lg border border-stone-800 bg-stone-900 p-5 text-center">
-              <div className="mb-2 text-3xl">🔒</div>
-              <p className="text-sm font-bold text-stone-200">
-                {hidden.length} {tab === 'theories' ? 'teoria(s)' : 'comentário(s)'} depois do filtro
-              </p>
-              <p className="mt-1 text-xs text-stone-500">Avance a leitura ou ajuste o filtro para desbloquear com segurança.</p>
-            </div>
-          )}
         </div>
       )}
     </section>
@@ -2970,7 +2964,7 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
     .filter(item => item.book)
   const suggestions = users
     .filter(user => user.id !== currentUser.id)
-    .filter(user => readerQuery ? `${user.name} ${user.handle}`.toLowerCase().includes(readerQuery.toLowerCase()) : !currentUser.following.includes(user.id))
+    .filter(user => readerQuery ? readerMatchesSearch(user, readerQuery) : !currentUser.following.includes(user.id))
     .slice(0, 4)
 
   return (
