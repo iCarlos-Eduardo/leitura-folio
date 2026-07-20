@@ -947,9 +947,11 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
     'visible'
   const canInteractWithContent = spoilerState === 'visible'
   const relatedReplies = replies.filter(reply => reply.postId === post.id)
-  const topLevelReplies = relatedReplies.filter(reply => !reply.parentReplyId)
-  const visibleReplies = showAllReplies ? topLevelReplies : topLevelReplies.slice(0, 2)
+  const oldestFirst = (a: Reply, b: Reply) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  const topLevelReplies = relatedReplies.filter(reply => !reply.parentReplyId).sort(oldestFirst)
+  const visibleReplies = showAllReplies ? topLevelReplies : topLevelReplies.slice(0, 1)
   const hiddenReplyCount = Math.max(0, topLevelReplies.length - visibleReplies.length)
+  const hiddenConversationCount = hiddenReplyCount + (showAllReplies ? 0 : visibleReplies.reduce((total, reply) => total + relatedReplies.filter(child => child.parentReplyId === reply.id).length, 0))
   const displayedComments = relatedReplies.length
   const liked = post.likes.includes(currentUser.id)
   const postContent = postTextParts(post.text)
@@ -1057,7 +1059,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                 const replyLiked = replyLikes.includes(currentUser.id)
                 const childReplies = relatedReplies
                   .filter(child => child.parentReplyId === reply.id)
-                  .sort(newestFirst)
+                  .sort(oldestFirst)
+                const visibleChildReplies = showAllReplies ? childReplies : []
                 return (
                   <div key={reply.id} className="rounded-lg bg-stone-950 p-2">
                     <div className="flex gap-2">
@@ -1099,9 +1102,9 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                           </div>
                         </div>
                       )}
-                      {childReplies.length > 0 && (
+                      {visibleChildReplies.length > 0 && (
                         <div className="mt-2 space-y-2 border-l border-stone-800 pl-3">
-                          {childReplies.map(child => {
+                          {visibleChildReplies.map(child => {
                             const childUser = users.find(user => user.id === child.userId) || currentUser
                             const childLikes = child.likes || []
                             const childLiked = childLikes.includes(currentUser.id)
@@ -1130,14 +1133,14 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                   </div>
                 )
               })}
-              {topLevelReplies.length > 2 && (
+              {hiddenConversationCount > 0 || showAllReplies ? (
                 <button
                   onClick={() => setShowAllReplies(value => !value)}
                   className="text-xs font-bold text-amber-300 hover:text-amber-200"
                 >
-                  {showAllReplies ? 'ver menos' : `ver mais ${hiddenReplyCount}`}
+                  {showAllReplies ? 'ver menos' : `ver mais ${hiddenConversationCount}`}
                 </button>
-              )}
+              ) : null}
             </div>
           )}
         </div>
