@@ -2502,12 +2502,13 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
     </section>
   )
 }
-function ProfileListPage({ kind, currentUser, profileUser, users, books, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onDeletePost, onDeleteReply }: {
+function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onDeletePost, onDeleteReply }: {
   kind: ProfileListKind
   currentUser: User
   profileUser: User
   users: User[]
   books: Book[]
+  shelf: ShelfEntry[]
   posts: Post[]
   replies: Reply[]
   onBack: () => void
@@ -2549,6 +2550,7 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, posts, 
                 post={post}
                 users={users}
                 books={books}
+                shelf={shelf}
                 currentUser={currentUser}
                 replies={replies}
                 onBookClick={onBookClick}
@@ -2557,6 +2559,7 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, posts, 
                 onToggleLike={onToggleLike}
                 onDeletePost={onDeletePost}
                 onDeleteReply={onDeleteReply}
+                protectSpoilers
               />
             )}
           />
@@ -3625,7 +3628,7 @@ export default function App() {
           {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
           {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} onBack={() => setPage('timeline')} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
-          {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
+          {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
           {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
         </main>
