@@ -169,7 +169,9 @@ async function apiRequest<T>(path: string, options: RequestInit = {}, token?: st
   }
 
   if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
+  const text = await response.text()
+  if (!text.trim()) return undefined as T
+  return JSON.parse(text) as T
 }
 
 function errorMessage(error: unknown, fallback: string) {
