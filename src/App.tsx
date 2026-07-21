@@ -1774,8 +1774,18 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
               {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Pagina atual<input type="number" min="0" value={draft.currentPage} onChange={e => update('currentPage', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
               <label className="text-sm font-semibold text-stone-300">Capitulos totais *<input type="number" min="1" value={draft.totalChapters} onChange={e => update('totalChapters', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
               {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Formato<input value={draft.format} onChange={e => update('format', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
-              {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Inicio da leitura<input type="date" value={draft.startDate} onChange={e => update('startDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
-              {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Conclusao da leitura<input type="date" value={draft.endDate} onChange={e => update('endDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
+              {includeShelfFields && (
+                <div className="col-span-full grid grid-cols-2 gap-2">
+                  <label className="min-w-0 text-xs font-bold uppercase tracking-[0.12em] text-stone-500">
+                    Inicio
+                    <input type="date" value={draft.startDate} onChange={e => update('startDate', e.target.value)} className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300" />
+                  </label>
+                  <label className="min-w-0 text-xs font-bold uppercase tracking-[0.12em] text-stone-500">
+                    Conclusao
+                    <input type="date" value={draft.endDate} onChange={e => update('endDate', e.target.value)} className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300" />
+                  </label>
+                </div>
+              )}
             </div>
           </section>
 
@@ -2022,22 +2032,22 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                 )}
               </div>
               <div className="mb-3 grid grid-cols-2 gap-2">
-                <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
+                <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
                   Inicio
                   <input
                     type="date"
                     value={dateInputValue(entry.startDate)}
                     onChange={e => onUpdateShelfEntry(book.id, { startDate: e.target.value || undefined })}
-                    className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                    className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                   />
                 </label>
-                <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
+                <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
                   Conclusao
                   <input
                     type="date"
                     value={dateInputValue(entry.endDate)}
                     onChange={e => onUpdateShelfEntry(book.id, { endDate: e.target.value || undefined })}
-                    className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                    className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                   />
                 </label>
               </div>
@@ -2437,23 +2447,23 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                       </button>
                     </div>
                   )}
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <label className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
                       Inicio
                       <input
                         type="date"
                         value={dateInputValue(myEntry.startDate)}
                         onChange={e => onUpdateShelfEntry(book.id, { startDate: e.target.value || undefined })}
-                        className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                        className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                       />
                     </label>
-                    <label className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">
+                    <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
                       Conclusao
                       <input
                         type="date"
                         value={dateInputValue(myEntry.endDate)}
                         onChange={e => onUpdateShelfEntry(book.id, { endDate: e.target.value || undefined })}
-                        className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                        className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                       />
                     </label>
                   </div>
