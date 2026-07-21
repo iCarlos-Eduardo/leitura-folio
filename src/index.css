@@ -136,3 +136,10 @@ select.folio-field-control {
   margin: 0;
   padding: 0;
 }
+
+@media (max-width: 639px) {
+  .folio-book-progress .folio-field-control {
+    block-size: 2.25rem;
+    min-block-size: 2.25rem;
+  }
+}
