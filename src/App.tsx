@@ -501,6 +501,17 @@ function isDateInYear(value: string | null | undefined, year: number) {
   return Boolean(value && Number(value.slice(0, 4)) === year)
 }
 
+function shelfCompletionTime(entry: ShelfEntry) {
+  const date = dateInputValue(entry.endDate)
+  if (!date) return Number.NEGATIVE_INFINITY
+  const time = new Date(`${date}T00:00:00`).getTime()
+  return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY
+}
+
+function readShelfNewestFirst(a: { entry: ShelfEntry; book: Book }, b: { entry: ShelfEntry; book: Book }) {
+  return shelfCompletionTime(b.entry) - shelfCompletionTime(a.entry) || a.book.title.localeCompare(b.book.title, 'pt-BR')
+}
+
 type DatePromptOptions = {
   title: string
   description: string
@@ -1938,6 +1949,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     .filter(entry => entry.status === activeStatus)
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
     .filter(item => item.book)
+    .sort(activeStatus === 'read' ? readShelfNewestFirst : () => 0)
 
   async function searchCatalog() {
     const query = bookQuery.trim()
@@ -2741,7 +2753,9 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
   const visibleShelf = myShelf
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId) }))
     .filter((item): item is { entry: ShelfEntry; book: Book } => Boolean(item.book))
-  const filteredShelf = visibleShelf.filter(({ entry }) => entry.status === shelfFilter)
+  const filteredShelf = visibleShelf
+    .filter(({ entry }) => entry.status === shelfFilter)
+    .sort(shelfFilter === 'read' ? readShelfNewestFirst : () => 0)
   const shelfFilters: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
   const topGenres = topReadTerms(profileUser.id, shelf, books, 'genres')
   const topTropes = topReadTerms(profileUser.id, shelf, books, 'tropes')
