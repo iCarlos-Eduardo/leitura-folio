@@ -94,19 +94,31 @@ body {
   border-radius: 2px;
 }
 
+.folio-field-control {
+  align-items: center;
+  box-sizing: border-box;
+  min-block-size: 2.625rem;
+  line-height: 1rem;
+}
+
 .folio-date-input {
   -webkit-appearance: none;
   appearance: none;
   box-sizing: border-box;
   display: block;
+  block-size: 2.625rem;
   inline-size: 100%;
   max-inline-size: 100%;
   min-inline-size: 0;
   overflow: hidden;
-  padding-inline-end: 0.25rem;
+  padding-block: 0;
+  padding-inline-end: 0.5rem;
 }
 
 .folio-date-input::-webkit-date-and-time-value {
+  align-items: center;
+  block-size: 100%;
+  display: flex;
   max-inline-size: 100%;
   min-inline-size: 0;
   padding: 0;

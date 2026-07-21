@@ -1778,11 +1778,11 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
                 <div className="col-span-full grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-2">
                   <label className="min-w-0 text-xs font-bold uppercase tracking-[0.12em] text-stone-500">
                     Inicio
-                    <input type="date" value={draft.startDate} onChange={e => update('startDate', e.target.value)} className="folio-date-input mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300" />
+                    <input type="date" value={draft.startDate} onChange={e => update('startDate', e.target.value)} className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300" />
                   </label>
                   <label className="min-w-0 text-xs font-bold uppercase tracking-[0.12em] text-stone-500">
                     Conclusao
-                    <input type="date" value={draft.endDate} onChange={e => update('endDate', e.target.value)} className="folio-date-input mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300" />
+                    <input type="date" value={draft.endDate} onChange={e => update('endDate', e.target.value)} className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300" />
                   </label>
                 </div>
               )}
@@ -2004,7 +2004,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                       ...dateChanges,
                     })
                   }}
-                  className="w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-stone-100 outline-none focus:border-amber-300"
+                  className="folio-field-control w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-stone-100 outline-none focus:border-amber-300"
                 >
                   {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
                 </select>
@@ -2013,7 +2013,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     <select
                       value={entry.rating ?? ''}
                       onChange={e => onUpdateShelfEntry(book.id, { rating: Number(e.target.value) })}
-                      className="rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-amber-300 outline-none focus:border-amber-300"
+                      className="folio-field-control rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-amber-300 outline-none focus:border-amber-300"
                     >
                       <option value="">★</option>
                       {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} ★</option>)}
@@ -2021,7 +2021,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     <select
                       value={entry.spiceRating ?? ''}
                       onChange={e => onUpdateShelfEntry(book.id, { spiceRating: Number(e.target.value) })}
-                      className="rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-red-300 outline-none focus:border-red-300"
+                      className="folio-field-control rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-red-300 outline-none focus:border-red-300"
                     >
                       <option value="">Hot</option>
                       {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} 🌶</option>)}
@@ -2036,10 +2036,10 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     onChange={e => setChapterInput(e.target.value)}
                     placeholder="Cap."
                     aria-label="Capítulo atual"
-                    className="w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs text-stone-100 outline-none focus:border-amber-300"
+                    className="folio-field-control w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs text-stone-100 outline-none focus:border-amber-300"
                   />
                 ) : (
-                  <span className="rounded-lg border border-stone-800 px-2 py-2 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</span>
+                  <span className="folio-field-control flex rounded-lg border border-stone-800 px-2 py-2 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</span>
                 )}
               </div>
               <div className="mb-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-2">
@@ -2049,7 +2049,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     type="date"
                     value={dateInputValue(entry.startDate)}
                     onChange={e => onUpdateShelfEntry(book.id, { startDate: e.target.value || undefined })}
-                    className="folio-date-input mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                    className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                   />
                 </label>
                 <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
@@ -2058,7 +2058,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     type="date"
                     value={dateInputValue(entry.endDate)}
                     onChange={e => onUpdateShelfEntry(book.id, { endDate: e.target.value || undefined })}
-                    className="folio-date-input mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                    className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                   />
                 </label>
               </div>
@@ -2395,7 +2395,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                                 setChapterLimit(book.totalChapters)
                               }
                             }}
-                            className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                            className="folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                           >
                             {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
                           </select>
@@ -2408,7 +2408,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                             max={book.totalChapters}
                             value={chapterInput}
                             onChange={e => setChapterInput(e.target.value)}
-                            className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                            className="folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                             aria-label="Capítulo atual"
                           />
                         </label>
@@ -2450,7 +2450,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                             setChapterLimit(book.totalChapters)
                           }
                         }}
-                        className="w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
+                        className="folio-field-control w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
                       >
                         {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
                       </select>
@@ -2459,7 +2459,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                           <select
                             value={myEntry.rating ?? ''}
                             onChange={e => onUpdateShelfEntry(book.id, { rating: Number(e.target.value) })}
-                            className="min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-amber-300 outline-none focus:border-amber-300"
+                            className="folio-field-control min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-amber-300 outline-none focus:border-amber-300"
                           >
                             <option value="">Estrelas</option>
                             {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} ★</option>)}
@@ -2467,7 +2467,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                           <select
                             value={myEntry.spiceRating ?? ''}
                             onChange={e => onUpdateShelfEntry(book.id, { spiceRating: Number(e.target.value) })}
-                            className="min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-red-300 outline-none focus:border-red-300"
+                            className="folio-field-control min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-red-300 outline-none focus:border-red-300"
                           >
                             <option value="">Pimentas</option>
                             {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} 🌶</option>)}
@@ -2483,7 +2483,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                         type="date"
                         value={dateInputValue(myEntry.startDate)}
                         onChange={e => onUpdateShelfEntry(book.id, { startDate: e.target.value || undefined })}
-                        className="folio-date-input mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                        className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                       />
                     </label>
                     <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
@@ -2492,7 +2492,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                         type="date"
                         value={dateInputValue(myEntry.endDate)}
                         onChange={e => onUpdateShelfEntry(book.id, { endDate: e.target.value || undefined })}
-                        className="folio-date-input mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                        className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                       />
                     </label>
                   </div>
