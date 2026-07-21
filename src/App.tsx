@@ -3025,10 +3025,11 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   )
 }
 
-function NotificationsPage({ notifications, users, books, deviceNotificationStatus, remotePushRegistered, onEnableDeviceNotifications, onTestDeviceNotification, onBookClick, onUserClick }: {
+function NotificationsPage({ notifications, users, books, showDeviceNotificationControls, deviceNotificationStatus, remotePushRegistered, onEnableDeviceNotifications, onTestDeviceNotification, onBookClick, onUserClick }: {
   notifications: FolioNotification[]
   users: User[]
   books: Book[]
+  showDeviceNotificationControls: boolean
   deviceNotificationStatus: DeviceNotificationStatus
   remotePushRegistered: boolean
   onEnableDeviceNotifications: () => void
@@ -3041,7 +3042,7 @@ function NotificationsPage({ notifications, users, books, deviceNotificationStat
       <Header title="Notificações">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pelo seu capítulo aparecem aqui.</p>
-          {(deviceNotificationStatus === 'default' || (deviceNotificationStatus === 'granted' && !remotePushRegistered)) && (
+          {showDeviceNotificationControls && (deviceNotificationStatus === 'default' || (deviceNotificationStatus === 'granted' && !remotePushRegistered)) && (
             <button
               type="button"
               onClick={onEnableDeviceNotifications}
@@ -3050,7 +3051,7 @@ function NotificationsPage({ notifications, users, books, deviceNotificationStat
               {deviceNotificationStatus === 'granted' ? 'Conectar ao servidor' : 'Ativar no celular'}
             </button>
           )}
-          {deviceNotificationStatus === 'granted' && remotePushRegistered && (
+          {showDeviceNotificationControls && deviceNotificationStatus === 'granted' && remotePushRegistered && (
             <div className="flex w-full shrink-0 gap-2 sm:w-auto">
               <span className="flex-1 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-center text-sm font-bold text-emerald-700 sm:flex-none">
                 Conectadas
@@ -3064,12 +3065,12 @@ function NotificationsPage({ notifications, users, books, deviceNotificationStat
               </button>
             </div>
           )}
-          {deviceNotificationStatus === 'denied' && (
+          {showDeviceNotificationControls && deviceNotificationStatus === 'denied' && (
             <span className="w-full shrink-0 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-center text-sm font-bold text-red-300 sm:w-auto">
               Bloqueadas no navegador
             </span>
           )}
-          {deviceNotificationStatus === 'unsupported' && (
+          {showDeviceNotificationControls && deviceNotificationStatus === 'unsupported' && (
             <span className="w-full shrink-0 rounded-lg border border-stone-800 bg-stone-900 px-3 py-2 text-center text-sm font-bold text-stone-500 sm:w-auto">
               Indisponível neste navegador
             </span>
@@ -3672,6 +3673,7 @@ export default function App() {
   const notifiedDeviceNotificationIds = useRef<Set<string>>(new Set())
   const notifiedDeviceNotificationUserId = useRef<string | null>(null)
   const { askDate, datePromptDialog } = useDatePrompt()
+  const canUseDeviceNotifications = currentUser?.role === 'admin'
 
   function dismissToast(id: number) {
     setToasts(current => current.filter(toast => toast.id !== id))
@@ -3805,7 +3807,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!currentUser || deviceNotifications !== 'granted') {
+    if (!currentUser || !canUseDeviceNotifications || deviceNotifications !== 'granted') {
       setRemotePushRegistered(false)
       return
     }
@@ -3831,7 +3833,7 @@ export default function App() {
     return () => {
       active = false
     }
-  }, [currentUser?.id, deviceNotifications, token])
+  }, [currentUser?.id, canUseDeviceNotifications, deviceNotifications, token])
 
   useEffect(() => {
     if (!currentUser) {
@@ -4277,7 +4279,7 @@ export default function App() {
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
-          {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} deviceNotificationStatus={deviceNotifications} remotePushRegistered={remotePushRegistered} onEnableDeviceNotifications={handleEnableDeviceNotifications} onTestDeviceNotification={handleTestDeviceNotification} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
+          {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} remotePushRegistered={remotePushRegistered} onEnableDeviceNotifications={handleEnableDeviceNotifications} onTestDeviceNotification={handleTestDeviceNotification} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
         </main>
 
         <div className="hidden w-88 shrink-0 p-3 xl:block 2xl:w-96">
