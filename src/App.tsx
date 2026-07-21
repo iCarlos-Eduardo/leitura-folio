@@ -157,6 +157,20 @@ const DEVICE_NOTIFICATION_STORAGE_PREFIX = 'folio_device_notified_ids_'
 const POST_PAGE_SIZE = 5
 const POST_IMAGE_MARKER = '__folio_post_image__:'
 
+class ApiRequestError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+  }
+}
+
+function isAuthExpiredError(error: unknown) {
+  return error instanceof ApiRequestError && (error.status === 401 || error.status === 403)
+}
+
 async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -169,7 +183,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}, token?: st
 
   if (!response.ok) {
     const message = await response.text()
-    throw new Error(message || `Erro ${response.status}`)
+    throw new ApiRequestError(response.status, message || `Erro ${response.status}`)
   }
 
   if (response.status === 204) return undefined as T
@@ -3670,6 +3684,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<FolioNotification[]>([])
   const [readingGoal, setReadingGoal] = useState<ReadingGoal>({ targetBooks: 40, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
   const [loadingApp, setLoadingApp] = useState(Boolean(token))
+  const [resumeError, setResumeError] = useState('')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [actionLoadingCount, setActionLoadingCount] = useState(0)
   const [deviceNotifications, setDeviceNotifications] = useState<DeviceNotificationStatus>(() => deviceNotificationStatus())
@@ -3768,17 +3783,42 @@ export default function App() {
     setNotifications(data.notifications || [])
     setReadingGoal(data.readingGoal || { targetBooks: 40, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
     setCurrentUser(data.users.find(user => user.id === data.currentUserId) || data.users[0] || null)
+    setResumeError('')
     setLoadingApp(false)
+  }
+
+  function clearStoredLogin() {
+    localStorage.removeItem('folio_token')
+    setToken('')
+    setCurrentUser(null)
+    setResumeError('')
+  }
+
+  function handleStoredLoginFailure(error: unknown) {
+    if (isAuthExpiredError(error)) {
+      clearStoredLogin()
+      setLoadingApp(false)
+      return
+    }
+
+    setResumeError('Nao foi possivel carregar sua sessao agora. Confira a conexao e tente novamente.')
+    setLoadingApp(false)
+  }
+
+  async function retryStoredLogin() {
+    if (!token) return
+    setLoadingApp(true)
+    setResumeError('')
+    try {
+      await loadBootstrap(token)
+    } catch (error) {
+      handleStoredLoginFailure(error)
+    }
   }
 
   useEffect(() => {
     if (!token) return
-    loadBootstrap(token).catch(() => {
-      localStorage.removeItem('folio_token')
-      setToken('')
-      setCurrentUser(null)
-      setLoadingApp(false)
-    })
+    loadBootstrap(token).catch(handleStoredLoginFailure)
   }, [])
 
   useEffect(() => {
@@ -3928,6 +3968,7 @@ export default function App() {
     })
     localStorage.setItem('folio_token', auth.token)
     setToken(auth.token)
+    setResumeError('')
     setLoadingApp(true)
     await loadBootstrap(auth.token)
   }
@@ -4220,6 +4261,7 @@ export default function App() {
     setCurrentUser(null)
     localStorage.removeItem('folio_token')
     setToken('')
+    setResumeError('')
     setPage('timeline')
     setSelectedBookId(null)
     setSelectedProfileUserId(null)
@@ -4234,6 +4276,16 @@ export default function App() {
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-stone-950 text-sm text-stone-400">
         <BrandMark />
         <span>Carregando {BRAND_NAME}...</span>
+      </div>
+    )
+    if (token && resumeError) return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-950 px-6 text-center text-sm text-stone-400">
+        <BrandMark />
+        <p className="max-w-sm">{resumeError}</p>
+        <div className="flex gap-2">
+          <button onClick={retryStoredLogin} className="rounded-lg bg-amber-300 px-4 py-2 font-bold text-stone-950 transition hover:bg-amber-200">Tentar novamente</button>
+          <button onClick={handleLogout} className="rounded-lg border border-stone-700 px-4 py-2 font-semibold text-stone-200 transition hover:border-stone-500">Sair</button>
+        </div>
       </div>
     )
     return <LoginPage onLogin={handleLogin} />
