@@ -19,7 +19,7 @@ self.addEventListener('push', event => {
   const options = {
     body: data.body || 'Você tem uma nova notificação.',
     icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    badge: '/icons/notification-badge.png',
     tag: data.tag || data.notificationId || 'folio-notification',
     data: { url: data.url || '/?page=notifications' },
   }

@@ -743,7 +743,7 @@ async function showDeviceNotification(notification: FolioNotification, users: Us
   const options: NotificationOptions = {
     body: notificationBody(notification, users, books),
     icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    badge: '/icons/notification-badge.png',
     tag: `folio-${notification.id}`,
     data: { url: '/?page=notifications' },
   }
