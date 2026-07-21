@@ -2004,7 +2004,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                       ...dateChanges,
                     })
                   }}
-                  className="rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-stone-100 outline-none focus:border-amber-300"
+                  className="w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-stone-100 outline-none focus:border-amber-300"
                 >
                   {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
                 </select>
@@ -2027,6 +2027,17 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                       {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} 🌶</option>)}
                     </select>
                   </div>
+                ) : editingId === book.id && (entry.status === 'reading' || entry.status === 'rereading') ? (
+                  <input
+                    type="number"
+                    min="1"
+                    max={book.totalChapters}
+                    value={chapterInput}
+                    onChange={e => setChapterInput(e.target.value)}
+                    placeholder="Cap."
+                    aria-label="Capítulo atual"
+                    className="w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs text-stone-100 outline-none focus:border-amber-300"
+                  />
                 ) : (
                   <span className="rounded-lg border border-stone-800 px-2 py-2 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</span>
                 )}
@@ -2061,17 +2072,6 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                   </div>
                   {editingId === book.id ? (
                     <div className="grid gap-2">
-                      <div>
-                        <input
-                          type="number"
-                          min="1"
-                          max={book.totalChapters}
-                          value={chapterInput}
-                          onChange={e => setChapterInput(e.target.value)}
-                          placeholder="Capítulo"
-                          className="w-full min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
-                        />
-                      </div>
                       <button onClick={() => saveProgress(book)} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
                         Salvar progresso
                       </button>
@@ -2374,59 +2374,45 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
             <div className="mt-3 rounded-lg border border-stone-800 bg-stone-900 p-3">
               {myEntry ? (
                 <>
-                  <div className="mb-3 grid gap-2 sm:grid-cols-2">
-                    <select
-                      value={myEntry.status}
-                      onChange={async e => {
-                        const status = e.target.value as BookStatus
-                        const dateChanges = await datesForShelfStatus(status, myEntry, askDate)
-                        if (!dateChanges) return
-                        onUpdateShelfEntry(book.id, {
-                          status,
-                          progress: status === 'read' ? 100 : myEntry.progress >= 100 ? 0 : myEntry.progress,
-                          ...dateChanges,
-                        })
-                        if (status === 'read' || status === 'rereading') {
-                          setChapterInput(String(book.totalChapters))
-                          setChapterLimit(book.totalChapters)
-                        }
-                      }}
-                      className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
-                    >
-                      {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
-                    </select>
-                    {canRateStatus(myEntry.status) && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <select
-                          value={myEntry.rating ?? ''}
-                          onChange={e => onUpdateShelfEntry(book.id, { rating: Number(e.target.value) })}
-                          className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-amber-300 outline-none focus:border-amber-300"
-                        >
-                          <option value="">Estrelas</option>
-                          {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} ★</option>)}
-                        </select>
-                        <select
-                          value={myEntry.spiceRating ?? ''}
-                          onChange={e => onUpdateShelfEntry(book.id, { spiceRating: Number(e.target.value) })}
-                          className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-red-300 outline-none focus:border-red-300"
-                        >
-                          <option value="">Pimentas</option>
-                          {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} 🌶</option>)}
-                        </select>
+                  {myEntry.status === 'reading' || myEntry.status === 'rereading' ? (
+                    <>
+                      <div className="mb-2 grid grid-cols-2 gap-2">
+                        <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
+                          Status
+                          <select
+                            value={myEntry.status}
+                            onChange={async e => {
+                              const status = e.target.value as BookStatus
+                              const dateChanges = await datesForShelfStatus(status, myEntry, askDate)
+                              if (!dateChanges) return
+                              onUpdateShelfEntry(book.id, {
+                                status,
+                                progress: status === 'read' ? 100 : myEntry.progress >= 100 ? 0 : myEntry.progress,
+                                ...dateChanges,
+                              })
+                              if (status === 'read' || status === 'rereading') {
+                                setChapterInput(String(book.totalChapters))
+                                setChapterLimit(book.totalChapters)
+                              }
+                            }}
+                            className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                          >
+                            {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
+                          </select>
+                        </label>
+                        <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
+                          Capitulo
+                          <input
+                            type="number"
+                            min="1"
+                            max={book.totalChapters}
+                            value={chapterInput}
+                            onChange={e => setChapterInput(e.target.value)}
+                            className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                            aria-label="Capítulo atual"
+                          />
+                        </label>
                       </div>
-                    )}
-                  </div>
-                  {(myEntry.status === 'reading' || myEntry.status === 'rereading') && (
-                    <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                      <input
-                        type="number"
-                        min="1"
-                        max={book.totalChapters}
-                        value={chapterInput}
-                        onChange={e => setChapterInput(e.target.value)}
-                        className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
-                        aria-label="Capítulo atual"
-                      />
                       <button onClick={async () => {
                         const nextProgress = percentFromChapter(book, Number(chapterInput))
                         const status = nextProgress >= 100 ? 'read' : myEntry.status
@@ -2442,9 +2428,52 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                         })
                         if (saved === false) return
                         setChapterLimit(chapterFromPercent(book, nextProgress))
-                      }} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
+                      }} className="mb-3 w-full rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
                         Atualizar
                       </button>
+                    </>
+                  ) : (
+                    <div className="mb-3 grid gap-2 sm:grid-cols-2">
+                      <select
+                        value={myEntry.status}
+                        onChange={async e => {
+                          const status = e.target.value as BookStatus
+                          const dateChanges = await datesForShelfStatus(status, myEntry, askDate)
+                          if (!dateChanges) return
+                          onUpdateShelfEntry(book.id, {
+                            status,
+                            progress: status === 'read' ? 100 : myEntry.progress >= 100 ? 0 : myEntry.progress,
+                            ...dateChanges,
+                          })
+                          if (status === 'read' || status === 'rereading') {
+                            setChapterInput(String(book.totalChapters))
+                            setChapterLimit(book.totalChapters)
+                          }
+                        }}
+                        className="w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
+                      >
+                        {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
+                      </select>
+                      {canRateStatus(myEntry.status) && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <select
+                            value={myEntry.rating ?? ''}
+                            onChange={e => onUpdateShelfEntry(book.id, { rating: Number(e.target.value) })}
+                            className="min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-amber-300 outline-none focus:border-amber-300"
+                          >
+                            <option value="">Estrelas</option>
+                            {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} ★</option>)}
+                          </select>
+                          <select
+                            value={myEntry.spiceRating ?? ''}
+                            onChange={e => onUpdateShelfEntry(book.id, { spiceRating: Number(e.target.value) })}
+                            className="min-w-0 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-red-300 outline-none focus:border-red-300"
+                          >
+                            <option value="">Pimentas</option>
+                            {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} 🌶</option>)}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="mt-3 grid grid-cols-2 gap-2">
