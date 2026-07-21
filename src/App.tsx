@@ -56,8 +56,8 @@ interface ShelfEntry {
   progress: number
   rating?: number
   spiceRating?: number
-  startDate?: string
-  endDate?: string
+  startDate?: string | null
+  endDate?: string | null
   currentPage?: number
   format?: string
   price?: number
@@ -131,6 +131,8 @@ interface ReadingGoal {
   currentStreak: number
   bestStreak: number
   checkedInToday: boolean
+  year?: number
+  booksReadThisYear?: number
 }
 
 type ActionFeedback = {
@@ -487,6 +489,127 @@ function localDateKey(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function dateInputValue(value?: string | null) {
+  return value ? value.slice(0, 10) : ''
+}
+
+function isDateInYear(value: string | null | undefined, year: number) {
+  return Boolean(value && Number(value.slice(0, 4)) === year)
+}
+
+type DatePromptOptions = {
+  title: string
+  description: string
+  fallback?: string
+}
+
+type DatePromptState = DatePromptOptions & {
+  resolve: (value: string | null) => void
+}
+
+type AskShelfDate = (options: DatePromptOptions) => Promise<string | null>
+
+function DatePromptDialog({ prompt, onConfirm, onCancel }: {
+  prompt: DatePromptState
+  onConfirm: (value: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState(prompt.fallback || localDateKey())
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setValue(prompt.fallback || localDateKey())
+    setError('')
+  }, [prompt])
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!value) {
+      setError('Escolha uma data para continuar.')
+      return
+    }
+    onConfirm(value)
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-3 backdrop-blur-md sm:items-center">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-lg border border-stone-800 bg-stone-900 p-4 shadow-2xl shadow-black/40">
+        <div className="mb-4">
+          <h2 className="font-serif text-xl text-stone-50">{prompt.title}</h2>
+          <p className="mt-1 text-sm leading-relaxed text-stone-400">{prompt.description}</p>
+        </div>
+        <label className="block text-sm font-semibold text-stone-300">
+          Data
+          <input
+            autoFocus
+            type="date"
+            value={value}
+            onChange={e => {
+              setValue(e.target.value)
+              setError('')
+            }}
+            className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+          />
+        </label>
+        {error && <p className="mt-3 rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800">Cancelar</button>
+          <button type="submit" className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-amber-200">Salvar data</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function useDatePrompt() {
+  const [prompt, setPrompt] = useState<DatePromptState | null>(null)
+
+  function askDate(options: DatePromptOptions) {
+    return new Promise<string | null>(resolve => {
+      setPrompt({ ...options, resolve })
+    })
+  }
+
+  const datePromptDialog = prompt ? (
+    <DatePromptDialog
+      prompt={prompt}
+      onCancel={() => {
+        prompt.resolve(null)
+        setPrompt(null)
+      }}
+      onConfirm={value => {
+        prompt.resolve(value)
+        setPrompt(null)
+      }}
+    />
+  ) : null
+
+  return { askDate, datePromptDialog }
+}
+
+async function datesForShelfStatus(status: BookStatus, entry: ShelfEntry | undefined, askDate: AskShelfDate) {
+  const changes: Partial<ShelfEntry> = {}
+  if ((status === 'reading' || status === 'rereading') && !dateInputValue(entry?.startDate)) {
+    const startDate = await askDate({
+      title: 'Início da leitura',
+      description: 'Essa data ajuda a organizar sua estante e deixa o histórico de leitura mais fiel.',
+      fallback: localDateKey(),
+    })
+    if (!startDate) return null
+    changes.startDate = startDate
+  }
+  if (status === 'read') {
+    const endDate = await askDate({
+      title: 'Conclusão da leitura',
+      description: 'A meta anual só conta livros concluídos dentro do ano da meta.',
+      fallback: dateInputValue(entry?.endDate) || localDateKey(),
+    })
+    if (!endDate) return null
+    changes.endDate = endDate
+  }
+  return changes
 }
 
 function canRateStatus(status?: BookStatus) {
@@ -1520,6 +1643,16 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
     const currentPage = includeShelfFields ? Math.max(0, Math.round(numberFromText(draft.currentPage))) : 0
     const progressFromPage = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0
     const status = includeShelfFields ? draft.status : 'want'
+    if (includeShelfFields && (status === 'reading' || status === 'rereading') && !draft.startDate) {
+      setError('Informe a data de início da leitura.')
+      setSaving(false)
+      return
+    }
+    if (includeShelfFields && status === 'read' && !draft.endDate) {
+      setError('Informe a data de conclusão da leitura.')
+      setSaving(false)
+      return
+    }
     const progress = status === 'read' ? 100 : clamp(progressFromPage, 0, 100)
     const book: Book = {
       id: initialBook?.id || `custom-${Date.now()}`,
@@ -1547,6 +1680,8 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
       status,
       progress,
       currentPage: status === 'read' ? totalPages : currentPage,
+      startDate: draft.startDate || undefined,
+      endDate: draft.endDate || undefined,
       format: draft.format.trim() || undefined,
     }
 
@@ -1639,6 +1774,8 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
               {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Pagina atual<input type="number" min="0" value={draft.currentPage} onChange={e => update('currentPage', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
               <label className="text-sm font-semibold text-stone-300">Capitulos totais *<input type="number" min="1" value={draft.totalChapters} onChange={e => update('totalChapters', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
               {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Formato<input value={draft.format} onChange={e => update('format', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
+              {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Inicio da leitura<input type="date" value={draft.startDate} onChange={e => update('startDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
+              {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Conclusao da leitura<input type="date" value={draft.endDate} onChange={e => update('endDate', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
             </div>
           </section>
 
@@ -1675,6 +1812,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogError, setCatalogError] = useState('')
   const [bookSearchAttempted, setBookSearchAttempted] = useState(false)
+  const { askDate, datePromptDialog } = useDatePrompt()
   const statuses: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
   const myShelf = shelf.filter(s => s.userId === currentUser.id)
   const statusCounts = statuses.reduce((acc, status) => ({ ...acc, [status]: myShelf.filter(entry => entry.status === status).length }), {} as Record<BookStatus, number>)
@@ -1711,10 +1849,13 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
 
   async function saveProgress(book: Book) {
     const nextProgress = percentFromChapter(book, Number(chapterInput))
+    const status = nextProgress >= 100 ? 'read' : activeStatus === 'read' ? 'reading' : activeStatus
+    const dateChanges = await datesForShelfStatus(status, filtered.find(item => item.book.id === book.id)?.entry, askDate)
+    if (!dateChanges) return
     const saved = await onUpdateShelfEntry(book.id, {
       progress: nextProgress,
-      status: nextProgress >= 100 ? 'read' : activeStatus === 'read' ? 'reading' : activeStatus,
-      endDate: nextProgress >= 100 ? new Date().toISOString().slice(0, 10) : undefined,
+      status,
+      ...dateChanges,
     }, {
       success: 'Progresso atualizado com sucesso.',
       error: 'Nao foi possivel atualizar o progresso.',
@@ -1843,12 +1984,14 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
               <div className="mb-3 grid grid-cols-2 gap-2">
                 <select
                   value={entry.status}
-                  onChange={e => {
+                  onChange={async e => {
                     const status = e.target.value as BookStatus
+                    const dateChanges = await datesForShelfStatus(status, entry, askDate)
+                    if (!dateChanges) return
                     onUpdateShelfEntry(book.id, {
                       status,
                       progress: status === 'read' ? 100 : entry.progress >= 100 ? 0 : entry.progress,
-                      endDate: status === 'read' ? new Date().toISOString().slice(0, 10) : undefined,
+                      ...dateChanges,
                     })
                   }}
                   className="rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-stone-100 outline-none focus:border-amber-300"
@@ -1877,6 +2020,26 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                 ) : (
                   <span className="rounded-lg border border-stone-800 px-2 py-2 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</span>
                 )}
+              </div>
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
+                  Inicio
+                  <input
+                    type="date"
+                    value={dateInputValue(entry.startDate)}
+                    onChange={e => onUpdateShelfEntry(book.id, { startDate: e.target.value || undefined })}
+                    className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                  />
+                </label>
+                <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
+                  Conclusao
+                  <input
+                    type="date"
+                    value={dateInputValue(entry.endDate)}
+                    onChange={e => onUpdateShelfEntry(book.id, { endDate: e.target.value || undefined })}
+                    className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                  />
+                </label>
               </div>
               {entry.status === 'reading' || entry.status === 'rereading' ? (
                 <>
@@ -1926,6 +2089,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
         ))}
         {!filtered.length && <div className="sm:col-span-2 xl:col-span-3"><EmptyState text="Nenhum livro nessa categoria ainda." /></div>}
       </div>
+      {datePromptDialog}
     </section>
   )
 }
@@ -2126,6 +2290,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
 }) {
   const [tab, setTab] = useState<'feed' | 'theories' | 'about'>('feed')
   const [newShelfStatus, setNewShelfStatus] = useState<BookStatus>('reading')
+  const { askDate, datePromptDialog } = useDatePrompt()
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
   const myProgress = myEntry?.progress ?? 0
   const hasFullBookAccess = myEntry?.status === 'read' || myEntry?.status === 'rereading'
@@ -2202,12 +2367,14 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                   <div className="mb-3 grid gap-2 sm:grid-cols-2">
                     <select
                       value={myEntry.status}
-                      onChange={e => {
+                      onChange={async e => {
                         const status = e.target.value as BookStatus
+                        const dateChanges = await datesForShelfStatus(status, myEntry, askDate)
+                        if (!dateChanges) return
                         onUpdateShelfEntry(book.id, {
                           status,
                           progress: status === 'read' ? 100 : myEntry.progress >= 100 ? 0 : myEntry.progress,
-                          endDate: status === 'read' ? new Date().toISOString().slice(0, 10) : undefined,
+                          ...dateChanges,
                         })
                         if (status === 'read' || status === 'rereading') {
                           setChapterInput(String(book.totalChapters))
@@ -2252,10 +2419,13 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                       />
                       <button onClick={async () => {
                         const nextProgress = percentFromChapter(book, Number(chapterInput))
+                        const status = nextProgress >= 100 ? 'read' : myEntry.status
+                        const dateChanges = await datesForShelfStatus(status, myEntry, askDate)
+                        if (!dateChanges) return
                         const saved = await onUpdateShelfEntry(book.id, {
                           progress: nextProgress,
-                          status: nextProgress >= 100 ? 'read' : myEntry.status,
-                          endDate: nextProgress >= 100 ? new Date().toISOString().slice(0, 10) : undefined,
+                          status,
+                          ...dateChanges,
                         }, {
                           success: 'Progresso atualizado com sucesso.',
                           error: 'Nao foi possivel atualizar o progresso.',
@@ -2267,6 +2437,26 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                       </button>
                     </div>
                   )}
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <label className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">
+                      Inicio
+                      <input
+                        type="date"
+                        value={dateInputValue(myEntry.startDate)}
+                        onChange={e => onUpdateShelfEntry(book.id, { startDate: e.target.value || undefined })}
+                        className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                      />
+                    </label>
+                    <label className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">
+                      Conclusao
+                      <input
+                        type="date"
+                        value={dateInputValue(myEntry.endDate)}
+                        onChange={e => onUpdateShelfEntry(book.id, { endDate: e.target.value || undefined })}
+                        className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+                      />
+                    </label>
+                  </div>
                 </>
               ) : (
                 <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
@@ -2363,6 +2553,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
           />
         </div>
       )}
+      {datePromptDialog}
     </section>
   )
 }
@@ -2752,7 +2943,8 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   const [editingDays, setEditingDays] = useState(false)
   const [dayInputVal, setDayInputVal] = useState(String(readingGoal.targetDays || 120))
   const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
-  const readThisYear = myShelf.filter(entry => entry.status === 'read').length
+  const goalYear = readingGoal.year || new Date().getFullYear()
+  const readThisYear = readingGoal.booksReadThisYear ?? myShelf.filter(entry => entry.status === 'read' && isDateInYear(entry.endDate, goalYear)).length
   const progress = Math.min(100, Math.round((readThisYear / Math.max(1, readingGoal.targetBooks)) * 100))
   const remaining = Math.max(0, readingGoal.targetBooks - readThisYear)
   const dayProgress = Math.min(100, Math.round((readingGoal.checkIns.length / Math.max(1, readingGoal.targetDays)) * 100))
@@ -2780,7 +2972,7 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
               <h2 className="font-serif text-xl text-stone-100">Meta anual</h2>
-              <p className="text-sm text-stone-500">Organize sua vida de leitura, sem perder o lado social.</p>
+              <p className="text-sm text-stone-500">Conta livros concluídos em {goalYear}.</p>
             </div>
             {editing ? (
               <div className="flex gap-2">
@@ -3284,6 +3476,7 @@ export default function App() {
   const [loadingApp, setLoadingApp] = useState(Boolean(token))
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [actionLoadingCount, setActionLoadingCount] = useState(0)
+  const { askDate, datePromptDialog } = useDatePrompt()
 
   function dismissToast(id: number) {
     setToasts(current => current.filter(toast => toast.id !== id))
@@ -3482,8 +3675,10 @@ export default function App() {
 
   async function handleAddBook(bookId: string, status: BookStatus) {
     if (!currentUser) return false
+    const dateChanges = await datesForShelfStatus(status, undefined, askDate)
+    if (!dateChanges) return false
     return runAction(async () => {
-      await apiRequest('/folio/shelf', { method: 'POST', body: JSON.stringify({ bookId, status, progress: status === 'read' ? 100 : 0 }) }, token)
+      await apiRequest('/folio/shelf', { method: 'POST', body: JSON.stringify({ bookId, status, progress: status === 'read' ? 100 : 0, ...dateChanges }) }, token)
       await loadBootstrap()
     }, {
       success: 'Livro adicionado à estante.',
@@ -3754,6 +3949,7 @@ export default function App() {
       />
       <ActionLoadingIndicator active={actionLoadingCount > 0} />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      {datePromptDialog}
 
       <div className="flex md:ml-60">
         <main className="min-h-screen min-w-0 flex-1 border-x border-stone-800 pb-24 md:pb-0">
