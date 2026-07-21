@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
@@ -152,6 +152,8 @@ const API_BASE_URL =
   (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7113' : '')
 const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || API_BASE_URL || 'https://api.sgpf.com.br'
 const BACKGROUND_REFRESH_INTERVAL_MS = 10000
+const DEVICE_NOTIFICATION_SW_URL = '/folio-service-worker.js'
+const DEVICE_NOTIFICATION_STORAGE_PREFIX = 'folio_device_notified_ids_'
 const POST_PAGE_SIZE = 5
 const POST_IMAGE_MARKER = '__folio_post_image__:'
 
@@ -650,6 +652,112 @@ function formatTime(ts: string) {
   const diffDays = Math.floor(diffHours / 24)
   if (diffDays < 7) return `${diffDays}d`
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}
+
+type DeviceNotificationStatus = NotificationPermission | 'unsupported'
+
+function deviceNotificationStatus(): DeviceNotificationStatus {
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return 'unsupported'
+  return Notification.permission
+}
+
+function urlBase64ToUint8Array(value: string) {
+  const padding = '='.repeat((4 - value.length % 4) % 4)
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)))
+}
+
+function deviceNotificationStorageKey(userId: string) {
+  return `${DEVICE_NOTIFICATION_STORAGE_PREFIX}${userId}`
+}
+
+function storedDeviceNotificationIds(userId: string) {
+  try {
+    const value = localStorage.getItem(deviceNotificationStorageKey(userId))
+    const ids = value ? JSON.parse(value) : []
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [])
+  } catch {
+    return new Set<string>()
+  }
+}
+
+function saveDeviceNotificationIds(userId: string, ids: Set<string>) {
+  localStorage.setItem(deviceNotificationStorageKey(userId), JSON.stringify([...ids].slice(-80)))
+}
+
+async function registerDeviceNotificationWorker() {
+  if (!('serviceWorker' in navigator)) return null
+  try {
+    return await navigator.serviceWorker.register(DEVICE_NOTIFICATION_SW_URL)
+  } catch {
+    return null
+  }
+}
+
+async function saveDevicePushSubscription(token: string) {
+  const registration = await registerDeviceNotificationWorker()
+  if (!registration || !('PushManager' in window)) return 'unsupported' as const
+
+  const keyResponse = await apiRequest<{ publicKey: string }>('/folio/notifications/push-public-key', {}, token)
+  if (!keyResponse.publicKey) return 'missing-key' as const
+
+  const existingSubscription = await registration.pushManager.getSubscription()
+  const subscription = existingSubscription || await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(keyResponse.publicKey),
+  })
+
+  await apiRequest('/folio/notifications/push-subscriptions', {
+    method: 'POST',
+    body: JSON.stringify(subscription.toJSON()),
+  }, token)
+
+  return 'saved' as const
+}
+
+function notificationTypeText(type: FolioNotification['type']) {
+  const textByType: Record<FolioNotification['type'], string> = {
+    follow: 'começou a seguir você',
+    like: 'curtiu sua publicação',
+    reply: 'comentou na sua publicação',
+    reply_like: 'curtiu seu comentário',
+    reply_reply: 'respondeu seu comentário',
+    book_comment: 'comentou no livro que você está lendo',
+  }
+  return textByType[type]
+}
+
+function notificationBody(notification: FolioNotification, users: User[], books: Book[]) {
+  const user = users.find(item => item.id === notification.userId)
+  const book = notification.bookId ? books.find(item => item.id === notification.bookId) : null
+  const actor = user?.name || 'Alguém'
+  const bookText = book ? ` em ${book.title}` : ''
+  const chapterText = notification.chapter ? ` · cap. ${notification.chapter}` : ''
+  return `${actor} ${notificationTypeText(notification.type)}${bookText}${chapterText}`
+}
+
+async function showDeviceNotification(notification: FolioNotification, users: User[], books: Book[]) {
+  if (deviceNotificationStatus() !== 'granted') return
+  const registration = await registerDeviceNotificationWorker()
+  const options: NotificationOptions = {
+    body: notificationBody(notification, users, books),
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: `folio-${notification.id}`,
+    data: { url: '/?page=notifications' },
+  }
+
+  if (registration) {
+    await registration.showNotification('Entrelinhas', options)
+    return
+  }
+
+  const fallback = new Notification('Entrelinhas', options)
+  fallback.onclick = () => {
+    window.focus()
+    window.location.href = '/?page=notifications'
+  }
 }
 
 function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }) {
@@ -2917,17 +3025,45 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   )
 }
 
-function NotificationsPage({ notifications, users, books, onBookClick, onUserClick }: {
+function NotificationsPage({ notifications, users, books, deviceNotificationStatus, onEnableDeviceNotifications, onBookClick, onUserClick }: {
   notifications: FolioNotification[]
   users: User[]
   books: Book[]
+  deviceNotificationStatus: DeviceNotificationStatus
+  onEnableDeviceNotifications: () => void
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
 }) {
   return (
     <section>
       <Header title="Notificações">
-        <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pelo seu capítulo aparecem aqui.</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pelo seu capítulo aparecem aqui.</p>
+          {deviceNotificationStatus === 'default' && (
+            <button
+              type="button"
+              onClick={onEnableDeviceNotifications}
+              className="w-full shrink-0 rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950 transition hover:bg-amber-200 sm:w-auto"
+            >
+              Ativar no celular
+            </button>
+          )}
+          {deviceNotificationStatus === 'granted' && (
+            <span className="w-full shrink-0 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-center text-sm font-bold text-emerald-700 sm:w-auto">
+              Ativas no dispositivo
+            </span>
+          )}
+          {deviceNotificationStatus === 'denied' && (
+            <span className="w-full shrink-0 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-center text-sm font-bold text-red-300 sm:w-auto">
+              Bloqueadas no navegador
+            </span>
+          )}
+          {deviceNotificationStatus === 'unsupported' && (
+            <span className="w-full shrink-0 rounded-lg border border-stone-800 bg-stone-900 px-3 py-2 text-center text-sm font-bold text-stone-500 sm:w-auto">
+              Indisponível neste navegador
+            </span>
+          )}
+        </div>
       </Header>
       {notifications.length ? (
         <div>
@@ -3489,7 +3625,8 @@ function ActionLoadingIndicator({ active }: { active: boolean }) {
 }
 
 function storedPage() {
-  const value = localStorage.getItem('folio_page')
+  const params = new URLSearchParams(window.location.search)
+  const value = params.get('page') || localStorage.getItem('folio_page')
   return ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications'].includes(value || '') ? value as Page : 'timeline'
 }
 
@@ -3519,6 +3656,10 @@ export default function App() {
   const [loadingApp, setLoadingApp] = useState(Boolean(token))
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [actionLoadingCount, setActionLoadingCount] = useState(0)
+  const [deviceNotifications, setDeviceNotifications] = useState<DeviceNotificationStatus>(() => deviceNotificationStatus())
+  const [remotePushRegistered, setRemotePushRegistered] = useState(false)
+  const notifiedDeviceNotificationIds = useRef<Set<string>>(new Set())
+  const notifiedDeviceNotificationUserId = useRef<string | null>(null)
   const { askDate, datePromptDialog } = useDatePrompt()
 
   function dismissToast(id: number) {
@@ -3541,6 +3682,36 @@ export default function App() {
 
   function handleToggleTheme() {
     setTheme(current => current === 'dark' ? 'light' : 'dark')
+  }
+
+  async function handleEnableDeviceNotifications() {
+    if (deviceNotificationStatus() === 'unsupported') {
+      setDeviceNotifications('unsupported')
+      showToast('error', 'Este navegador ainda nao permite notificações do app.')
+      return
+    }
+
+    await registerDeviceNotificationWorker()
+    const permission = await Notification.requestPermission()
+    setDeviceNotifications(permission)
+
+    if (permission === 'granted') {
+      const pushResult = await saveDevicePushSubscription(token)
+      if (pushResult === 'saved') {
+        setRemotePushRegistered(true)
+        showToast('success', 'Notificações ativadas neste dispositivo.')
+        return
+      }
+      if (pushResult === 'missing-key') {
+        showToast('error', 'O servidor ainda precisa da chave Web Push para enviar notificações.')
+        return
+      }
+
+      showToast('error', 'Este navegador ainda nao permite push do app.')
+      return
+    }
+
+    showToast('error', 'As notificações ficaram bloqueadas neste navegador.')
   }
 
   async function runAction(action: () => Promise<void>, feedback: ActionFeedback) {
@@ -3594,13 +3765,96 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    registerDeviceNotificationWorker().catch(() => {
+      // The permission UI still reflects browser support; worker registration is retried on demand.
+    })
+  }, [])
+
+  useEffect(() => {
+    const syncDeviceNotificationStatus = () => {
+      setDeviceNotifications(deviceNotificationStatus())
+    }
+
+    window.addEventListener('focus', syncDeviceNotificationStatus)
+    document.addEventListener('visibilitychange', syncDeviceNotificationStatus)
+
+    return () => {
+      window.removeEventListener('focus', syncDeviceNotificationStatus)
+      document.removeEventListener('visibilitychange', syncDeviceNotificationStatus)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!currentUser || deviceNotifications !== 'granted') {
+      setRemotePushRegistered(false)
+      return
+    }
+
+    let active = true
+    registerDeviceNotificationWorker()
+      .then(registration => registration?.pushManager.getSubscription())
+      .then(async subscription => {
+        if (!subscription) return false
+        await apiRequest('/folio/notifications/push-subscriptions', {
+          method: 'POST',
+          body: JSON.stringify(subscription.toJSON()),
+        }, token)
+        return true
+      })
+      .then(saved => {
+        if (active) setRemotePushRegistered(saved)
+      })
+      .catch(() => {
+        if (active) setRemotePushRegistered(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [currentUser?.id, deviceNotifications, token])
+
+  useEffect(() => {
+    if (!currentUser) {
+      notifiedDeviceNotificationUserId.current = null
+      notifiedDeviceNotificationIds.current = new Set()
+      return
+    }
+
+    if (notifiedDeviceNotificationUserId.current !== currentUser.id) {
+      const knownIds = storedDeviceNotificationIds(currentUser.id)
+      notifications.forEach(notification => knownIds.add(notification.id))
+      notifiedDeviceNotificationIds.current = knownIds
+      notifiedDeviceNotificationUserId.current = currentUser.id
+      saveDeviceNotificationIds(currentUser.id, knownIds)
+      return
+    }
+
+    if (deviceNotifications !== 'granted' || remotePushRegistered) return
+
+    const freshUnreadNotifications = notifications
+      .filter(notification => !notification.read && !notifiedDeviceNotificationIds.current.has(notification.id))
+      .sort(newestFirst)
+
+    if (!freshUnreadNotifications.length) return
+
+    freshUnreadNotifications.forEach(notification => notifiedDeviceNotificationIds.current.add(notification.id))
+    saveDeviceNotificationIds(currentUser.id, notifiedDeviceNotificationIds.current)
+    freshUnreadNotifications.slice(0, 3).forEach(notification => {
+      showDeviceNotification(notification, users, books).catch(() => {
+        // Device notifications are best-effort; the in-app notification list remains authoritative.
+      })
+    })
+  }, [currentUser?.id, notifications, users, books, deviceNotifications, remotePushRegistered])
+
+  useEffect(() => {
     if (!token || !currentUser) return
 
     let active = true
     let refreshing = false
 
     const refreshInBackground = async () => {
-      if (!active || refreshing || document.hidden) return
+      const canRefreshWhileHidden = deviceNotificationStatus() === 'granted'
+      if (!active || refreshing || (document.hidden && !canRefreshWhileHidden)) return
       refreshing = true
       try {
         await loadBootstrap(token)
@@ -3628,7 +3882,7 @@ export default function App() {
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [token, currentUser?.id])
+  }, [token, currentUser?.id, deviceNotifications])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -4003,7 +4257,7 @@ export default function App() {
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
-          {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
+          {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onBookClick={handleBookClick} onUserClick={handleUserClick} />}
         </main>
 
         <div className="hidden w-88 shrink-0 p-3 xl:block 2xl:w-96">
