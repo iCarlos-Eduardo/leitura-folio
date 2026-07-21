@@ -1775,7 +1775,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
               <label className="text-sm font-semibold text-stone-300">Capitulos totais *<input type="number" min="1" value={draft.totalChapters} onChange={e => update('totalChapters', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
               {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Formato<input value={draft.format} onChange={e => update('format', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
               {includeShelfFields && (
-                <div className="col-span-full grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-2">
+                <div className="col-span-full grid grid-cols-2 gap-2">
                   <label className="min-w-0 text-xs font-bold uppercase tracking-[0.12em] text-stone-500">
                     Inicio
                     <input type="date" value={draft.startDate} onChange={e => update('startDate', e.target.value)} className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300" />
@@ -2042,7 +2042,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                   <span className="folio-field-control flex rounded-lg border border-stone-800 px-2 py-2 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</span>
                 )}
               </div>
-              <div className="mb-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-2">
+              <div className="mb-3 grid grid-cols-2 gap-2">
                 <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
                   Inicio
                   <input
@@ -2476,7 +2476,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, onBack, onU
                       )}
                     </div>
                   )}
-                  <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-2">
+                  <div className="mt-3 grid grid-cols-2 gap-2">
                     <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
                       Inicio
                       <input

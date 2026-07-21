@@ -97,8 +97,17 @@ body {
 .folio-field-control {
   align-items: center;
   box-sizing: border-box;
+  block-size: 2.625rem;
   min-block-size: 2.625rem;
+  border-width: 1px;
   line-height: 1rem;
+  vertical-align: middle;
+}
+
+input.folio-field-control,
+select.folio-field-control {
+  display: block;
+  padding-block: 0;
 }
 
 .folio-date-input {
@@ -106,12 +115,10 @@ body {
   appearance: none;
   box-sizing: border-box;
   display: block;
-  block-size: 2.625rem;
   inline-size: 100%;
   max-inline-size: 100%;
   min-inline-size: 0;
   overflow: hidden;
-  padding-block: 0;
   padding-inline-end: 0.5rem;
 }
 
