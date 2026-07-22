@@ -314,6 +314,14 @@ function normalizeSearch(value: string) {
     .trim()
 }
 
+function normalizeChoiceValue(value: string) {
+  return value.trim().replace(/\s+/g, ' ')
+}
+
+function choiceKey(value: string) {
+  return normalizeSearch(normalizeChoiceValue(value))
+}
+
 function bookMatchesSearch(book: Book, query: string, field: BookSearchField) {
   const needle = normalizeSearch(query)
   if (!needle) return false
@@ -1773,7 +1781,14 @@ function MultiChoicePicker({ title, searchLabel, countLabel, options, selected, 
   onToggle: (value: string) => void
   hint: string
 }) {
-  const filtered = options.filter(option => option.toLowerCase().includes(query.toLowerCase()))
+  const customSelected = selected.filter(value => !options.some(option => choiceKey(option) === choiceKey(value)))
+  const availableOptions = [...customSelected, ...options]
+  const searchKey = choiceKey(query)
+  const customValue = normalizeChoiceValue(query)
+  const canAddCustom = Boolean(searchKey) &&
+    !options.some(option => choiceKey(option) === searchKey) &&
+    !selected.some(value => choiceKey(value) === searchKey)
+  const filtered = availableOptions.filter(option => !searchKey || choiceKey(option).includes(searchKey))
 
   return (
     <div>
@@ -1783,14 +1798,29 @@ function MultiChoicePicker({ title, searchLabel, countLabel, options, selected, 
       </div>
       <input value={query} onChange={e => onQueryChange(e.target.value)} placeholder={searchLabel} className="mb-3 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" />
       <div className="grid max-h-60 gap-2 overflow-y-auto rounded-lg border border-stone-800 bg-stone-950 p-2 sm:grid-cols-2">
+        {canAddCustom && (
+          <button
+            type="button"
+            onClick={() => {
+              onToggle(customValue)
+              onQueryChange('')
+            }}
+            className="rounded-lg border border-amber-300 bg-amber-300/10 px-3 py-2 text-left text-xs font-bold text-amber-200 transition hover:bg-amber-300/20"
+          >
+            Adicionar "{customValue}"
+          </button>
+        )}
         {filtered.map(option => {
-          const active = selected.includes(option)
+          const active = selected.some(value => choiceKey(value) === choiceKey(option))
           return (
-            <button key={option} onClick={() => onToggle(option)} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold transition ${active ? 'border-amber-300 bg-amber-300/10 text-amber-200' : 'border-stone-800 bg-stone-900 text-stone-300 hover:border-stone-700'}`}>
+            <button type="button" key={option} onClick={() => onToggle(option)} className={`rounded-lg border px-3 py-2 text-left text-xs font-bold transition ${active ? 'border-amber-300 bg-amber-300/10 text-amber-200' : 'border-stone-800 bg-stone-900 text-stone-300 hover:border-stone-700'}`}>
               {option}
             </button>
           )
         })}
+        {!filtered.length && !canAddCustom && (
+          <p className="px-3 py-4 text-center text-xs text-stone-500 sm:col-span-2">Nenhuma opcao encontrada.</p>
+        )}
       </div>
       <p className="mt-2 text-xs text-stone-500">{hint}</p>
     </div>
@@ -1813,9 +1843,13 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
   const [error, setError] = useState('')
   const update = <K extends keyof BookFormDraft,>(key: K, value: BookFormDraft[K]) => setDraft(prev => ({ ...prev, [key]: value }))
   const toggleListValue = (key: 'genres' | 'tropes', value: string) => {
+    const normalizedValue = normalizeChoiceValue(value)
+    if (!normalizedValue) return
     setDraft(prev => ({
       ...prev,
-      [key]: prev[key].includes(value) ? prev[key].filter(item => item !== value) : [...prev[key], value],
+      [key]: prev[key].some(item => choiceKey(item) === choiceKey(normalizedValue))
+        ? prev[key].filter(item => choiceKey(item) !== choiceKey(normalizedValue))
+        : [...prev[key], normalizedValue],
     }))
   }
   const totalPagesValue = Math.round(numberFromText(draft.totalPages))
