@@ -174,6 +174,7 @@ function isAuthExpiredError(error: unknown) {
 async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -3707,7 +3708,7 @@ export default function App() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
   const [notifications, setNotifications] = useState<FolioNotification[]>([])
   const [readingGoal, setReadingGoal] = useState<ReadingGoal>({ targetBooks: 40, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
-  const [loadingApp, setLoadingApp] = useState(Boolean(token))
+  const [loadingApp, setLoadingApp] = useState(true)
   const [resumeError, setResumeError] = useState('')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [actionLoadingCount, setActionLoadingCount] = useState(0)
@@ -3789,7 +3790,6 @@ export default function App() {
   }
 
   async function loadBootstrap(activeToken = activeAuthToken()) {
-    if (!activeToken) return
     const data = await apiRequest<{
       currentUserId: string
       token?: string | null
@@ -3801,7 +3801,7 @@ export default function App() {
       timeline: TimelineEvent[]
       notifications?: FolioNotification[]
       readingGoal?: ReadingGoal
-    }>('/folio/bootstrap', {}, activeToken)
+    }>('/folio/bootstrap', {}, activeToken || undefined)
 
     if (data.token && data.token !== activeToken) {
       localStorage.setItem('folio_token', data.token)
@@ -3839,19 +3839,17 @@ export default function App() {
   }
 
   async function retryStoredLogin() {
-    if (!token) return
     setLoadingApp(true)
     setResumeError('')
     try {
-      await loadBootstrap(token)
+      await loadBootstrap()
     } catch (error) {
       handleStoredLoginFailure(error)
     }
   }
 
   useEffect(() => {
-    if (!token) return
-    loadBootstrap(token).catch(handleStoredLoginFailure)
+    loadBootstrap().catch(handleStoredLoginFailure)
   }, [])
 
   useEffect(() => {
@@ -4111,6 +4109,7 @@ export default function App() {
       formData.append('file', file)
       const response = await fetch(`${API_BASE_URL}/folio/books/cover`, {
         method: 'POST',
+        credentials: 'include',
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: formData,
       })
@@ -4133,6 +4132,7 @@ export default function App() {
       formData.append('file', file)
       const response = await fetch(`${API_BASE_URL}/folio/media`, {
         method: 'POST',
+        credentials: 'include',
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: formData,
       })
@@ -4243,6 +4243,7 @@ export default function App() {
       formData.append('file', file)
       const response = await fetch(`${API_BASE_URL}/folio/me/avatar`, {
         method: 'POST',
+        credentials: 'include',
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: formData,
       })
@@ -4293,7 +4294,14 @@ export default function App() {
     })
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    const logoutToken = activeAuthToken()
+    try {
+      await apiRequest('/auth/logout', { method: 'POST' }, logoutToken || undefined)
+    } catch {
+      // Local logout must still work if the network is unavailable.
+    }
+
     setCurrentUser(null)
     localStorage.removeItem('folio_token')
     setToken('')
@@ -4314,7 +4322,7 @@ export default function App() {
         <span>Carregando {BRAND_NAME}...</span>
       </div>
     )
-    if (token && resumeError) return (
+    if (resumeError) return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-950 px-6 text-center text-sm text-stone-400">
         <BrandMark />
         <p className="max-w-sm">{resumeError}</p>
