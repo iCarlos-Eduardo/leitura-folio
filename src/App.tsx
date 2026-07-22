@@ -224,6 +224,40 @@ function isMediaUrl(value?: string | null) {
   return /^(https?:|data:|blob:|\/\/|\/|uploads\/|media\/|files\/)/i.test(url)
 }
 
+const IMAGE_RETRY_PARAM = 'folio_img_retry'
+const MAX_IMAGE_RETRY_ATTEMPTS = 2
+
+function canRetryImageUrl(url: string) {
+  return Boolean(url) && !/^(data:|blob:)/i.test(url)
+}
+
+function imageRetryUrl(url: string) {
+  try {
+    const retryUrl = new URL(url, window.location.href)
+    retryUrl.searchParams.set(IMAGE_RETRY_PARAM, String(Date.now()))
+    return retryUrl.href
+  } catch {
+    const hashIndex = url.indexOf('#')
+    const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url
+    const hash = hashIndex >= 0 ? url.slice(hashIndex) : ''
+    return `${base}${base.includes('?') ? '&' : '?'}${IMAGE_RETRY_PARAM}=${Date.now()}${hash}`
+  }
+}
+
+function retryImageElement(image: HTMLImageElement, delayMs = 0) {
+  const currentUrl = image.currentSrc || image.src
+  if (!canRetryImageUrl(currentUrl)) return
+
+  const attempts = Number(image.dataset.folioImageRetryAttempts || '0')
+  if (attempts >= MAX_IMAGE_RETRY_ATTEMPTS) return
+
+  image.dataset.folioImageRetryAttempts = String(attempts + 1)
+  window.setTimeout(() => {
+    if (!image.isConnected) return
+    image.src = imageRetryUrl(currentUrl)
+  }, delayMs)
+}
+
 function postTextParts(text?: string | null) {
   const rawText = text || ''
   const lines = rawText.split('\n')
@@ -3850,6 +3884,45 @@ export default function App() {
 
   useEffect(() => {
     loadBootstrap().catch(handleStoredLoginFailure)
+  }, [])
+
+  useEffect(() => {
+    const retryFailedImages = () => {
+      if (document.hidden) return
+      document
+        .querySelectorAll<HTMLImageElement>('img[data-folio-image-failed="true"]')
+        .forEach(image => retryImageElement(image))
+    }
+
+    const handleImageError = (event: Event) => {
+      if (!(event.target instanceof HTMLImageElement)) return
+      event.target.dataset.folioImageFailed = 'true'
+      retryImageElement(event.target, 1500)
+    }
+
+    const handleImageLoad = (event: Event) => {
+      if (!(event.target instanceof HTMLImageElement)) return
+      delete event.target.dataset.folioImageFailed
+      delete event.target.dataset.folioImageRetryAttempts
+    }
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) retryFailedImages()
+    }
+
+    document.addEventListener('error', handleImageError, true)
+    document.addEventListener('load', handleImageLoad, true)
+    window.addEventListener('online', retryFailedImages)
+    window.addEventListener('focus', retryFailedImages)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      document.removeEventListener('error', handleImageError, true)
+      document.removeEventListener('load', handleImageLoad, true)
+      window.removeEventListener('online', retryFailedImages)
+      window.removeEventListener('focus', retryFailedImages)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [])
 
   useEffect(() => {
