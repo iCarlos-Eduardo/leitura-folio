@@ -3694,6 +3694,10 @@ export default function App() {
   const { askDate, datePromptDialog } = useDatePrompt()
   const canUseDeviceNotifications = currentUser?.role === 'admin'
 
+  function activeAuthToken() {
+    return localStorage.getItem('folio_token') || token
+  }
+
   function dismissToast(id: number) {
     setToasts(current => current.filter(toast => toast.id !== id))
   }
@@ -3760,10 +3764,11 @@ export default function App() {
     }
   }
 
-  async function loadBootstrap(activeToken = token) {
+  async function loadBootstrap(activeToken = activeAuthToken()) {
     if (!activeToken) return
     const data = await apiRequest<{
       currentUserId: string
+      token?: string | null
       users: User[]
       books: Book[]
       shelf: ShelfEntry[]
@@ -3774,6 +3779,10 @@ export default function App() {
       readingGoal?: ReadingGoal
     }>('/folio/bootstrap', {}, activeToken)
 
+    if (data.token && data.token !== activeToken) {
+      localStorage.setItem('folio_token', data.token)
+      setToken(data.token)
+    }
     setUsers(data.users)
     setBooks(data.books)
     setShelf(data.shelf)
@@ -4118,11 +4127,12 @@ export default function App() {
   async function handleAddReply(postId: string, text: string, parentReplyId?: string) {
     if (!currentUser) return false
     return runAction(async () => {
+      const activeToken = activeAuthToken()
       const path = parentReplyId
         ? '/folio/replies/replies'
         : `/folio/posts/${encodeURIComponent(postId)}/replies`
-      await apiRequest(path, { method: 'POST', body: JSON.stringify(parentReplyId ? { text, parentReplyId } : { text }) }, token)
-      await loadBootstrap()
+      await apiRequest(path, { method: 'POST', body: JSON.stringify(parentReplyId ? { text, parentReplyId } : { text }) }, activeToken)
+      await loadBootstrap(activeToken)
     }, {
       success: 'Resposta publicada com sucesso.',
       error: 'Nao foi possivel publicar a resposta.',
@@ -4156,8 +4166,9 @@ export default function App() {
     const post = posts.find(item => item.id === postId)
     const liked = Boolean(post?.likes.includes(currentUser.id))
     return runAction(async () => {
-      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/likes/toggle`, { method: 'POST' }, token)
-      await loadBootstrap()
+      const activeToken = activeAuthToken()
+      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/likes/toggle`, { method: 'POST' }, activeToken)
+      await loadBootstrap(activeToken)
     }, {
       success: liked ? 'Curtida removida.' : 'Publicação curtida.',
       error: liked ? 'Nao foi possivel remover a curtida.' : 'Nao foi possivel curtir a publicação.',
@@ -4169,8 +4180,9 @@ export default function App() {
     const reply = replies.find(item => item.id === replyId)
     const liked = Boolean(reply?.likes?.includes(currentUser.id))
     return runAction(async () => {
-      await apiRequest('/folio/replies/likes/toggle', { method: 'POST', body: JSON.stringify({ replyId }) }, token)
-      await loadBootstrap()
+      const activeToken = activeAuthToken()
+      await apiRequest('/folio/replies/likes/toggle', { method: 'POST', body: JSON.stringify({ replyId }) }, activeToken)
+      await loadBootstrap(activeToken)
     }, {
       success: liked ? 'Curtida removida.' : 'Comentário curtido.',
       error: liked ? 'Nao foi possivel remover a curtida.' : 'Nao foi possivel curtir o comentário.',
