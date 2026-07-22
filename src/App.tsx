@@ -1016,6 +1016,28 @@ function NavIcon({ name }: { name: NavIconName }) {
   return <svg {...common}>{paths[name]}</svg>
 }
 
+function QuickActionIcon({ name, className = 'h-5 w-5' }: { name: 'plus' | 'close'; className?: string }) {
+  const paths = {
+    plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
+    close: <><path d="m6 6 12 12" /><path d="M18 6 6 18" /></>,
+  }
+
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={3}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      {paths[name]}
+    </svg>
+  )
+}
+
 function ThemeToggle({ theme, onToggle, compact = false }: { theme: ColorTheme; onToggle: () => void; compact?: boolean }) {
   const dark = theme === 'dark'
   return (
@@ -1054,7 +1076,9 @@ function MobileQuickActions({ theme, onToggleTheme, onCreatePost }: {
             onClick={() => runAction(onCreatePost)}
             className="flex items-center gap-2 rounded-lg bg-amber-300 px-3 py-2 text-left text-sm font-bold text-stone-950 transition hover:bg-amber-200"
           >
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-stone-950/10 text-base leading-none">+</span>
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-stone-950/10">
+              <QuickActionIcon name="plus" className="h-4 w-4" />
+            </span>
             Publicar
           </button>
           <button
@@ -1074,7 +1098,7 @@ function MobileQuickActions({ theme, onToggleTheme, onCreatePost }: {
         aria-label="Ações rápidas"
         className="ml-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-300 text-2xl font-bold leading-none text-stone-950 shadow-lg shadow-black/30 transition hover:bg-amber-200"
       >
-        {open ? '×' : '+'}
+        <QuickActionIcon name={open ? 'close' : 'plus'} className="h-7 w-7" />
       </button>
     </div>
   )
