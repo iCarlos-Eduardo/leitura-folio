@@ -3259,13 +3259,12 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   )
 }
 
-function NotificationsPage({ notifications, users, books, showDeviceNotificationControls, deviceNotificationStatus, remotePushRegistered, onEnableDeviceNotifications, onNotificationClick, onUserClick }: {
+function NotificationsPage({ notifications, users, books, showDeviceNotificationControls, deviceNotificationStatus, onEnableDeviceNotifications, onNotificationClick, onUserClick }: {
   notifications: FolioNotification[]
   users: User[]
   books: Book[]
   showDeviceNotificationControls: boolean
   deviceNotificationStatus: DeviceNotificationStatus
-  remotePushRegistered: boolean
   onEnableDeviceNotifications: () => void
   onNotificationClick: (notification: FolioNotification) => void
   onUserClick: (id: string) => void
@@ -3275,7 +3274,7 @@ function NotificationsPage({ notifications, users, books, showDeviceNotification
       <Header title="Notificações">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pelo seu capítulo aparecem aqui.</p>
-          {showDeviceNotificationControls && (deviceNotificationStatus === 'default' || (deviceNotificationStatus === 'granted' && !remotePushRegistered)) && (
+          {showDeviceNotificationControls && deviceNotificationStatus === 'default' && (
             <button
               type="button"
               onClick={onEnableDeviceNotifications}
@@ -3284,7 +3283,7 @@ function NotificationsPage({ notifications, users, books, showDeviceNotification
               Ativar notificações
             </button>
           )}
-          {showDeviceNotificationControls && deviceNotificationStatus === 'granted' && remotePushRegistered && (
+          {showDeviceNotificationControls && deviceNotificationStatus === 'granted' && (
             <span className="w-full shrink-0 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-center text-sm font-bold text-emerald-700 sm:w-auto">
               Ativadas
             </span>
@@ -4639,7 +4638,7 @@ export default function App() {
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
-          {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} remotePushRegistered={remotePushRegistered} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
+          {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
         </main>
 
         <div className="hidden w-88 shrink-0 p-3 xl:block 2xl:w-96">
