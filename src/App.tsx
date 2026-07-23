@@ -539,10 +539,6 @@ function spiceSummaryText(rating?: number, ratingCount = 0) {
   return `🌶 ${ratingValue} (${ratingCount} ${countLabel})`
 }
 
-function bookRatingText(book: Pick<Book, 'rating' | 'ratingCount'>) {
-  return ratingSummaryText(book.rating, book.ratingCount || 0)
-}
-
 function localDateKey(date = new Date()) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -2280,7 +2276,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                       {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} 🌶</option>)}
                     </select>
                   </div>
-                ) : editingId === book.id && (entry.status === 'reading' || entry.status === 'rereading') ? (
+                ) : editingId === book.id && entry.status === 'reading' ? (
                   <input
                     type="number"
                     min="1"
