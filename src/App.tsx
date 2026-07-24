@@ -724,7 +724,7 @@ function topReadTerms(userId: string, shelf: ShelfEntry[], books: Book[], field:
     .forEach(entry => {
       const book = books.find(item => item.id === entry.bookId)
       const terms = field === 'genres' ? book?.genres : book?.tropes
-      ;(terms || []).forEach(term => counts.set(term, (counts.get(term) || 0) + 1))
+        ; (terms || []).forEach(term => counts.set(term, (counts.get(term) || 0) + 1))
     })
 
   return [...counts.entries()]
@@ -941,19 +941,6 @@ function ServiceUnavailableNotice({ notice, onRetry, onLogout }: { notice: Servi
             {notice.paragraphs.map(paragraph => (
               <p key={paragraph}>{paragraph}</p>
             ))}
-          </div>
-          <div className="mt-6 rounded-lg border border-amber-300/25 bg-amber-300/10 p-4 text-center">
-            <p className="text-xs font-bold uppercase text-amber-300">{notice.deadlineLabel}</p>
-            <p className="mt-1 text-sm font-semibold text-stone-200">{notice.deadlineDisplay}</p>
-            <div className="mt-4 grid grid-cols-4 gap-2">
-              {countdown.items.map(item => (
-                <div key={item.label} className="rounded-lg border border-stone-800 bg-stone-950 px-2 py-3">
-                  <strong className="block text-2xl leading-none text-stone-50 sm:text-3xl">{item.value}</strong>
-                  <span className="mt-1 block text-[10px] font-bold uppercase text-stone-500 sm:text-xs">{item.label}</span>
-                </div>
-              ))}
-            </div>
-            {countdown.expired && <p className="mt-3 text-sm font-semibold text-amber-300">Previsão máxima atingida. Tente novamente em instantes.</p>}
           </div>
         </article>
         <div className="flex w-full max-w-sm flex-col gap-2 sm:flex-row sm:justify-center">
@@ -1291,9 +1278,8 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
-              className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition ${
-                page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-400 hover:bg-stone-900 hover:text-stone-100'
-              }`}
+              className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold transition ${page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-400 hover:bg-stone-900 hover:text-stone-100'
+                }`}
             >
               <span className="flex w-5 items-center justify-center"><NavIcon name={item.icon} /></span>
               {item.label}
@@ -1327,9 +1313,8 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
-              className={`relative flex min-h-12 flex-col items-center justify-center rounded-lg text-[11px] font-semibold ${
-                page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-500'
-              }`}
+              className={`relative flex min-h-12 flex-col items-center justify-center rounded-lg text-[11px] font-semibold ${page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-500'
+                }`}
             >
               <span className="mb-0.5 flex items-center justify-center"><NavIcon name={item.icon} /></span>
               {item.label}
@@ -1377,11 +1362,11 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const isOwnPost = post.userId === currentUser.id
   const spoilerState =
     !protectSpoilers || isOwnPost || spoilerAccepted ? 'visible' :
-    !myEntry ? 'not-reading' :
-    myEntry.status === 'read' || myEntry.status === 'rereading' ? 'visible' :
-    post.chapter > safeChapterLimit ? 'blocked' :
-    post.chapter === safeChapterLimit ? 'same-chapter' :
-    'visible'
+      !myEntry ? 'not-reading' :
+        myEntry.status === 'read' || myEntry.status === 'rereading' ? 'visible' :
+          post.chapter > safeChapterLimit ? 'blocked' :
+            post.chapter === safeChapterLimit ? 'same-chapter' :
+              'visible'
   const canInteractWithContent = spoilerState === 'visible'
   const relatedReplies = replies.filter(reply => reply.postId === post.id)
   const oldestFirst = (a: Reply, b: Reply) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -1427,7 +1412,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
               </button>
             )}
           </div>
-            {book && !compactBook && (
+          {book && !compactBook && (
             <button onClick={() => onBookClick(book.id)} className="mb-2 flex max-w-full items-center gap-2 text-left">
               <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-8 w-6 shrink-0 rounded object-cover" />
               <span className="truncate text-xs font-semibold text-amber-300">{book.title}</span>
@@ -1501,71 +1486,71 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                 return (
                   <div key={reply.id} className="rounded-lg bg-stone-950 p-2">
                     <div className="flex gap-2">
-                    <button onClick={() => onUserClick(replyUser.id)}><Avatar user={replyUser} size="sm" /></button>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => onUserClick(replyUser.id)} className="text-xs font-bold text-stone-200 hover:text-amber-300">@{replyUser.handle}</button>
-                        {reply.userId === currentUser.id && (
-                          <button onClick={() => onDeleteReply(reply.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button>
+                      <button onClick={() => onUserClick(replyUser.id)}><Avatar user={replyUser} size="sm" /></button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => onUserClick(replyUser.id)} className="text-xs font-bold text-stone-200 hover:text-amber-300">@{replyUser.handle}</button>
+                          {reply.userId === currentUser.id && (
+                            <button onClick={() => onDeleteReply(reply.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button>
+                          )}
+                        </div>
+                        <p className="text-sm text-stone-400">{reply.text}</p>
+                        <div className="mt-1 flex items-center gap-4 text-xs">
+                          <button onClick={() => onToggleReplyLike(reply.id)} className={`font-semibold ${replyLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
+                            {replyLiked ? '♥' : '♡'} {replyLikes.length}
+                          </button>
+                          <button onClick={() => {
+                            setReplyingToReplyId(value => value === reply.id ? null : reply.id)
+                            setNestedReplyText('')
+                          }} className="font-semibold text-stone-500 hover:text-amber-300">
+                            responder {reply.comments || childReplies.length}
+                          </button>
+                        </div>
+                        {replyingToReplyId === reply.id && (
+                          <div className="mt-2 rounded-lg border border-stone-800 bg-stone-900 p-2">
+                            <textarea
+                              value={nestedReplyText}
+                              onChange={e => setNestedReplyText(e.target.value)}
+                              rows={2}
+                              placeholder={`Responder @${replyUser.handle}...`}
+                              className="w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+                            />
+                            <div className="mt-2 flex justify-end gap-2">
+                              <button onClick={() => {
+                                setReplyingToReplyId(null)
+                                setNestedReplyText('')
+                              }} className="rounded-lg px-3 py-1.5 text-xs font-bold text-stone-500 hover:bg-stone-800">Cancelar</button>
+                              <button onClick={() => submitNestedReply(reply.id)} disabled={!nestedReplyText.trim()} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">Responder</button>
+                            </div>
+                          </div>
+                        )}
+                        {visibleChildReplies.length > 0 && (
+                          <div className="mt-2 space-y-2 border-l border-stone-800 pl-3">
+                            {visibleChildReplies.map(child => {
+                              const childUser = users.find(user => user.id === child.userId) || currentUser
+                              const childLikes = child.likes || []
+                              const childLiked = childLikes.includes(currentUser.id)
+                              return (
+                                <div key={child.id} className="flex gap-2">
+                                  <button onClick={() => onUserClick(childUser.id)}><Avatar user={childUser} size="sm" /></button>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <button onClick={() => onUserClick(childUser.id)} className="text-xs font-bold text-stone-200 hover:text-amber-300">@{childUser.handle}</button>
+                                      {child.userId === currentUser.id && (
+                                        <button onClick={() => onDeleteReply(child.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button>
+                                      )}
+                                    </div>
+                                    <p className="text-sm text-stone-400">{child.text}</p>
+                                    <button onClick={() => onToggleReplyLike(child.id)} className={`mt-1 text-xs font-semibold ${childLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
+                                      {childLiked ? '♥' : '♡'} {childLikes.length}
+                                    </button>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
                         )}
                       </div>
-                      <p className="text-sm text-stone-400">{reply.text}</p>
-                      <div className="mt-1 flex items-center gap-4 text-xs">
-                        <button onClick={() => onToggleReplyLike(reply.id)} className={`font-semibold ${replyLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
-                          {replyLiked ? '♥' : '♡'} {replyLikes.length}
-                        </button>
-                        <button onClick={() => {
-                          setReplyingToReplyId(value => value === reply.id ? null : reply.id)
-                          setNestedReplyText('')
-                        }} className="font-semibold text-stone-500 hover:text-amber-300">
-                          responder {reply.comments || childReplies.length}
-                        </button>
-                      </div>
-                      {replyingToReplyId === reply.id && (
-                        <div className="mt-2 rounded-lg border border-stone-800 bg-stone-900 p-2">
-                          <textarea
-                            value={nestedReplyText}
-                            onChange={e => setNestedReplyText(e.target.value)}
-                            rows={2}
-                            placeholder={`Responder @${replyUser.handle}...`}
-                            className="w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
-                          />
-                          <div className="mt-2 flex justify-end gap-2">
-                            <button onClick={() => {
-                              setReplyingToReplyId(null)
-                              setNestedReplyText('')
-                            }} className="rounded-lg px-3 py-1.5 text-xs font-bold text-stone-500 hover:bg-stone-800">Cancelar</button>
-                            <button onClick={() => submitNestedReply(reply.id)} disabled={!nestedReplyText.trim()} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">Responder</button>
-                          </div>
-                        </div>
-                      )}
-                      {visibleChildReplies.length > 0 && (
-                        <div className="mt-2 space-y-2 border-l border-stone-800 pl-3">
-                          {visibleChildReplies.map(child => {
-                            const childUser = users.find(user => user.id === child.userId) || currentUser
-                            const childLikes = child.likes || []
-                            const childLiked = childLikes.includes(currentUser.id)
-                            return (
-                              <div key={child.id} className="flex gap-2">
-                                <button onClick={() => onUserClick(childUser.id)}><Avatar user={childUser} size="sm" /></button>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <button onClick={() => onUserClick(childUser.id)} className="text-xs font-bold text-stone-200 hover:text-amber-300">@{childUser.handle}</button>
-                                    {child.userId === currentUser.id && (
-                                      <button onClick={() => onDeleteReply(child.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button>
-                                    )}
-                                  </div>
-                                  <p className="text-sm text-stone-400">{child.text}</p>
-                                  <button onClick={() => onToggleReplyLike(child.id)} className={`mt-1 text-xs font-semibold ${childLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
-                                    {childLiked ? '♥' : '♡'} {childLikes.length}
-                                  </button>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
                     </div>
                   </div>
                 )
@@ -3000,7 +2985,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                 id={`folio-post-${post.id}`}
                 className={post.id === highlightedPostId ? 'scroll-mt-28 ring-2 ring-amber-300/70 ring-offset-2 ring-offset-stone-950' : 'scroll-mt-28'}
               >
-                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => {}} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} />
+                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => { }} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} />
               </div>
             )}
           />
@@ -3233,9 +3218,8 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
               <button
                 key={status}
                 onClick={() => setShelfFilter(status)}
-                className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-bold transition ${
-                  shelfFilter === status ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-800 bg-stone-900 text-stone-300 hover:bg-stone-800'
-                }`}
+                className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-bold transition ${shelfFilter === status ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-800 bg-stone-900 text-stone-300 hover:bg-stone-800'
+                  }`}
               >
                 {STATUS_LABELS[status]} {count ? `· ${count}` : ''}
               </button>
@@ -3961,11 +3945,10 @@ function ToastStack({ toasts, onDismiss }: { toasts: ToastMessage[]; onDismiss: 
         <div
           key={toast.id}
           role="status"
-          className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-2xl shadow-black/40 ${
-            toast.type === 'success'
+          className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-2xl shadow-black/40 ${toast.type === 'success'
               ? 'border-emerald-300/30 bg-emerald-950/95 text-emerald-50'
               : 'border-red-300/30 bg-red-950/95 text-red-50'
-          }`}
+            }`}
         >
           <span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${toast.type === 'success' ? 'bg-emerald-300' : 'bg-red-300'}`} />
           <p className="min-w-0 flex-1 leading-relaxed">{toast.text}</p>
