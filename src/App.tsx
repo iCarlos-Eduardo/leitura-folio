@@ -170,7 +170,7 @@ const POST_IMAGE_MARKER = '__folio_post_image__:'
 // Personalize este comunicado quando o motivo da indisponibilidade mudar.
 const SERVICE_UNAVAILABLE_NOTICE: ServiceNotice = {
   eyebrow: 'Comunicado Oficial - Grupo Entrelinhas',
-  title: 'Instabilidade na sua região',
+  title: 'Instabilidade na região',
   paragraphs: [
     'Olá! Passando para informar que, neste momento, nossos serviços estão temporariamente indisponíveis devido a uma instabilidade de rede identificada na região.',
     'Nossa equipe técnica já detectou a ocorrência e está trabalhando com prioridade máxima para restabelecer o serviço o mais rápido possível.',
