@@ -4081,6 +4081,12 @@ export default function App() {
     })
   }
 
+  function scrollPageToTop() {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    })
+  }
+
   function activeAuthToken() {
     return localStorage.getItem('folio_token') || token
   }
@@ -4457,6 +4463,7 @@ export default function App() {
       selectedPostId: nextPage === 'book' ? selectedPostId : null,
       selectedProfileUserId: nextPage === 'profile' ? currentUser?.id || null : selectedProfileUserId,
     })
+    scrollPageToTop()
     if (nextPage === 'notifications') {
       await apiRequest('/folio/notifications/mark-all-read', { method: 'POST' }, token)
       await loadBootstrap()
