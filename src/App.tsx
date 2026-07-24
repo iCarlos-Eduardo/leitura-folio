@@ -7,6 +7,14 @@ type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 type ColorTheme = 'light' | 'dark'
 
+type ViewState = {
+  page: Page
+  selectedBookId: string | null
+  selectedPostId: string | null
+  selectedProfileUserId: string | null
+  profileListKind: ProfileListKind
+}
+
 const BRAND_NAME = ''
 const BRAND_LOGO_URL = '/assets/image/logo/logo.jpeg'
 
@@ -4018,10 +4026,60 @@ export default function App() {
   const [actionLoadingCount, setActionLoadingCount] = useState(0)
   const [deviceNotifications, setDeviceNotifications] = useState<DeviceNotificationStatus>(() => deviceNotificationStatus())
   const [remotePushRegistered, setRemotePushRegistered] = useState(false)
+  const navigationHistoryRef = useRef<ViewState[]>([])
   const notifiedDeviceNotificationIds = useRef<Set<string>>(new Set())
   const notifiedDeviceNotificationUserId = useRef<string | null>(null)
   const { askDate, datePromptDialog } = useDatePrompt()
   const canUseDeviceNotifications = currentUser?.role === 'admin'
+
+  function currentViewState(): ViewState {
+    return {
+      page,
+      selectedBookId,
+      selectedPostId,
+      selectedProfileUserId,
+      profileListKind,
+    }
+  }
+
+  function sameViewState(a: ViewState, b: ViewState) {
+    return a.page === b.page
+      && a.selectedBookId === b.selectedBookId
+      && a.selectedPostId === b.selectedPostId
+      && a.selectedProfileUserId === b.selectedProfileUserId
+      && a.profileListKind === b.profileListKind
+  }
+
+  function applyViewState(view: ViewState) {
+    setPage(view.page)
+    setSelectedBookId(view.selectedBookId)
+    setSelectedPostId(view.selectedPostId)
+    setSelectedProfileUserId(view.selectedProfileUserId)
+    setProfileListKind(view.profileListKind)
+  }
+
+  function pushCurrentViewState() {
+    const current = currentViewState()
+    const last = navigationHistoryRef.current[navigationHistoryRef.current.length - 1]
+    if (last && sameViewState(last, current)) return
+    navigationHistoryRef.current = [...navigationHistoryRef.current, current].slice(-25)
+  }
+
+  function navigateToView(view: ViewState) {
+    const current = currentViewState()
+    if (!sameViewState(current, view)) pushCurrentViewState()
+    applyViewState(view)
+  }
+
+  function handleBack() {
+    const previous = navigationHistoryRef.current.pop()
+    applyViewState(previous || {
+      ...currentViewState(),
+      page: 'timeline',
+      selectedBookId: null,
+      selectedPostId: null,
+    })
+  }
 
   function activeAuthToken() {
     return localStorage.getItem('folio_token') || token
@@ -4349,44 +4407,56 @@ export default function App() {
   }
 
   function handleBookClick(bookId: string) {
-    setSelectedBookId(bookId)
-    setSelectedPostId(null)
-    setPage('book')
+    navigateToView({
+      ...currentViewState(),
+      page: 'book',
+      selectedBookId: bookId,
+      selectedPostId: null,
+    })
   }
 
   function handleNotificationClick(notification: FolioNotification) {
     if (notification.bookId) {
-      setSelectedBookId(notification.bookId)
-      setSelectedPostId(notification.postId || null)
-      setPage('book')
+      navigateToView({
+        ...currentViewState(),
+        page: 'book',
+        selectedBookId: notification.bookId,
+        selectedPostId: notification.postId || null,
+      })
       return
     }
 
-    setSelectedPostId(null)
     handleUserClick(notification.userId)
   }
 
   function handleUserClick(userId: string) {
-    setSelectedProfileUserId(userId)
-    setSelectedBookId(null)
-    setSelectedPostId(null)
-    setPage('profile')
+    navigateToView({
+      ...currentViewState(),
+      page: 'profile',
+      selectedBookId: null,
+      selectedPostId: null,
+      selectedProfileUserId: userId,
+    })
   }
 
   function handleOpenProfileList(kind: ProfileListKind) {
-    setProfileListKind(kind)
-    setSelectedBookId(null)
-    setSelectedPostId(null)
-    setPage('profile-list')
+    navigateToView({
+      ...currentViewState(),
+      page: 'profile-list',
+      selectedBookId: null,
+      selectedPostId: null,
+      profileListKind: kind,
+    })
   }
 
   async function handleNavigate(nextPage: Page) {
-    setPage(nextPage)
-    if (nextPage !== 'book') {
-      setSelectedBookId(null)
-      setSelectedPostId(null)
-    }
-    if (nextPage === 'profile') setSelectedProfileUserId(currentUser?.id || null)
+    navigateToView({
+      ...currentViewState(),
+      page: nextPage,
+      selectedBookId: nextPage === 'book' ? selectedBookId : null,
+      selectedPostId: nextPage === 'book' ? selectedPostId : null,
+      selectedProfileUserId: nextPage === 'profile' ? currentUser?.id || null : selectedProfileUserId,
+    })
     if (nextPage === 'notifications') {
       await apiRequest('/folio/notifications/mark-all-read', { method: 'POST' }, token)
       await loadBootstrap()
@@ -4714,10 +4784,7 @@ export default function App() {
           {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onToggleFollow={handleToggleFollow} />}
           {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSearchBooks={handleSearchBooks} />}
           {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
-          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={() => {
-            setSelectedPostId(null)
-            setPage('timeline')
-          }} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
+          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
