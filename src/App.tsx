@@ -147,6 +147,17 @@ interface ToastMessage {
   text: string
 }
 
+interface ServiceNotice {
+  eyebrow: string
+  title: string
+  paragraphs: string[]
+  deadlineLabel: string
+  deadlineIso: string
+  deadlineDisplay: string
+  retryLabel: string
+  logoutLabel: string
+}
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7113' : '')
@@ -156,6 +167,22 @@ const DEVICE_NOTIFICATION_SW_URL = '/folio-service-worker.js'
 const DEVICE_NOTIFICATION_STORAGE_PREFIX = 'folio_device_notified_ids_'
 const POST_PAGE_SIZE = 5
 const POST_IMAGE_MARKER = '__folio_post_image__:'
+// Personalize este comunicado quando o motivo da indisponibilidade mudar.
+const SERVICE_UNAVAILABLE_NOTICE: ServiceNotice = {
+  eyebrow: 'Comunicado Oficial - Grupo Entrelinhas',
+  title: 'Instabilidade na sua região',
+  paragraphs: [
+    'Olá! Passando para informar que, neste momento, nossos serviços estão temporariamente indisponíveis devido a uma instabilidade de rede identificada na região.',
+    'Nossa equipe técnica já detectou a ocorrência e está trabalhando com prioridade máxima para restabelecer o serviço o mais rápido possível.',
+    'Pedimos desculpas pelos transtornos e agradecemos a compreensão e a paciência de todos. Assim que a situação for normalizada, os serviços voltarão a funcionar normalmente.',
+    'Agradecemos pela confiança no Grupo Entrelinhas e manteremos vocês informados caso haja novas atualizações.',
+  ],
+  deadlineLabel: 'Previsão máxima para normalização',
+  deadlineIso: '2026-07-24T01:00:00-03:00',
+  deadlineDisplay: '24/07/2026 às 01:00',
+  retryLabel: 'Tentar novamente',
+  logoutLabel: 'Sair',
+}
 
 class ApiRequestError extends Error {
   status: number
@@ -854,9 +881,91 @@ function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }
 function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <img src={resolveMediaUrl(BRAND_LOGO_URL)} alt={BRAND_NAME} className={`${compact ? 'h-12 w-12' : 'h-56 w-56 sm:h-72 sm:w-72'} rounded-lg object-cover`} />
+      <img src={resolveMediaUrl(BRAND_LOGO_URL)} alt={BRAND_NAME || 'Entrelinhas'} className={`${compact ? 'h-12 w-12' : 'h-56 w-56 sm:h-72 sm:w-72'} rounded-lg object-cover`} />
       <span className={`${compact ? 'text-xl' : 'text-7xl sm:text-8xl'} font-serif text-amber-300`}>{BRAND_NAME}</span>
     </div>
+  )
+}
+
+function formatCountdown(targetIso: string) {
+  const targetTime = new Date(targetIso).getTime()
+  const remainingMs = targetTime - Date.now()
+
+  if (!Number.isFinite(targetTime) || remainingMs <= 0) {
+    return {
+      expired: true,
+      items: [
+        { label: 'dias', value: '00' },
+        { label: 'horas', value: '00' },
+        { label: 'min', value: '00' },
+        { label: 'seg', value: '00' },
+      ],
+    }
+  }
+
+  const totalSeconds = Math.floor(remainingMs / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  return {
+    expired: false,
+    items: [
+      { label: 'dias', value: String(days).padStart(2, '0') },
+      { label: 'horas', value: String(hours).padStart(2, '0') },
+      { label: 'min', value: String(minutes).padStart(2, '0') },
+      { label: 'seg', value: String(seconds).padStart(2, '0') },
+    ],
+  }
+}
+
+function ServiceUnavailableNotice({ notice, onRetry, onLogout }: { notice: ServiceNotice; onRetry: () => void; onLogout: () => void }) {
+  const [countdown, setCountdown] = useState(() => formatCountdown(notice.deadlineIso))
+
+  useEffect(() => {
+    const updateCountdown = () => setCountdown(formatCountdown(notice.deadlineIso))
+    updateCountdown()
+    const intervalId = window.setInterval(updateCountdown, 1000)
+    return () => window.clearInterval(intervalId)
+  }, [notice.deadlineIso])
+
+  return (
+    <main className="min-h-screen bg-stone-950 px-4 py-6 text-stone-100 sm:py-10">
+      <section className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-3xl flex-col items-center justify-center gap-5 text-center sm:min-h-[calc(100vh-5rem)]">
+        <img src={resolveMediaUrl(BRAND_LOGO_URL)} alt={BRAND_NAME || 'Entrelinhas'} className="h-32 w-32 rounded-lg object-cover sm:h-40 sm:w-40" />
+        <article className="w-full rounded-lg border border-stone-800 bg-stone-900/70 p-5 text-left shadow-2xl shadow-stone-800/20 sm:p-7">
+          <p className="text-center text-xs font-bold uppercase text-amber-300 sm:text-sm">{notice.eyebrow}</p>
+          <h1 className="mt-3 text-center font-serif text-2xl font-semibold leading-tight text-stone-50 sm:text-4xl">{notice.title}</h1>
+          <div className="mt-5 space-y-4 text-sm leading-relaxed text-stone-400 sm:text-base">
+            {notice.paragraphs.map(paragraph => (
+              <p key={paragraph}>{paragraph}</p>
+            ))}
+          </div>
+          <div className="mt-6 rounded-lg border border-amber-300/25 bg-amber-300/10 p-4 text-center">
+            <p className="text-xs font-bold uppercase text-amber-300">{notice.deadlineLabel}</p>
+            <p className="mt-1 text-sm font-semibold text-stone-200">{notice.deadlineDisplay}</p>
+            <div className="mt-4 grid grid-cols-4 gap-2">
+              {countdown.items.map(item => (
+                <div key={item.label} className="rounded-lg border border-stone-800 bg-stone-950 px-2 py-3">
+                  <strong className="block text-2xl leading-none text-stone-50 sm:text-3xl">{item.value}</strong>
+                  <span className="mt-1 block text-[10px] font-bold uppercase text-stone-500 sm:text-xs">{item.label}</span>
+                </div>
+              ))}
+            </div>
+            {countdown.expired && <p className="mt-3 text-sm font-semibold text-amber-300">Previsão máxima atingida. Tente novamente em instantes.</p>}
+          </div>
+        </article>
+        <div className="flex w-full max-w-sm flex-col gap-2 sm:flex-row sm:justify-center">
+          <button onClick={onRetry} className="rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-bold text-stone-950 transition hover:bg-amber-200">
+            {notice.retryLabel}
+          </button>
+          <button onClick={onLogout} className="rounded-lg border border-stone-700 px-4 py-2.5 text-sm font-semibold text-stone-200 transition hover:border-stone-500">
+            {notice.logoutLabel}
+          </button>
+        </div>
+      </section>
+    </main>
   )
 }
 
@@ -4593,16 +4702,7 @@ export default function App() {
         <span>Carregando {BRAND_NAME}...</span>
       </div>
     )
-    if (resumeError) return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-950 px-6 text-center text-sm text-stone-400">
-        <BrandMark />
-        <p className="max-w-sm">{resumeError}</p>
-        <div className="flex gap-2">
-          <button onClick={retryStoredLogin} className="rounded-lg bg-amber-300 px-4 py-2 font-bold text-stone-950 transition hover:bg-amber-200">Tentar novamente</button>
-          <button onClick={handleLogout} className="rounded-lg border border-stone-700 px-4 py-2 font-semibold text-stone-200 transition hover:border-stone-500">Sair</button>
-        </div>
-      </div>
-    )
+    if (resumeError) return <ServiceUnavailableNotice notice={SERVICE_UNAVAILABLE_NOTICE} onRetry={retryStoredLogin} onLogout={handleLogout} />
     return <LoginPage onLogin={handleLogin} />
   }
 
