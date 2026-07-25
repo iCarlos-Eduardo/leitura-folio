@@ -612,6 +612,18 @@ type DatePromptState = DatePromptOptions & {
 
 type AskShelfDate = (options: DatePromptOptions) => Promise<string | null>
 
+type ConfirmPromptOptions = {
+  title: string
+  description: string
+  confirmLabel?: string
+  cancelLabel?: string
+  tone?: 'default' | 'danger'
+}
+
+type ConfirmPromptState = ConfirmPromptOptions & {
+  resolve: (confirmed: boolean) => void
+}
+
 function DatePromptDialog({ prompt, onConfirm, onCancel }: {
   prompt: DatePromptState
   onConfirm: (value: string) => void
@@ -688,6 +700,62 @@ function useDatePrompt() {
   ) : null
 
   return { askDate, datePromptDialog }
+}
+
+function ConfirmPromptDialog({ prompt, onConfirm, onCancel }: {
+  prompt: ConfirmPromptState
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const isDanger = prompt.tone === 'danger'
+  const confirmClass = isDanger
+    ? 'bg-red-400 text-stone-950 hover:bg-red-300'
+    : 'bg-amber-300 text-stone-950 hover:bg-amber-200'
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/70 p-3 backdrop-blur-md sm:items-center" onClick={e => e.currentTarget === e.target && onCancel()}>
+      <section className="w-full max-w-sm rounded-lg border border-stone-800 bg-stone-900 p-4 shadow-2xl shadow-black/40">
+        <div className="mb-5">
+          <h2 className="font-serif text-xl text-stone-50">{prompt.title}</h2>
+          <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-stone-400">{prompt.description}</p>
+        </div>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" onClick={onCancel} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800">
+            {prompt.cancelLabel || 'Cancelar'}
+          </button>
+          <button type="button" autoFocus onClick={onConfirm} className={`rounded-lg px-4 py-2 text-sm font-bold transition ${confirmClass}`}>
+            {prompt.confirmLabel || 'Confirmar'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function useConfirmPrompt() {
+  const [prompt, setPrompt] = useState<ConfirmPromptState | null>(null)
+
+  function askConfirm(options: ConfirmPromptOptions) {
+    return new Promise<boolean>(resolve => {
+      setPrompt({ ...options, resolve })
+    })
+  }
+
+  const confirmPromptDialog = prompt ? (
+    <ConfirmPromptDialog
+      prompt={prompt}
+      onCancel={() => {
+        prompt.resolve(false)
+        setPrompt(null)
+      }}
+      onConfirm={() => {
+        prompt.resolve(true)
+        setPrompt(null)
+      }}
+    />
+  ) : null
+
+  return { askConfirm, confirmPromptDialog }
 }
 
 async function datesForShelfStatus(status: BookStatus, entry: ShelfEntry | undefined, askDate: AskShelfDate) {
@@ -4030,6 +4098,7 @@ export default function App() {
   const notifiedDeviceNotificationIds = useRef<Set<string>>(new Set())
   const notifiedDeviceNotificationUserId = useRef<string | null>(null)
   const { askDate, datePromptDialog } = useDatePrompt()
+  const { askConfirm, confirmPromptDialog } = useConfirmPrompt()
   const canUseDeviceNotifications = Boolean(currentUser)
 
   function currentViewState(): ViewState {
@@ -4605,8 +4674,15 @@ export default function App() {
   async function handleDeletePost(postId: string) {
     if (!currentUser) return false
     const post = posts.find(item => item.id === postId)
-    const label = post?.type === 'theory' ? 'esta teoria' : 'esta publicação'
-    if (!window.confirm(`Tem certeza que deseja excluir ${label}?`)) return false
+    const isTheory = post?.type === 'theory'
+    const confirmed = await askConfirm({
+      title: isTheory ? 'Excluir teoria?' : 'Excluir publicação?',
+      description: `Essa ação remove ${isTheory ? 'esta teoria' : 'esta publicação'} e as respostas vinculadas a ela. Não será possível desfazer.`,
+      confirmLabel: 'Excluir',
+      cancelLabel: 'Cancelar',
+      tone: 'danger',
+    })
+    if (!confirmed) return false
 
     return runAction(async () => {
       await apiRequest(`/folio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }, token)
@@ -4716,11 +4792,17 @@ export default function App() {
     beginActionLoading()
     try {
       await apiRequest('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, token)
+      endActionLoading()
       let shelfUpdated = false
       let shelfUpdateFailed = false
-      const shouldUpdateShelf = shouldOfferShelfUpdate && window.confirm(
-        `Sua ${post.type === 'theory' ? 'teoria' : 'publicação'} ficou registrada no capítulo ${post.chapter}, mas sua estante está no capítulo ${currentChapter}. Deseja atualizar o progresso desse livro para o capítulo ${post.chapter}?${book && post.chapter >= book.totalChapters ? '\n\nComo este é o último capítulo, o livro será marcado como lido.' : ''}`
-      )
+      const shouldUpdateShelf = shouldOfferShelfUpdate && await askConfirm({
+        title: 'Atualizar progresso?',
+        description: `Sua ${post.type === 'theory' ? 'teoria' : 'publicação'} foi publicada no capítulo ${post.chapter}, mas sua estante ainda está no capítulo ${currentChapter}. Quer atualizar este livro para o capítulo ${post.chapter}?${book && post.chapter >= book.totalChapters ? '\n\nComo este é o último capítulo, o livro será marcado como lido.' : ''}`,
+        confirmLabel: 'Atualizar estante',
+        cancelLabel: 'Agora não',
+      })
+
+      beginActionLoading()
 
       if (shouldUpdateShelf && book) {
         try {
@@ -4819,6 +4901,7 @@ export default function App() {
       <ActionLoadingIndicator active={actionLoadingCount > 0} />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
       {datePromptDialog}
+      {confirmPromptDialog}
 
       <div className="flex md:ml-60">
         <main className="min-h-screen min-w-0 flex-1 border-x border-stone-800 pb-24 md:pb-0">
