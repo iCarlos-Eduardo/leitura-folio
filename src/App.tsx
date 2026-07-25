@@ -4030,7 +4030,7 @@ export default function App() {
   const notifiedDeviceNotificationIds = useRef<Set<string>>(new Set())
   const notifiedDeviceNotificationUserId = useRef<string | null>(null)
   const { askDate, datePromptDialog } = useDatePrompt()
-  const canUseDeviceNotifications = currentUser?.role === 'admin'
+  const canUseDeviceNotifications = Boolean(currentUser)
 
   function currentViewState(): ViewState {
     return {
