@@ -4604,6 +4604,10 @@ export default function App() {
 
   async function handleDeletePost(postId: string) {
     if (!currentUser) return false
+    const post = posts.find(item => item.id === postId)
+    const label = post?.type === 'theory' ? 'esta teoria' : 'esta publicação'
+    if (!window.confirm(`Tem certeza que deseja excluir ${label}?`)) return false
+
     return runAction(async () => {
       await apiRequest(`/folio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }, token)
       await loadBootstrap()
@@ -4703,13 +4707,43 @@ export default function App() {
   }
 
   async function handleCreatePost(post: Post) {
-    return runAction(async () => {
+    if (!currentUser) return false
+    const book = books.find(item => item.id === post.bookId)
+    const entry = shelf.find(item => item.userId === currentUser.id && item.bookId === post.bookId)
+    const currentChapter = book && entry ? chapterFromPercent(book, entry.status === 'read' ? 100 : entry.progress) : null
+    const shouldOfferShelfUpdate = Boolean(book && entry && entry.status !== 'read' && currentChapter !== post.chapter)
+
+    beginActionLoading()
+    try {
       await apiRequest('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, token)
+      let shelfUpdated = false
+      let shelfUpdateFailed = false
+      const shouldUpdateShelf = shouldOfferShelfUpdate && window.confirm(
+        `Sua ${post.type === 'theory' ? 'teoria' : 'publicação'} ficou registrada no capítulo ${post.chapter}, mas sua estante está no capítulo ${currentChapter}. Deseja atualizar o progresso desse livro para o capítulo ${post.chapter}?${book && post.chapter >= book.totalChapters ? '\n\nComo este é o último capítulo, o livro será marcado como lido.' : ''}`
+      )
+
+      if (shouldUpdateShelf && book) {
+        try {
+          await apiRequest(`/folio/shelf/${encodeURIComponent(post.bookId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ progress: percentFromChapter(book, post.chapter) }),
+          }, token)
+          shelfUpdated = true
+        } catch {
+          shelfUpdateFailed = true
+        }
+      }
+
       await loadBootstrap()
-    }, {
-      success: 'Publicação criada com sucesso.',
-      error: 'Nao foi possivel criar a publicação.',
-    })
+      showToast('success', shelfUpdated ? 'Publicação criada e estante atualizada.' : 'Publicação criada com sucesso.')
+      if (shelfUpdateFailed) showToast('error', 'A publicação foi criada, mas nao foi possivel atualizar a estante.')
+      return true
+    } catch (error) {
+      showToast('error', errorMessage(error, 'Nao foi possivel criar a publicação.'))
+      return false
+    } finally {
+      endActionLoading()
+    }
   }
 
   async function handleUpdateReadingGoal(changes: { targetBooks?: number; targetDays?: number }) {
