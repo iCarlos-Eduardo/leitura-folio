@@ -175,6 +175,10 @@ const DEVICE_NOTIFICATION_SW_URL = '/folio-service-worker.js'
 const DEVICE_NOTIFICATION_STORAGE_PREFIX = 'folio_device_notified_ids_'
 const POST_PAGE_SIZE = 5
 const POST_IMAGE_MARKER = '__folio_post_image__:'
+const POST_IMAGE_MAX_DIMENSION = 1600
+const POST_IMAGE_COMPRESS_ABOVE_BYTES = 1400 * 1024
+const POST_IMAGE_JPEG_QUALITY = 0.82
+const DIRECT_UPLOAD_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 // Personalize este comunicado quando o motivo da indisponibilidade mudar.
 const SERVICE_UNAVAILABLE_NOTICE: ServiceNotice = {
   eyebrow: 'Comunicado Oficial - Grupo Entrelinhas',
@@ -237,6 +241,79 @@ function errorMessage(error: unknown, fallback: string) {
   } catch {
     return text
   }
+}
+
+function isImageUpload(file: File) {
+  return file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif)$/i.test(file.name)
+}
+
+function postImageFileName(fileName: string) {
+  const baseName = fileName.replace(/\.[^.]+$/, '').trim() || 'imagem'
+  return `${baseName}.jpg`
+}
+
+function loadImageFile(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(image)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Formato de imagem nao suportado. Tente JPG, PNG ou WEBP.'))
+    }
+    image.src = url
+  })
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob)
+      else reject(new Error('Nao foi possivel preparar esta imagem para envio.'))
+    }, type, quality)
+  })
+}
+
+async function preparePostImageFile(file: File) {
+  if (!isImageUpload(file)) throw new Error('Selecione um arquivo de imagem.')
+
+  const fileType = file.type.toLowerCase()
+  if (fileType === 'image/svg+xml') {
+    throw new Error('Envie uma imagem em JPG, PNG, WEBP ou GIF.')
+  }
+
+  if (file.size <= POST_IMAGE_COMPRESS_ABOVE_BYTES && DIRECT_UPLOAD_IMAGE_TYPES.has(fileType)) {
+    return file
+  }
+
+  if (fileType === 'image/gif') return file
+
+  const image = await loadImageFile(file)
+  const largestSide = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height)
+  const scale = largestSide > POST_IMAGE_MAX_DIMENSION ? POST_IMAGE_MAX_DIMENSION / largestSide : 1
+  const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale))
+  const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Nao foi possivel preparar esta imagem para envio.')
+
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, width, height)
+  context.drawImage(image, 0, 0, width, height)
+
+  const blob = await canvasToBlob(canvas, 'image/jpeg', POST_IMAGE_JPEG_QUALITY)
+  if (blob.size >= file.size && DIRECT_UPLOAD_IMAGE_TYPES.has(fileType)) return file
+
+  return new File([blob], postImageFileName(file.name), {
+    type: 'image/jpeg',
+    lastModified: file.lastModified,
+  })
 }
 
 function resolveMediaUrl(value?: string | null) {
@@ -3897,8 +3974,8 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
                             const imageUrl = await onUploadImage(file)
                             setPostImageUrl(imageUrl)
                             setPostImageFileName(file.name)
-                          } catch {
-                            setPostImageError('Nao foi possivel enviar a imagem agora.')
+                          } catch (error) {
+                            setPostImageError(errorMessage(error, 'Nao foi possivel enviar a imagem agora.'))
                           } finally {
                             setUploadingPostImage(false)
                           }
@@ -4636,19 +4713,22 @@ export default function App() {
   async function handleUploadPostImage(file: File) {
     beginActionLoading()
     try {
+      const activeToken = activeAuthToken()
+      const uploadFile = await preparePostImageFile(file)
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', uploadFile, uploadFile.name)
       const response = await fetch(`${API_BASE_URL}/folio/media`, {
         method: 'POST',
         credentials: 'include',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : undefined,
         body: formData,
       })
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) throw new ApiRequestError(response.status, await response.text())
       const data = await response.json() as { url: string }
       showToast('success', 'Imagem anexada com sucesso.')
       return data.url
     } catch (error) {
+      if (isAuthExpiredError(error)) clearStoredLogin()
       showToast('error', errorMessage(error, 'Nao foi possivel anexar a imagem.'))
       throw error
     } finally {
@@ -4788,10 +4868,11 @@ export default function App() {
     const entry = shelf.find(item => item.userId === currentUser.id && item.bookId === post.bookId)
     const currentChapter = book && entry ? chapterFromPercent(book, entry.status === 'read' ? 100 : entry.progress) : null
     const shouldOfferShelfUpdate = Boolean(book && entry && entry.status !== 'read' && currentChapter !== post.chapter)
+    const activeToken = activeAuthToken()
 
     beginActionLoading()
     try {
-      await apiRequest('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, token)
+      await apiRequest('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, activeToken)
       endActionLoading()
       let shelfUpdated = false
       let shelfUpdateFailed = false
@@ -4809,14 +4890,14 @@ export default function App() {
           await apiRequest(`/folio/shelf/${encodeURIComponent(post.bookId)}`, {
             method: 'PATCH',
             body: JSON.stringify({ progress: percentFromChapter(book, post.chapter) }),
-          }, token)
+          }, activeToken)
           shelfUpdated = true
         } catch {
           shelfUpdateFailed = true
         }
       }
 
-      await loadBootstrap()
+      await loadBootstrap(activeToken)
       showToast('success', shelfUpdated ? 'Publicação criada e estante atualizada.' : 'Publicação criada com sucesso.')
       if (shelfUpdateFailed) showToast('error', 'A publicação foi criada, mas nao foi possivel atualizar a estante.')
       return true
