@@ -149,6 +149,10 @@ type ActionFeedback = {
   silentSuccess?: boolean
 }
 
+type UpdateShelfOptions = {
+  offerReadingCheckIn?: boolean
+}
+
 interface ToastMessage {
   id: number
   type: 'success' | 'error'
@@ -2302,7 +2306,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   shelf: ShelfEntry[]
   books: Book[]
   onBookClick: (id: string) => void
-  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback) => Promise<boolean | void> | boolean | void
+  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback, options?: UpdateShelfOptions) => Promise<boolean | void> | boolean | void
   onRemoveShelfEntry: (bookId: string) => Promise<boolean | void> | boolean | void
   onAddBook: (bookId: string, status: BookStatus) => Promise<boolean | void> | boolean | void
   onSaveBook: (book: Book) => Promise<boolean | void> | boolean | void
@@ -2366,6 +2370,8 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     }, {
       success: 'Progresso atualizado com sucesso.',
       error: 'Nao foi possivel atualizar o progresso.',
+    }, {
+      offerReadingCheckIn: true,
     })
     if (saved === false) return
     setEditingId(null)
@@ -2810,7 +2816,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
-  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback) => Promise<boolean | void> | boolean | void
+  onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback, options?: UpdateShelfOptions) => Promise<boolean | void> | boolean | void
   onAddBook: (bookId: string, status: BookStatus) => Promise<boolean | void> | boolean | void
 }) {
   const [tab, setTab] = useState<'feed' | 'theories' | 'about'>('feed')
@@ -2975,6 +2981,8 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                           }, {
                             success: 'Progresso atualizado com sucesso.',
                             error: 'Nao foi possivel atualizar o progresso.',
+                          }, {
+                            offerReadingCheckIn: true,
                           })
                           if (saved === false) return
                           setChapterLimit(chapterFromPercent(book, nextProgress))
@@ -3628,13 +3636,14 @@ function NotificationsPage({ notifications, users, books, showDeviceNotification
     </section>
   )
 }
-function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal, onToggleReadingCheckIn }: {
+function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal, onToggleReadingCheckIn, onResetReadingCheckIns }: {
   currentUser: User
   shelf: ShelfEntry[]
   books: Book[]
   readingGoal: ReadingGoal
   onUpdateReadingGoal: (changes: { targetBooks?: number; targetDays?: number }) => Promise<boolean | void> | boolean | void
   onToggleReadingCheckIn: () => Promise<boolean | void> | boolean | void
+  onResetReadingCheckIns: () => Promise<boolean | void> | boolean | void
 }) {
   const [editing, setEditing] = useState(false)
   const [inputVal, setInputVal] = useState(String(readingGoal.targetBooks || 40))
@@ -3647,6 +3656,7 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   const remaining = Math.max(0, readingGoal.targetBooks - readThisYear)
   const dayProgress = Math.min(100, Math.round((readingGoal.checkIns.length / Math.max(1, readingGoal.targetDays)) * 100))
   const remainingDays = Math.max(0, readingGoal.targetDays - readingGoal.checkIns.length)
+  const dayGoalCompleted = readingGoal.checkIns.length >= readingGoal.targetDays
   const currentlyReading = myShelf
     .filter(entry => entry.status === 'reading' || entry.status === 'rereading')
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
@@ -3723,10 +3733,17 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
                 </button>
               </div>
             ) : (
-              <button onClick={() => {
-                setDayInputVal(String(readingGoal.targetDays))
-                setEditingDays(true)
-              }} className="text-sm font-bold text-amber-300">Editar</button>
+              <div className="flex shrink-0 gap-3">
+                {dayGoalCompleted && (
+                  <button onClick={() => onResetReadingCheckIns()} className="text-sm font-bold text-amber-300">
+                    Recomeçar
+                  </button>
+                )}
+                <button onClick={() => {
+                  setDayInputVal(String(readingGoal.targetDays))
+                  setEditingDays(true)
+                }} className="text-sm font-bold text-amber-300">Editar</button>
+              </div>
             )}
           </div>
           <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -4633,15 +4650,30 @@ export default function App() {
     }
   }
 
-  async function handleUpdateShelfEntry(bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback) {
+  async function handleUpdateShelfEntry(bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback, options?: UpdateShelfOptions) {
     if (!currentUser) return false
-    return runAction(async () => {
-      await apiRequest(`/folio/shelf/${encodeURIComponent(bookId)}`, { method: 'PATCH', body: JSON.stringify(changes) }, token)
-      await loadBootstrap()
+    const entry = shelf.find(item => item.userId === currentUser.id && item.bookId === bookId)
+    const book = books.find(item => item.id === bookId)
+    const previousChapter = entry && book ? chapterFromPercent(book, entry.progress) : null
+    const nextChapter = typeof changes.progress === 'number' && book ? chapterFromPercent(book, changes.progress) : null
+    const activeToken = activeAuthToken()
+    const saved = await runAction(async () => {
+      await apiRequest(`/folio/shelf/${encodeURIComponent(bookId)}`, { method: 'PATCH', body: JSON.stringify(changes) }, activeToken)
+      await loadBootstrap(activeToken)
     }, feedback || {
       error: 'Nao foi possivel atualizar a estante.',
       silentSuccess: true,
     })
+    if (saved && options?.offerReadingCheckIn && !readingGoal.checkedInToday && previousChapter !== null && nextChapter !== null && nextChapter > previousChapter) {
+      const confirmed = await askConfirm({
+        title: 'Fazer check-in de hoje?',
+        description: `Você avançou de capítulo em ${book?.title || 'um livro'}. Quer marcar hoje na sua meta de dias de leitura?`,
+        confirmLabel: 'Fazer check-in',
+        cancelLabel: 'Agora não',
+      })
+      if (confirmed) await handleAddReadingCheckIn()
+    }
+    return saved
   }
 
   async function handleRemoveShelfEntry(bookId: string) {
@@ -4936,6 +4968,17 @@ export default function App() {
     })
   }
 
+  async function handleAddReadingCheckIn() {
+    return runAction(async () => {
+      const activeToken = activeAuthToken()
+      const updatedGoal = await apiRequest<ReadingGoal>('/folio/reading-goal/checkins', { method: 'POST', body: JSON.stringify({ date: localDateKey() }) }, activeToken)
+      setReadingGoal(updatedGoal)
+    }, {
+      success: 'Check-in registrado com sucesso.',
+      error: 'Nao foi possivel registrar o check-in.',
+    })
+  }
+
   async function handleToggleReadingCheckIn() {
     const checked = readingGoal.checkedInToday
     return runAction(async () => {
@@ -4944,6 +4987,26 @@ export default function App() {
     }, {
       success: checked ? 'Check-in desfeito.' : 'Check-in registrado com sucesso.',
       error: checked ? 'Nao foi possivel desfazer o check-in.' : 'Nao foi possivel registrar o check-in.',
+    })
+  }
+
+  async function handleResetReadingCheckIns() {
+    const confirmed = await askConfirm({
+      title: 'Recomeçar meta de dias?',
+      description: 'Isso limpa os check-ins atuais para você começar uma nova rodada da meta de dias de leitura. A meta anual de livros não será alterada.',
+      confirmLabel: 'Recomeçar',
+      cancelLabel: 'Cancelar',
+      tone: 'danger',
+    })
+    if (!confirmed) return false
+
+    return runAction(async () => {
+      const activeToken = activeAuthToken()
+      const updatedGoal = await apiRequest<ReadingGoal>('/folio/reading-goal/checkins', { method: 'DELETE' }, activeToken)
+      setReadingGoal(updatedGoal)
+    }, {
+      success: 'Meta de dias reiniciada.',
+      error: 'Nao foi possivel recomeçar a meta de dias.',
     })
   }
 
@@ -5009,7 +5072,7 @@ export default function App() {
           {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} />}
-          {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
+          {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
           {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
         </main>
 
