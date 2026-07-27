@@ -174,6 +174,7 @@ const BACKGROUND_REFRESH_INTERVAL_MS = 10000
 const DEVICE_NOTIFICATION_SW_URL = '/folio-service-worker.js'
 const DEVICE_NOTIFICATION_STORAGE_PREFIX = 'folio_device_notified_ids_'
 const POST_PAGE_SIZE = 5
+const LIBRARY_PAGE_SIZE = 30
 const POST_IMAGE_MARKER = '__folio_post_image__:'
 const POST_IMAGE_MAX_DIMENSION = 1600
 const POST_IMAGE_COMPRESS_ABOVE_BYTES = 1400 * 1024
@@ -2620,18 +2621,24 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
   const [attempted, setAttempted] = useState(false)
   const [bookModal, setBookModal] = useState<{ mode: 'new' | 'edit'; book?: Book } | null>(null)
   const [newBookStatus, setNewBookStatus] = useState<BookStatus>('want')
+  const [visibleBookCount, setVisibleBookCount] = useState(LIBRARY_PAGE_SIZE)
   const isAdmin = currentUser.role === 'admin'
   const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
   const normalizedQuery = query.trim()
-  const visibleBooks = useMemo(() => {
+  const allMatchingBooks = useMemo(() => {
     const local = normalizedQuery
       ? books.filter(book => bookMatchesSearch(book, normalizedQuery, searchField))
       : books
 
     return mergeBooksById(local, searchResults)
-      .sort((a, b) => a.title.localeCompare(b.title))
-      .slice(0, normalizedQuery ? 30 : 60)
+      .sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'))
   }, [books, normalizedQuery, searchField, searchResults])
+  const visibleBooks = allMatchingBooks.slice(0, visibleBookCount)
+  const hiddenBookCount = Math.max(0, allMatchingBooks.length - visibleBookCount)
+
+  useEffect(() => {
+    setVisibleBookCount(LIBRARY_PAGE_SIZE)
+  }, [normalizedQuery, searchField, searchResults])
 
   async function searchLibrary() {
     if (normalizedQuery.length < 2) return
@@ -2761,6 +2768,16 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
           )
         })}
         {!visibleBooks.length && !attempted && <EmptyState text="Nenhum livro cadastrado na Biblioteca ainda." />}
+        {hiddenBookCount > 0 && (
+          <div className="pt-2 text-center">
+            <button
+              onClick={() => setVisibleBookCount(count => count + LIBRARY_PAGE_SIZE)}
+              className="rounded-lg border border-stone-700 px-4 py-2 text-sm font-bold text-stone-300 hover:bg-stone-900"
+            >
+              Ver mais {Math.min(LIBRARY_PAGE_SIZE, hiddenBookCount)}
+            </button>
+          </div>
+        )}
       </div>
 
       {bookModal && (
