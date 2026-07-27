@@ -6,6 +6,7 @@ type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-lis
 type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 type ColorTheme = 'light' | 'dark'
+type BookFeedVisibility = 'all' | 'available'
 
 type ViewState = {
   page: Page
@@ -1045,49 +1046,7 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
   )
 }
 
-function formatCountdown(targetIso: string) {
-  const targetTime = new Date(targetIso).getTime()
-  const remainingMs = targetTime - Date.now()
-
-  if (!Number.isFinite(targetTime) || remainingMs <= 0) {
-    return {
-      expired: true,
-      items: [
-        { label: 'dias', value: '00' },
-        { label: 'horas', value: '00' },
-        { label: 'min', value: '00' },
-        { label: 'seg', value: '00' },
-      ],
-    }
-  }
-
-  const totalSeconds = Math.floor(remainingMs / 1000)
-  const days = Math.floor(totalSeconds / 86400)
-  const hours = Math.floor((totalSeconds % 86400) / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-
-  return {
-    expired: false,
-    items: [
-      { label: 'dias', value: String(days).padStart(2, '0') },
-      { label: 'horas', value: String(hours).padStart(2, '0') },
-      { label: 'min', value: String(minutes).padStart(2, '0') },
-      { label: 'seg', value: String(seconds).padStart(2, '0') },
-    ],
-  }
-}
-
 function ServiceUnavailableNotice({ notice, onRetry, onLogout }: { notice: ServiceNotice; onRetry: () => void; onLogout: () => void }) {
-  const [countdown, setCountdown] = useState(() => formatCountdown(notice.deadlineIso))
-
-  useEffect(() => {
-    const updateCountdown = () => setCountdown(formatCountdown(notice.deadlineIso))
-    updateCountdown()
-    const intervalId = window.setInterval(updateCountdown, 1000)
-    return () => window.clearInterval(intervalId)
-  }, [notice.deadlineIso])
-
   return (
     <main className="min-h-screen bg-stone-950 px-4 py-6 text-stone-100 sm:py-10">
       <section className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-3xl flex-col items-center justify-center gap-5 text-center sm:min-h-[calc(100vh-5rem)]">
@@ -1510,6 +1469,10 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const [replyText, setReplyText] = useState('')
   const [replyingToReplyId, setReplyingToReplyId] = useState<string | null>(null)
   const [nestedReplyText, setNestedReplyText] = useState('')
+  const [submittingReply, setSubmittingReply] = useState(false)
+  const [submittingNestedReplyId, setSubmittingNestedReplyId] = useState<string | null>(null)
+  const submittingReplyRef = useRef(false)
+  const submittingNestedReplyRef = useRef<string | null>(null)
   const [spoilerAccepted, setSpoilerAccepted] = useState(false)
   const author = users.find(u => u.id === post.userId)!
   const book = books.find(b => b.id === post.bookId)
@@ -1538,20 +1501,34 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
 
   async function submitReply() {
     const trimmed = replyText.trim()
-    if (!trimmed) return
-    const saved = await onAddReply(post.id, trimmed)
-    if (saved === false) return
-    setReplyText('')
-    setShowReplyBox(false)
+    if (!trimmed || submittingReplyRef.current) return
+    submittingReplyRef.current = true
+    setSubmittingReply(true)
+    try {
+      const saved = await onAddReply(post.id, trimmed)
+      if (saved === false) return
+      setReplyText('')
+      setShowReplyBox(false)
+    } finally {
+      submittingReplyRef.current = false
+      setSubmittingReply(false)
+    }
   }
 
   async function submitNestedReply(parentReplyId: string) {
     const trimmed = nestedReplyText.trim()
-    if (!trimmed) return
-    const saved = await onAddReply(post.id, trimmed, parentReplyId)
-    if (saved === false) return
-    setNestedReplyText('')
-    setReplyingToReplyId(null)
+    if (!trimmed || submittingNestedReplyRef.current) return
+    submittingNestedReplyRef.current = parentReplyId
+    setSubmittingNestedReplyId(parentReplyId)
+    try {
+      const saved = await onAddReply(post.id, trimmed, parentReplyId)
+      if (saved === false) return
+      setNestedReplyText('')
+      setReplyingToReplyId(null)
+    } finally {
+      submittingNestedReplyRef.current = null
+      setSubmittingNestedReplyId(null)
+    }
   }
 
   return (
@@ -1621,13 +1598,14 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
               <textarea
                 value={replyText}
                 onChange={e => setReplyText(e.target.value)}
+                disabled={submittingReply}
                 rows={2}
                 placeholder="Responder a publicação..."
-                className="w-full resize-none rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+                className="w-full resize-none rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300 disabled:opacity-60"
               />
               <div className="mt-2 flex justify-end gap-2">
-                <button onClick={() => setShowReplyBox(false)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-stone-500 hover:bg-stone-800">Cancelar</button>
-                <button onClick={submitReply} disabled={!replyText.trim()} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">Responder</button>
+                <button onClick={() => setShowReplyBox(false)} disabled={submittingReply} className="rounded-lg px-3 py-1.5 text-xs font-bold text-stone-500 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60">Cancelar</button>
+                <button onClick={submitReply} disabled={!replyText.trim() || submittingReply} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">{submittingReply ? 'Enviando...' : 'Responder'}</button>
               </div>
             </div>
           )}
@@ -1669,16 +1647,17 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                             <textarea
                               value={nestedReplyText}
                               onChange={e => setNestedReplyText(e.target.value)}
+                              disabled={submittingNestedReplyId === reply.id}
                               rows={2}
                               placeholder={`Responder @${replyUser.handle}...`}
-                              className="w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+                              className="w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300 disabled:opacity-60"
                             />
                             <div className="mt-2 flex justify-end gap-2">
                               <button onClick={() => {
                                 setReplyingToReplyId(null)
                                 setNestedReplyText('')
-                              }} className="rounded-lg px-3 py-1.5 text-xs font-bold text-stone-500 hover:bg-stone-800">Cancelar</button>
-                              <button onClick={() => submitNestedReply(reply.id)} disabled={!nestedReplyText.trim()} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">Responder</button>
+                              }} disabled={submittingNestedReplyId === reply.id} className="rounded-lg px-3 py-1.5 text-xs font-bold text-stone-500 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60">Cancelar</button>
+                              <button onClick={() => submitNestedReply(reply.id)} disabled={!nestedReplyText.trim() || Boolean(submittingNestedReplyId)} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">{submittingNestedReplyId === reply.id ? 'Enviando...' : 'Responder'}</button>
                             </div>
                           </div>
                         )}
@@ -2822,6 +2801,8 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   const [tab, setTab] = useState<'feed' | 'theories' | 'about'>('feed')
   const [newShelfStatus, setNewShelfStatus] = useState<BookStatus>('reading')
   const [readersModalOpen, setReadersModalOpen] = useState(false)
+  const [feedVisibility, setFeedVisibility] = useState<BookFeedVisibility>('all')
+  const highlightedScrollKeyRef = useRef<string | null>(null)
   const { askDate, datePromptDialog } = useDatePrompt()
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
   const myProgress = myEntry?.progress ?? 0
@@ -2859,6 +2840,10 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   const initialPostVisibleCount = highlightedPostIndex >= 0 ? highlightedPostIndex + 1 : POST_PAGE_SIZE
   const visibleChapterLimit = hasFullBookAccess ? book.totalChapters : chapterLimit
   const activeList = tab === 'theories' ? theories : comments
+  const visibleActiveList = feedVisibility === 'available'
+    ? activeList.filter(post => post.chapter <= visibleChapterLimit)
+    : activeList
+  const hiddenFuturePostCount = Math.max(0, activeList.length - visibleActiveList.length)
   const detailRows = [
     ['Série', book.series || 'Não informado'],
     ['Volume', book.volume || 'Não informado'],
@@ -2868,9 +2853,15 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   const tropeList = book.tropes || []
 
   useEffect(() => {
-    if (!highlightedPostId) return
+    if (!highlightedPostId) {
+      highlightedScrollKeyRef.current = null
+      return
+    }
     const targetPost = posts.find(post => post.id === highlightedPostId && post.bookId === book.id)
     if (!targetPost) return
+    const scrollKey = `${book.id}:${targetPost.id}`
+    if (highlightedScrollKeyRef.current === scrollKey) return
+    highlightedScrollKeyRef.current = scrollKey
 
     setTab(targetPost.type === 'theory' ? 'theories' : 'feed')
     setChapterLimit(limit => hasFullBookAccess ? limit : Math.max(limit, targetPost.chapter))
@@ -2926,6 +2917,24 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                   {hasFullBookAccess ? 'Comentários e teorias liberados até o fim do livro' : `Mostrar comentários até o capítulo ${chapterLimit}`}
                   <input type="range" min="1" max={book.totalChapters} value={visibleChapterLimit} disabled={hasFullBookAccess} onChange={e => setChapterLimit(Number(e.target.value))} className="accent-amber-300 disabled:opacity-50" />
                 </label>
+                <div className="mt-3 grid grid-cols-2 rounded-lg bg-stone-950/70 p-1">
+                  {([
+                    ['all', 'Tudo'],
+                    ['available', 'Só liberados'],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setFeedVisibility(id)}
+                      className={`rounded-md px-2 py-1.5 text-xs font-bold transition ${feedVisibility === id ? 'bg-amber-300 text-stone-950' : 'text-stone-400 hover:bg-stone-900 hover:text-stone-100'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {feedVisibility === 'available' && hiddenFuturePostCount > 0 && (
+                  <p className="mt-2 text-xs font-semibold text-amber-200">{hiddenFuturePostCount} {hiddenFuturePostCount === 1 ? 'post futuro oculto' : 'posts futuros ocultos'}</p>
+                )}
               </div>
               <div className="folio-book-progress mt-2 rounded-lg border border-stone-800 bg-stone-900 p-2 sm:mt-3 sm:p-3">
                 {myEntry ? (
@@ -3152,10 +3161,10 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
         </div>
       ) : (
         <div>
-          {!activeList.length && <EmptyState text={tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
+          {!visibleActiveList.length && <EmptyState text={feedVisibility === 'available' && activeList.length ? (tab === 'theories' ? `Nenhuma teoria liberada até o capítulo ${visibleChapterLimit}.` : `Nenhum comentário liberado até o capítulo ${visibleChapterLimit}.`) : tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
           <PaginatedPostList
-            posts={activeList}
-            resetKey={`book-${book.id}-${tab}-${visibleChapterLimit}-${highlightedPostId || ''}`}
+            posts={visibleActiveList}
+            resetKey={`book-${book.id}-${tab}-${feedVisibility}-${visibleChapterLimit}-${highlightedPostId || ''}`}
             initialVisibleCount={initialPostVisibleCount}
             renderPost={post => (
               <div
@@ -3841,8 +3850,10 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
   const [postImageFileName, setPostImageFileName] = useState('')
   const [postImageError, setPostImageError] = useState('')
   const [uploadingPostImage, setUploadingPostImage] = useState(false)
+  const [posting, setPosting] = useState(false)
+  const postingRef = useRef(false)
   const emojis = ['😭', '🤯', '♥', '😂', '😡', '🔥', '💔', '😱', '🥹', '👏']
-  const canPost = selectedBook && chapter !== '' && !uploadingPostImage && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0 || Boolean(postImageUrl))
+  const canPost = selectedBook && chapter !== '' && !uploadingPostImage && !posting && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0 || Boolean(postImageUrl))
   const filteredBooks = myBooks
     .filter(({ book }) => !bookQuery.trim() || bookMatchesSearch(book, bookQuery, 'title') || bookMatchesSearch(book, bookQuery, 'author'))
     .slice(0, 8)
@@ -3866,25 +3877,32 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
   }
 
   async function handlePost() {
-    if (!canPost || !selectedBook) return
+    if (!canPost || !selectedBook || postingRef.current) return
+    postingRef.current = true
+    setPosting(true)
     const selectedChapter = clamp(Number(chapter), 1, selectedBook.totalChapters)
     const percent = percentFromChapter(selectedBook, selectedChapter)
     const postText = textWithPostImage(postType === 'reaction' ? '' : text, postImageUrl)
-    const posted = await onPost({
-      id: `p${Date.now()}`,
-      userId: currentUser.id,
-      bookId: selectedBook.id,
-      chapter: selectedChapter,
-      percent,
-      text: postText || undefined,
-      reactionEmoji: postType === 'reaction' ? reactionEmoji : undefined,
-      type: postType,
-      timestamp: new Date().toISOString(),
-      likes: [],
-      comments: 0,
-    })
-    if (posted === false) return
-    onClose()
+    try {
+      const posted = await onPost({
+        id: `p${Date.now()}`,
+        userId: currentUser.id,
+        bookId: selectedBook.id,
+        chapter: selectedChapter,
+        percent,
+        text: postText || undefined,
+        reactionEmoji: postType === 'reaction' ? reactionEmoji : undefined,
+        type: postType,
+        timestamp: new Date().toISOString(),
+        likes: [],
+        comments: 0,
+      })
+      if (posted === false) return
+      onClose()
+    } finally {
+      postingRef.current = false
+      setPosting(false)
+    }
   }
 
   return (
@@ -4028,9 +4046,9 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
         </div>
 
         <div className="flex justify-end gap-2 border-t border-stone-800 px-4 py-3">
-          <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800">Cancelar</button>
+          <button onClick={onClose} disabled={posting} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60">Cancelar</button>
           <button onClick={handlePost} disabled={!canPost} className="rounded-lg bg-amber-300 px-5 py-2 text-sm font-bold text-stone-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:bg-stone-700 disabled:text-stone-500">
-            {uploadingPostImage ? 'Enviando...' : 'Publicar'}
+            {uploadingPostImage ? 'Enviando...' : posting ? 'Publicando...' : 'Publicar'}
           </button>
         </div>
       </div>
