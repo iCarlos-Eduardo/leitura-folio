@@ -3924,7 +3924,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
                   value={bookQuery}
                   onChange={e => setBookQuery(e.target.value)}
                   placeholder="Buscar por título ou autor"
-                  className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300"
+                  className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-base text-stone-100 outline-none focus:border-amber-300 sm:text-sm"
                 />
               </label>
               <div className="max-h-52 space-y-2 overflow-y-auto rounded-lg border border-stone-800 bg-stone-950 p-2">
@@ -3953,7 +3953,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
                 <div>
                   <label className="text-sm font-semibold text-stone-300">
                     Capítulo
-                    <input type="number" min="1" max={selectedBook.totalChapters} value={chapter} onChange={e => handleChapterChange(e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300" />
+                    <input type="number" min="1" max={selectedBook.totalChapters} value={chapter} onChange={e => handleChapterChange(e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-base text-stone-100 outline-none focus:border-amber-300 sm:text-sm" />
                   </label>
                 </div>
               )}
@@ -3985,7 +3985,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
                     onChange={e => setText(e.target.value)}
                     rows={4}
                     placeholder={postType === 'theory' ? 'Ex.: acho que essa personagem ainda sabe mais do que contou...' : 'Escreva livremente. Quem estiver atrás desse ponto não verá agora.'}
-                    className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300"
+                    className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-base text-stone-100 outline-none focus:border-amber-300 sm:text-sm"
                   />
                 </label>
               )}
