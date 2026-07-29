@@ -1692,7 +1692,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
             </button>
             {isOwnPost && (
               <button onClick={() => canInteractWithContent && setEngagementDialog('likes')} disabled={!canInteractWithContent} className="font-semibold text-stone-500 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
-                quem curtiu
+                curtidas
               </button>
             )}
             <button onClick={() => canInteractWithContent && setShowReplyBox(value => !value)} disabled={!canInteractWithContent} className="font-semibold text-stone-500 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
@@ -1754,7 +1754,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                               onClick={() => setReplyEngagementDialog({ title: 'Curtidas no comentário', users: replyLikeUsers, emptyText: 'Ninguém curtiu este comentário ainda.' })}
                               className="font-semibold text-stone-500 hover:text-amber-300"
                             >
-                              quem curtiu
+                              curtidas
                             </button>
                           )}
                           <button onClick={() => {
@@ -1810,7 +1810,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                                           onClick={() => setReplyEngagementDialog({ title: 'Curtidas na resposta', users: childLikeUsers, emptyText: 'Ninguém curtiu esta resposta ainda.' })}
                                           className="font-semibold text-stone-500 hover:text-amber-300"
                                         >
-                                          quem curtiu
+                                          curtidas
                                         </button>
                                       )}
                                     </div>
@@ -4308,8 +4308,8 @@ function ToastStack({ toasts, onDismiss }: { toasts: ToastMessage[]; onDismiss: 
           key={toast.id}
           role="status"
           className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-2xl shadow-black/40 ${toast.type === 'success'
-              ? 'border-emerald-300/30 bg-emerald-950/95 text-emerald-50'
-              : 'border-red-300/30 bg-red-950/95 text-red-50'
+            ? 'border-emerald-300/30 bg-emerald-950/95 text-emerald-50'
+            : 'border-red-300/30 bg-red-950/95 text-red-50'
             }`}
         >
           <span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${toast.type === 'success' ? 'bg-emerald-300' : 'bg-red-300'}`} />
