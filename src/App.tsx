@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 
-type BookStatus = 'reading' | 'want' | 'read' | 'rereading' | 'abandoned'
+type BookStatus = 'reading' | 'want' | 'read' | 'favorite' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
 type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications'
 type ProfileListKind = 'following' | 'followers' | 'posts'
@@ -397,9 +397,11 @@ const STATUS_LABELS: Record<BookStatus, string> = {
   reading: 'Lendo',
   want: 'TBR',
   read: 'Lido',
+  favorite: 'Favoritado',
   rereading: 'Relendo',
   abandoned: 'Abandonei',
 }
+const SHELF_STATUSES: BookStatus[] = ['reading', 'want', 'read', 'favorite', 'rereading', 'abandoned']
 
 const BOOK_SEARCH_FIELD_LABELS: Record<BookSearchField, string> = {
   all: 'Tudo',
@@ -683,6 +685,18 @@ function readShelfNewestFirst(a: { entry: ShelfEntry; book: Book }, b: { entry: 
   return shelfCompletionTime(b.entry) - shelfCompletionTime(a.entry) || a.book.title.localeCompare(b.book.title, 'pt-BR')
 }
 
+function isCompletedStatus(status?: BookStatus) {
+  return status === 'read' || status === 'favorite'
+}
+
+function hasFullBookAccessStatus(status?: BookStatus) {
+  return isCompletedStatus(status) || status === 'rereading'
+}
+
+function isInProgressStatus(status?: BookStatus) {
+  return status === 'reading' || status === 'rereading'
+}
+
 type DatePromptOptions = {
   title: string
   description: string
@@ -843,7 +857,7 @@ function useConfirmPrompt() {
 
 async function datesForShelfStatus(status: BookStatus, entry: ShelfEntry | undefined, askDate: AskShelfDate) {
   const changes: Partial<ShelfEntry> = {}
-  if ((status === 'reading' || status === 'rereading') && !dateInputValue(entry?.startDate)) {
+  if (isInProgressStatus(status) && !dateInputValue(entry?.startDate)) {
     const startDate = await askDate({
       title: 'Início da leitura',
       description: 'Essa data ajuda a organizar sua estante e deixa o histórico de leitura mais fiel.',
@@ -852,7 +866,7 @@ async function datesForShelfStatus(status: BookStatus, entry: ShelfEntry | undef
     if (!startDate) return null
     changes.startDate = startDate
   }
-  if (status === 'read') {
+  if (isCompletedStatus(status)) {
     const endDate = await askDate({
       title: 'Conclusão da leitura',
       description: 'A meta anual só conta livros concluídos dentro do ano da meta.',
@@ -865,11 +879,11 @@ async function datesForShelfStatus(status: BookStatus, entry: ShelfEntry | undef
 }
 
 function canRateStatus(status?: BookStatus) {
-  return status === 'read' || status === 'rereading' || status === 'abandoned'
+  return isCompletedStatus(status) || status === 'rereading' || status === 'abandoned'
 }
 
 function canPostWithStatus(status?: BookStatus) {
-  return status === 'reading' || status === 'rereading' || status === 'read' || status === 'abandoned'
+  return isInProgressStatus(status) || isCompletedStatus(status) || status === 'abandoned'
 }
 
 function newestFirst<T extends { timestamp: string }>(a: T, b: T) {
@@ -879,7 +893,7 @@ function newestFirst<T extends { timestamp: string }>(a: T, b: T) {
 function topReadTerms(userId: string, shelf: ShelfEntry[], books: Book[], field: 'genres' | 'tropes') {
   const counts = new Map<string, number>()
   shelf
-    .filter(entry => entry.userId === userId && (entry.status === 'read' || entry.status === 'rereading'))
+    .filter(entry => entry.userId === userId && (isCompletedStatus(entry.status) || entry.status === 'rereading'))
     .forEach(entry => {
       const book = books.find(item => item.id === entry.bookId)
       const terms = field === 'genres' ? book?.genres : book?.tropes
@@ -1484,7 +1498,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const spoilerState =
     !protectSpoilers || isOwnPost || spoilerAccepted ? 'visible' :
       !myEntry ? 'not-reading' :
-        myEntry.status === 'read' || myEntry.status === 'rereading' ? 'visible' :
+        hasFullBookAccessStatus(myEntry.status) ? 'visible' :
           post.chapter > safeChapterLimit ? 'blocked' :
             post.chapter === safeChapterLimit ? 'same-chapter' :
               'visible'
@@ -2122,17 +2136,17 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
     const currentPage = includeShelfFields ? Math.max(0, Math.round(numberFromText(draft.currentPage))) : 0
     const progressFromPage = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0
     const status = includeShelfFields ? draft.status : 'want'
-    if (includeShelfFields && (status === 'reading' || status === 'rereading') && !draft.startDate) {
+    if (includeShelfFields && isInProgressStatus(status) && !draft.startDate) {
       setError('Informe a data de início da leitura.')
       setSaving(false)
       return
     }
-    if (includeShelfFields && status === 'read' && !draft.endDate) {
+    if (includeShelfFields && isCompletedStatus(status) && !draft.endDate) {
       setError('Informe a data de conclusão da leitura.')
       setSaving(false)
       return
     }
-    const progress = status === 'read' ? 100 : clamp(progressFromPage, 0, 100)
+    const progress = isCompletedStatus(status) ? 100 : clamp(progressFromPage, 0, 100)
     const book: Book = {
       id: initialBook?.id || `custom-${Date.now()}`,
       title: draft.title.trim(),
@@ -2158,7 +2172,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
     const shelfData: Partial<ShelfEntry> = {
       status,
       progress,
-      currentPage: status === 'read' ? totalPages : currentPage,
+      currentPage: isCompletedStatus(status) ? totalPages : currentPage,
       startDate: draft.startDate || undefined,
       endDate: draft.endDate || undefined,
       format: draft.format.trim() || undefined,
@@ -2248,7 +2262,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm font-semibold text-stone-300">Idioma<input value={draft.language} onChange={e => update('language', e.target.value)} placeholder="Portugues, Ingles..." className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
-              {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Status<select value={draft.status} onChange={e => update('status', e.target.value as BookStatus)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">{(['want', 'reading', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></label>}
+              {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Status<select value={draft.status} onChange={e => update('status', e.target.value as BookStatus)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">{SHELF_STATUSES.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></label>}
               <label className="text-sm font-semibold text-stone-300">Paginas totais *<input type="number" min="1" value={draft.totalPages} onChange={e => update('totalPages', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
               {includeShelfFields && <label className="text-sm font-semibold text-stone-300">Pagina atual<input type="number" min="0" value={draft.currentPage} onChange={e => update('currentPage', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>}
               <label className="text-sm font-semibold text-stone-300">Capitulos totais *<input type="number" min="1" value={draft.totalChapters} onChange={e => update('totalChapters', e.target.value)} className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /></label>
@@ -2302,14 +2316,14 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   const [catalogError, setCatalogError] = useState('')
   const [bookSearchAttempted, setBookSearchAttempted] = useState(false)
   const { askDate, datePromptDialog } = useDatePrompt()
-  const statuses: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
+  const statuses = SHELF_STATUSES
   const myShelf = shelf.filter(s => s.userId === currentUser.id)
   const statusCounts = statuses.reduce((acc, status) => ({ ...acc, [status]: myShelf.filter(entry => entry.status === status).length }), {} as Record<BookStatus, number>)
   const filtered = myShelf
     .filter(entry => entry.status === activeStatus)
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
     .filter(item => item.book)
-    .sort(activeStatus === 'read' ? readShelfNewestFirst : () => 0)
+    .sort(isCompletedStatus(activeStatus) ? readShelfNewestFirst : () => 0)
 
   async function searchCatalog() {
     const query = bookQuery.trim()
@@ -2339,7 +2353,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
 
   async function saveProgress(book: Book) {
     const nextProgress = percentFromChapter(book, Number(chapterInput))
-    const status = nextProgress >= 100 ? 'read' : activeStatus === 'read' ? 'reading' : activeStatus
+    const status = nextProgress >= 100 ? 'read' : isCompletedStatus(activeStatus) ? 'reading' : activeStatus
     const dateChanges = await datesForShelfStatus(status, filtered.find(item => item.book.id === book.id)?.entry, askDate)
     if (!dateChanges) return
     const saved = await onUpdateShelfEntry(book.id, {
@@ -2482,7 +2496,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                     if (!dateChanges) return
                     onUpdateShelfEntry(book.id, {
                       status,
-                      progress: status === 'read' ? 100 : entry.progress >= 100 ? 0 : entry.progress,
+                      progress: isCompletedStatus(status) ? 100 : entry.progress >= 100 ? 0 : entry.progress,
                       ...dateChanges,
                     })
                   }}
@@ -2544,7 +2558,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                   />
                 </label>
               </div>
-              {entry.status === 'reading' || entry.status === 'rereading' ? (
+              {isInProgressStatus(entry.status) ? (
                 <>
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-xs font-bold text-amber-300">Cap. {chapterFromPercent(book, entry.progress)}</span>
@@ -2685,7 +2699,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
               {(Object.keys(BOOK_SEARCH_FIELD_LABELS) as BookSearchField[]).map(field => <option key={field} value={field}>{BOOK_SEARCH_FIELD_LABELS[field]}</option>)}
             </select>
             <select value={newBookStatus} onChange={e => setNewBookStatus(e.target.value as BookStatus)} className="min-w-0 flex-1 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300">
-              {(['want', 'reading', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
+              {SHELF_STATUSES.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
             </select>
             <button onClick={searchLibrary} disabled={normalizedQuery.length < 2 || loading} className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-bold text-stone-300 hover:bg-stone-800 disabled:opacity-60">
               {loading ? 'Buscando...' : 'Buscar'}
@@ -2806,7 +2820,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   const { askDate, datePromptDialog } = useDatePrompt()
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
   const myProgress = myEntry?.progress ?? 0
-  const hasFullBookAccess = myEntry?.status === 'read' || myEntry?.status === 'rereading'
+  const hasFullBookAccess = hasFullBookAccessStatus(myEntry?.status)
   const defaultChapter = hasFullBookAccess ? book.totalChapters : chapterFromPercent(book, myProgress)
   const [chapterLimit, setChapterLimit] = useState(defaultChapter)
   const [chapterInput, setChapterInput] = useState(String(defaultChapter))
@@ -2939,7 +2953,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
               <div className="folio-book-progress mt-2 rounded-lg border border-stone-800 bg-stone-900 p-2 sm:mt-3 sm:p-3">
                 {myEntry ? (
                   <>
-                    {myEntry.status === 'reading' || myEntry.status === 'rereading' ? (
+                    {isInProgressStatus(myEntry.status) ? (
                       <>
                         <div className="mb-2 grid grid-cols-2 gap-2">
                           <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
@@ -2952,17 +2966,17 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                                 if (!dateChanges) return
                                 onUpdateShelfEntry(book.id, {
                                   status,
-                                  progress: status === 'read' ? 100 : myEntry.progress >= 100 ? 0 : myEntry.progress,
+                                  progress: isCompletedStatus(status) ? 100 : myEntry.progress >= 100 ? 0 : myEntry.progress,
                                   ...dateChanges,
                                 })
-                                if (status === 'read' || status === 'rereading') {
+                                if (hasFullBookAccessStatus(status)) {
                                   setChapterInput(String(book.totalChapters))
                                   setChapterLimit(book.totalChapters)
                                 }
                               }}
                               className="folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
                             >
-                              {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
+                              {SHELF_STATUSES.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
                             </select>
                           </label>
                           <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
@@ -3009,17 +3023,17 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                             if (!dateChanges) return
                             onUpdateShelfEntry(book.id, {
                               status,
-                              progress: status === 'read' ? 100 : myEntry.progress >= 100 ? 0 : myEntry.progress,
+                              progress: isCompletedStatus(status) ? 100 : myEntry.progress >= 100 ? 0 : myEntry.progress,
                               ...dateChanges,
                             })
-                            if (status === 'read' || status === 'rereading') {
+                            if (hasFullBookAccessStatus(status)) {
                               setChapterInput(String(book.totalChapters))
                               setChapterLimit(book.totalChapters)
                             }
                           }}
                           className="folio-field-control w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
                         >
-                          {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
+                          {SHELF_STATUSES.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
                         </select>
                         {canRateStatus(myEntry.status) && (
                           <div className="grid grid-cols-2 gap-2">
@@ -3071,7 +3085,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                       onChange={e => setNewShelfStatus(e.target.value as BookStatus)}
                       className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
                     >
-                      {(['reading', 'want', 'read', 'rereading', 'abandoned'] as BookStatus[]).map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
+                      {SHELF_STATUSES.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
                     </select>
                     <button onClick={() => onAddBook(book.id, newShelfStatus)} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">Adicionar à estante</button>
                   </div>
@@ -3206,7 +3220,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                     <p className="truncate text-sm font-bold text-stone-100">{user.name}</p>
                     <p className="truncate text-xs text-stone-500">@{user.handle} · {STATUS_LABELS[entry.status]}</p>
                   </div>
-                  {(entry.status === 'reading' || entry.status === 'rereading') && (
+                  {isInProgressStatus(entry.status) && (
                     <ChapterBadge chapter={chapterFromPercent(book, entry.progress)} />
                   )}
                 </button>
@@ -3256,8 +3270,8 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
     .filter((item): item is { entry: ShelfEntry; book: Book } => Boolean(item.book))
   const filteredShelf = visibleShelf
     .filter(({ entry }) => entry.status === shelfFilter)
-    .sort(shelfFilter === 'read' ? readShelfNewestFirst : () => 0)
-  const shelfFilters: BookStatus[] = ['reading', 'want', 'read', 'rereading', 'abandoned']
+    .sort(isCompletedStatus(shelfFilter) ? readShelfNewestFirst : () => 0)
+  const shelfFilters = SHELF_STATUSES
   const topGenres = topReadTerms(profileUser.id, shelf, books, 'genres')
   const topTropes = topReadTerms(profileUser.id, shelf, books, 'tropes')
 
@@ -3425,9 +3439,9 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
               <div className="min-w-0 flex-1">
                 <div className="mb-1 flex flex-wrap items-center gap-2">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
-                  {entry.status === 'reading' || entry.status === 'rereading' ? <ChapterBadge chapter={chapterFromPercent(book, entry.progress)} /> : null}
+                  {isInProgressStatus(entry.status) ? <ChapterBadge chapter={chapterFromPercent(book, entry.progress)} /> : null}
                 </div>
-                <p className="mb-2 text-xs text-stone-500">{book.author}{entry.status === 'reading' || entry.status === 'rereading' ? ` · Cap. ${chapterFromPercent(book, entry.progress)}` : ''}</p>
+                <p className="mb-2 text-xs text-stone-500">{book.author}{isInProgressStatus(entry.status) ? ` · Cap. ${chapterFromPercent(book, entry.progress)}` : ''}</p>
                 {canRateStatus(entry.status) && (
                   <p className="text-xs font-bold text-stone-300">
                     <span className="text-amber-300">{ratingText(entry.rating)}</span>
@@ -3660,14 +3674,14 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   const [dayInputVal, setDayInputVal] = useState(String(readingGoal.targetDays || 120))
   const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
   const goalYear = readingGoal.year || new Date().getFullYear()
-  const readThisYear = readingGoal.booksReadThisYear ?? myShelf.filter(entry => entry.status === 'read' && isDateInYear(entry.endDate, goalYear)).length
+  const readThisYear = readingGoal.booksReadThisYear ?? myShelf.filter(entry => isCompletedStatus(entry.status) && isDateInYear(entry.endDate, goalYear)).length
   const progress = Math.min(100, Math.round((readThisYear / Math.max(1, readingGoal.targetBooks)) * 100))
   const remaining = Math.max(0, readingGoal.targetBooks - readThisYear)
   const dayProgress = Math.min(100, Math.round((readingGoal.checkIns.length / Math.max(1, readingGoal.targetDays)) * 100))
   const remainingDays = Math.max(0, readingGoal.targetDays - readingGoal.checkIns.length)
   const dayGoalCompleted = readingGoal.checkIns.length >= readingGoal.targetDays
   const currentlyReading = myShelf
-    .filter(entry => entry.status === 'reading' || entry.status === 'rereading')
+    .filter(entry => isInProgressStatus(entry.status))
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
     .filter(item => item.book)
   const recentDays = Array.from({ length: 14 }, (_, index) => {
@@ -3841,7 +3855,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
   const [bookQuery, setBookQuery] = useState('')
   const selectedBook = books.find(book => book.id === selectedBookId) || myBooks[0]?.book
   const selectedEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === selectedBookId)
-  const defaultPercent = selectedEntry?.status === 'read' ? 100 : selectedEntry?.progress ?? 0
+  const defaultPercent = isCompletedStatus(selectedEntry?.status) ? 100 : selectedEntry?.progress ?? 0
   const [postType, setPostType] = useState<PostType>('comment')
   const [text, setText] = useState('')
   const [reactionEmoji, setReactionEmoji] = useState('🤯')
@@ -3861,7 +3875,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
   function handleBookChange(bookId: string) {
     const nextBook = books.find(book => book.id === bookId)
     const nextEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === bookId)
-    const nextPercent = nextEntry?.status === 'read' ? 100 : nextEntry?.progress ?? 0
+    const nextPercent = isCompletedStatus(nextEntry?.status) ? 100 : nextEntry?.progress ?? 0
     setSelectedBookId(bookId)
     setChapter(nextBook ? String(chapterFromPercent(nextBook, nextPercent)) : '1')
   }
@@ -3915,7 +3929,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
 
         <div className="space-y-4 p-4">
           {!myBooks.length ? (
-            <p className="rounded-lg border border-stone-800 bg-stone-950 p-4 text-sm text-stone-400">Adicione um livro como Lendo, Relendo, Lido ou Abandonei para publicar no feed da obra.</p>
+            <p className="rounded-lg border border-stone-800 bg-stone-950 p-4 text-sm text-stone-400">Adicione um livro como Lendo, Relendo, Lido, Favoritado ou Abandonei para publicar no feed da obra.</p>
           ) : (
             <>
               <label className="block text-sm font-semibold text-stone-300">
@@ -4710,7 +4724,7 @@ export default function App() {
     const dateChanges = await datesForShelfStatus(status, undefined, askDate)
     if (!dateChanges) return false
     return runAction(async () => {
-      await apiRequest('/folio/shelf', { method: 'POST', body: JSON.stringify({ bookId, status, progress: status === 'read' ? 100 : 0, ...dateChanges }) }, token)
+      await apiRequest('/folio/shelf', { method: 'POST', body: JSON.stringify({ bookId, status, progress: isCompletedStatus(status) ? 100 : 0, ...dateChanges }) }, token)
       await loadBootstrap()
     }, {
       success: 'Livro adicionado à estante.',
@@ -4933,8 +4947,8 @@ export default function App() {
     if (!currentUser) return false
     const book = books.find(item => item.id === post.bookId)
     const entry = shelf.find(item => item.userId === currentUser.id && item.bookId === post.bookId)
-    const currentChapter = book && entry ? chapterFromPercent(book, entry.status === 'read' ? 100 : entry.progress) : null
-    const shouldOfferShelfUpdate = Boolean(book && entry && entry.status !== 'read' && currentChapter !== post.chapter)
+    const currentChapter = book && entry ? chapterFromPercent(book, isCompletedStatus(entry.status) ? 100 : entry.progress) : null
+    const shouldOfferShelfUpdate = Boolean(book && entry && !isCompletedStatus(entry.status) && currentChapter !== post.chapter)
     const activeToken = activeAuthToken()
 
     beginActionLoading()
