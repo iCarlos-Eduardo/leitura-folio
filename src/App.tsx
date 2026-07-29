@@ -1538,6 +1538,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const [showReplyBox, setShowReplyBox] = useState(false)
   const [showAllReplies, setShowAllReplies] = useState(false)
   const [engagementDialog, setEngagementDialog] = useState<'likes' | 'comments' | 'views' | null>(null)
+  const [replyEngagementDialog, setReplyEngagementDialog] = useState<{ title: string; users: User[]; emptyText: string } | null>(null)
   const [replyText, setReplyText] = useState('')
   const [replyingToReplyId, setReplyingToReplyId] = useState<string | null>(null)
   const [nestedReplyText, setNestedReplyText] = useState('')
@@ -1726,10 +1727,12 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                 const replyUser = users.find(user => user.id === reply.userId) || currentUser
                 const replyLikes = reply.likes || []
                 const replyLiked = replyLikes.includes(currentUser.id)
+                const replyLikeUsers = uniqueUsersById(replyLikes.map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
                 const childReplies = relatedReplies
                   .filter(child => child.parentReplyId === reply.id)
                   .sort(oldestFirst)
                 const visibleChildReplies = showAllReplies ? childReplies : []
+                const childReplyUsers = uniqueUsersById(childReplies.map(child => users.find(user => user.id === child.userId)).filter((user): user is User => Boolean(user)))
                 return (
                   <div key={reply.id} className="rounded-lg bg-stone-950 p-2">
                     <div className="flex gap-2">
@@ -1742,15 +1745,27 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                           )}
                         </div>
                         <p className="text-sm text-stone-400">{reply.text}</p>
-                        <div className="mt-1 flex items-center gap-4 text-xs">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                           <button onClick={() => onToggleReplyLike(reply.id)} className={`font-semibold ${replyLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
                             {replyLiked ? '♥' : '♡'} {replyLikes.length}
+                          </button>
+                          <button
+                            onClick={() => setReplyEngagementDialog({ title: 'Curtidas no comentário', users: replyLikeUsers, emptyText: 'Ninguém curtiu este comentário ainda.' })}
+                            className="font-semibold text-stone-500 hover:text-amber-300"
+                          >
+                            quem curtiu
                           </button>
                           <button onClick={() => {
                             setReplyingToReplyId(value => value === reply.id ? null : reply.id)
                             setNestedReplyText('')
                           }} className="font-semibold text-stone-500 hover:text-amber-300">
                             responder {reply.comments || childReplies.length}
+                          </button>
+                          <button
+                            onClick={() => setReplyEngagementDialog({ title: 'Respostas ao comentário', users: childReplyUsers, emptyText: 'Ninguém respondeu este comentário ainda.' })}
+                            className="font-semibold text-stone-500 hover:text-amber-300"
+                          >
+                            quem respondeu
                           </button>
                         </div>
                         {replyingToReplyId === reply.id && (
@@ -1778,6 +1793,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                               const childUser = users.find(user => user.id === child.userId) || currentUser
                               const childLikes = child.likes || []
                               const childLiked = childLikes.includes(currentUser.id)
+                              const childLikeUsers = uniqueUsersById(childLikes.map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
                               return (
                                 <div key={child.id} className="flex gap-2">
                                   <button onClick={() => onUserClick(childUser.id)}><Avatar user={childUser} size="sm" /></button>
@@ -1789,9 +1805,17 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                                       )}
                                     </div>
                                     <p className="text-sm text-stone-400">{child.text}</p>
-                                    <button onClick={() => onToggleReplyLike(child.id)} className={`mt-1 text-xs font-semibold ${childLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
-                                      {childLiked ? '♥' : '♡'} {childLikes.length}
-                                    </button>
+                                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                                      <button onClick={() => onToggleReplyLike(child.id)} className={`font-semibold ${childLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
+                                        {childLiked ? '♥' : '♡'} {childLikes.length}
+                                      </button>
+                                      <button
+                                        onClick={() => setReplyEngagementDialog({ title: 'Curtidas na resposta', users: childLikeUsers, emptyText: 'Ninguém curtiu esta resposta ainda.' })}
+                                        className="font-semibold text-stone-500 hover:text-amber-300"
+                                      >
+                                        quem curtiu
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               )
@@ -1821,6 +1845,15 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           users={engagementDialogs[engagementDialog].users}
           emptyText={engagementDialogs[engagementDialog].emptyText}
           onClose={() => setEngagementDialog(null)}
+          onUserClick={onUserClick}
+        />
+      )}
+      {replyEngagementDialog && (
+        <EngagementListDialog
+          title={replyEngagementDialog.title}
+          users={replyEngagementDialog.users}
+          emptyText={replyEngagementDialog.emptyText}
+          onClose={() => setReplyEngagementDialog(null)}
           onUserClick={onUserClick}
         />
       )}
