@@ -1698,9 +1698,13 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
             <button onClick={() => canInteractWithContent && setShowReplyBox(value => !value)} disabled={!canInteractWithContent} className="font-semibold text-stone-500 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
               comentar {displayedComments}
             </button>
-            <button onClick={() => setEngagementDialog('views')} className="font-semibold text-stone-500 hover:text-amber-300">
-              visualizações {views}
-            </button>
+            {isOwnPost ? (
+              <button onClick={() => setEngagementDialog('views')} className="font-semibold text-stone-500 hover:text-amber-300">
+                visualizações {views}
+              </button>
+            ) : (
+              <span className="font-semibold text-stone-500">visualizações {views}</span>
+            )}
           </div>
           {showReplyBox && canInteractWithContent && (
             <div className="mt-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
