@@ -2661,7 +2661,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
                       {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} 🌶</option>)}
                     </select>
                   </div>
-                ) : editingId === book.id && entry.status === 'reading' ? (
+                ) : editingId === book.id && isInProgressStatus(entry.status) ? (
                   <input
                     type="number"
                     min="1"
