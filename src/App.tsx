@@ -5684,13 +5684,13 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
             )}
           </button>
         </div>
-        <div className="mt-3 overflow-x-auto pb-0.5">
-          <div className="inline-flex min-w-max rounded-lg border border-stone-800 bg-stone-900 p-1">
+        <div className="mt-3 flex justify-center overflow-x-auto pb-0.5">
+          <div className="grid min-w-max grid-cols-4 rounded-lg border border-stone-800 bg-stone-900 p-1 sm:w-full sm:max-w-xl">
             {(['shop', 'products', 'requests', 'orders'] as const).map(item => (
               <button
                 key={item}
                 onClick={() => setTab(item)}
-                className={`rounded-md px-3 py-2 text-xs font-bold transition sm:px-4 ${tab === item ? 'bg-amber-300 text-stone-950' : 'text-stone-400 hover:bg-stone-800 hover:text-stone-100'}`}
+                className={`rounded-md px-3 py-2 text-center text-xs font-bold transition sm:px-4 ${tab === item ? 'bg-amber-300 text-stone-950' : 'text-stone-400 hover:bg-stone-800 hover:text-stone-100'}`}
               >
                 {item === 'shop' ? 'Vitrine' : item === 'products' ? 'Produtos' : item === 'requests' ? 'Solicitacoes' : 'Pedidos'}
               </button>
