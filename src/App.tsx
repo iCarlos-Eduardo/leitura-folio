@@ -859,6 +859,81 @@ function readShelfNewestFirst(a: { entry: ShelfEntry; book: Book }, b: { entry: 
   return shelfCompletionTime(b.entry) - shelfCompletionTime(a.entry) || a.book.title.localeCompare(b.book.title, 'pt-BR')
 }
 
+type ShelfBookItem = { entry: ShelfEntry; book: Book }
+
+const READ_MONTH_LABELS = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+]
+
+function shelfCompletionDateParts(entry: ShelfEntry) {
+  const date = dateInputValue(entry.endDate)
+  const year = Number(date.slice(0, 4))
+  const month = Number(date.slice(5, 7))
+  if (!date || !Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null
+  return { year, month }
+}
+
+function pluralBooks(count: number) {
+  return `${count} ${count === 1 ? 'livro' : 'livros'}`
+}
+
+function groupShelfByCompletionMonth(items: ShelfBookItem[]) {
+  const yearGroups = new Map<string, {
+    key: string
+    year: number | null
+    count: number
+    months: Map<string, { key: string; month: number | null; items: ShelfBookItem[] }>
+  }>()
+
+  items.forEach(item => {
+    const parts = shelfCompletionDateParts(item.entry)
+    const yearKey = parts ? String(parts.year) : 'undated'
+    const monthKey = parts ? `${parts.year}-${String(parts.month).padStart(2, '0')}` : 'undated'
+    const yearGroup = yearGroups.get(yearKey) || {
+      key: yearKey,
+      year: parts?.year ?? null,
+      count: 0,
+      months: new Map<string, { key: string; month: number | null; items: ShelfBookItem[] }>(),
+    }
+    const monthGroup = yearGroup.months.get(monthKey) || {
+      key: monthKey,
+      month: parts?.month ?? null,
+      items: [],
+    }
+
+    monthGroup.items.push(item)
+    yearGroup.months.set(monthKey, monthGroup)
+    yearGroup.count += 1
+    yearGroups.set(yearKey, yearGroup)
+  })
+
+  return Array.from(yearGroups.values())
+    .sort((a, b) => {
+      if (a.year === null) return 1
+      if (b.year === null) return -1
+      return b.year - a.year
+    })
+    .map(group => ({
+      ...group,
+      months: Array.from(group.months.values()).sort((a, b) => {
+        if (a.month === null) return 1
+        if (b.month === null) return -1
+        return b.month - a.month
+      }),
+    }))
+}
+
 function postViewCount(post: Post) {
   return Math.max(post.views?.length || 0, post.viewCount || 0)
 }
@@ -2658,6 +2733,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
     .filter(item => item.book)
     .sort(isCompletedStatus(activeStatus) ? readShelfNewestFirst : () => 0)
+  const groupedByCompletionMonth = isCompletedStatus(activeStatus) ? groupShelfByCompletionMonth(filtered) : []
 
   async function searchCatalog() {
     const query = bookQuery.trim()
@@ -2702,6 +2778,132 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     })
     if (saved === false) return
     setEditingId(null)
+  }
+
+  function renderShelfCard({ entry, book }: ShelfBookItem) {
+    return (
+      <article key={book.id} className="overflow-hidden rounded-lg border border-stone-800 bg-stone-900">
+        <button onClick={() => onBookClick(book.id)} className="grid w-full grid-cols-[92px_1fr] text-left sm:block">
+          {book.cover ? (
+            <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-full min-h-36 w-full object-cover sm:h-48" />
+          ) : (
+            <div className="flex h-full min-h-36 w-full items-center justify-center bg-stone-800 text-xs text-stone-500 sm:h-48">Sem capa</div>
+          )}
+          <div className="p-3">
+            <h2 className="line-clamp-2 font-serif text-base leading-tight text-stone-100">{book.title}</h2>
+            <p className="mt-1 text-sm text-stone-500">{book.author}</p>
+            <div className="mt-3 flex flex-wrap gap-1">
+              {book.genres.slice(0, 2).map(genre => <span key={genre} className="rounded-full border border-stone-700 px-2 py-0.5 text-xs text-stone-400">{genre}</span>)}
+            </div>
+          </div>
+        </button>
+        <div className="border-t border-stone-800 p-3">
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <select
+              value={entry.status}
+              onChange={async e => {
+                const status = e.target.value as BookStatus
+                const dateChanges = await datesForShelfStatus(status, entry, askDate)
+                if (!dateChanges) return
+                onUpdateShelfEntry(book.id, {
+                  status,
+                  progress: isCompletedStatus(status) ? 100 : entry.progress >= 100 ? 0 : entry.progress,
+                  ...dateChanges,
+                })
+              }}
+              className="folio-field-control w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-stone-100 outline-none focus:border-amber-300"
+            >
+              {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
+            </select>
+            {canRateStatus(entry.status) ? (
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={entry.rating ?? ''}
+                  onChange={e => onUpdateShelfEntry(book.id, { rating: Number(e.target.value) })}
+                  className="folio-field-control rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-amber-300 outline-none focus:border-amber-300"
+                >
+                  <option value="">★</option>
+                  {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} ★</option>)}
+                </select>
+                <select
+                  value={entry.spiceRating ?? ''}
+                  onChange={e => onUpdateShelfEntry(book.id, { spiceRating: Number(e.target.value) })}
+                  className="folio-field-control rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-red-300 outline-none focus:border-red-300"
+                >
+                  <option value="">Hot</option>
+                  {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} 🌶</option>)}
+                </select>
+              </div>
+            ) : editingId === book.id && isInProgressStatus(entry.status) ? (
+              <input
+                type="number"
+                min="1"
+                max={book.totalChapters}
+                value={chapterInput}
+                onChange={e => setChapterInput(e.target.value)}
+                placeholder="Cap."
+                aria-label="Capítulo atual"
+                className="folio-field-control w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs text-stone-100 outline-none focus:border-amber-300"
+              />
+            ) : (
+              <span className="folio-field-control flex rounded-lg border border-stone-800 px-2 py-2 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</span>
+            )}
+          </div>
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
+              Inicio
+              <input
+                type="date"
+                value={dateInputValue(entry.startDate)}
+                onChange={e => onUpdateShelfEntry(book.id, { startDate: e.target.value || undefined })}
+                className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+              />
+            </label>
+            <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
+              Conclusao
+              <input
+                type="date"
+                value={dateInputValue(entry.endDate)}
+                onChange={e => onUpdateShelfEntry(book.id, { endDate: e.target.value || undefined })}
+                className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
+              />
+            </label>
+          </div>
+          {isInProgressStatus(entry.status) ? (
+            <>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-300">Cap. {chapterFromPercent(book, entry.progress)}</span>
+                <button onClick={() => startEdit(book, entry)} className="text-xs font-semibold text-stone-500 hover:text-stone-200">
+                  atualizar
+                </button>
+              </div>
+              {editingId === book.id ? (
+                <div className="grid gap-2">
+                  <button onClick={() => saveProgress(book)} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
+                    Salvar progresso
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-stone-500">Leitura no capítulo {chapterFromPercent(book, entry.progress)}</p>
+              )}
+            </>
+          ) : canRateStatus(entry.status) ? (
+            <div>
+              <p className="mb-2 text-sm text-stone-400">{entry.status === 'abandoned' ? 'Leitura abandonada' : 'Leitura concluída'}</p>
+              <div className="flex flex-wrap gap-2 text-sm font-bold">
+                {entry.rating && <span className="text-amber-300">{ratingText(entry.rating)}</span>}
+                {entry.spiceRating && <span className="text-red-300">{ratingText(entry.spiceRating, 'pimentas')}</span>}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-stone-500">{STATUS_LABELS[entry.status]}</p>
+          )}
+          <button onClick={() => onRemoveShelfEntry(book.id)} className="mt-3 w-full rounded-lg border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300 transition hover:bg-red-400/10 hover:text-red-200">
+            Remover da estante
+          </button>
+        </div>
+      </article>
+    )
   }
 
   return (
@@ -2803,132 +3005,36 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
         </div>
       </Header>
 
-      <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-        {filtered.map(({ entry, book }) => (
-          <article key={book.id} className="overflow-hidden rounded-lg border border-stone-800 bg-stone-900">
-            <button onClick={() => onBookClick(book.id)} className="grid w-full grid-cols-[92px_1fr] text-left sm:block">
-              {book.cover ? (
-                <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-full min-h-36 w-full object-cover sm:h-48" />
-              ) : (
-                <div className="flex h-full min-h-36 w-full items-center justify-center bg-stone-800 text-xs text-stone-500 sm:h-48">Sem capa</div>
-              )}
-              <div className="p-3">
-                <h2 className="line-clamp-2 font-serif text-base leading-tight text-stone-100">{book.title}</h2>
-                <p className="mt-1 text-sm text-stone-500">{book.author}</p>
-                <div className="mt-3 flex flex-wrap gap-1">
-                  {book.genres.slice(0, 2).map(genre => <span key={genre} className="rounded-full border border-stone-700 px-2 py-0.5 text-xs text-stone-400">{genre}</span>)}
-                </div>
+      {isCompletedStatus(activeStatus) && filtered.length ? (
+        <div className="space-y-8 p-4">
+          {groupedByCompletionMonth.map(yearGroup => (
+            <section key={yearGroup.key}>
+              <div className="mb-4 flex items-end justify-between gap-3 border-b border-stone-800 pb-2">
+                <h2 className="font-serif text-2xl leading-none text-stone-100">{yearGroup.year ?? 'Sem data'}</h2>
+                <span className="shrink-0 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{pluralBooks(yearGroup.count)}</span>
               </div>
-            </button>
-            <div className="border-t border-stone-800 p-3">
-              <div className="mb-3 grid grid-cols-2 gap-2">
-                <select
-                  value={entry.status}
-                  onChange={async e => {
-                    const status = e.target.value as BookStatus
-                    const dateChanges = await datesForShelfStatus(status, entry, askDate)
-                    if (!dateChanges) return
-                    onUpdateShelfEntry(book.id, {
-                      status,
-                      progress: isCompletedStatus(status) ? 100 : entry.progress >= 100 ? 0 : entry.progress,
-                      ...dateChanges,
-                    })
-                  }}
-                  className="folio-field-control w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-stone-100 outline-none focus:border-amber-300"
-                >
-                  {statuses.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
-                </select>
-                {canRateStatus(entry.status) ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={entry.rating ?? ''}
-                      onChange={e => onUpdateShelfEntry(book.id, { rating: Number(e.target.value) })}
-                      className="folio-field-control rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-amber-300 outline-none focus:border-amber-300"
-                    >
-                      <option value="">★</option>
-                      {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} ★</option>)}
-                    </select>
-                    <select
-                      value={entry.spiceRating ?? ''}
-                      onChange={e => onUpdateShelfEntry(book.id, { spiceRating: Number(e.target.value) })}
-                      className="folio-field-control rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs font-bold text-red-300 outline-none focus:border-red-300"
-                    >
-                      <option value="">Hot</option>
-                      {RATING_OPTIONS.map(value => <option key={value} value={value}>{value} 🌶</option>)}
-                    </select>
-                  </div>
-                ) : editingId === book.id && isInProgressStatus(entry.status) ? (
-                  <input
-                    type="number"
-                    min="1"
-                    max={book.totalChapters}
-                    value={chapterInput}
-                    onChange={e => setChapterInput(e.target.value)}
-                    placeholder="Cap."
-                    aria-label="Capítulo atual"
-                    className="folio-field-control w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-xs text-stone-100 outline-none focus:border-amber-300"
-                  />
-                ) : (
-                  <span className="folio-field-control flex rounded-lg border border-stone-800 px-2 py-2 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</span>
-                )}
-              </div>
-              <div className="mb-3 grid grid-cols-2 gap-2">
-                <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
-                  Inicio
-                  <input
-                    type="date"
-                    value={dateInputValue(entry.startDate)}
-                    onChange={e => onUpdateShelfEntry(book.id, { startDate: e.target.value || undefined })}
-                    className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
-                  />
-                </label>
-                <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] text-stone-500">
-                  Conclusao
-                  <input
-                    type="date"
-                    value={dateInputValue(entry.endDate)}
-                    onChange={e => onUpdateShelfEntry(book.id, { endDate: e.target.value || undefined })}
-                    className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-[11px] normal-case tracking-normal text-stone-100 outline-none focus:border-amber-300"
-                  />
-                </label>
-              </div>
-              {isInProgressStatus(entry.status) ? (
-                <>
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-300">Cap. {chapterFromPercent(book, entry.progress)}</span>
-                    <button onClick={() => startEdit(book, entry)} className="text-xs font-semibold text-stone-500 hover:text-stone-200">
-                      atualizar
-                    </button>
-                  </div>
-                  {editingId === book.id ? (
-                    <div className="grid gap-2">
-                      <button onClick={() => saveProgress(book)} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">
-                        Salvar progresso
-                      </button>
+              <div className="space-y-5">
+                {yearGroup.months.map(monthGroup => (
+                  <section key={monthGroup.key}>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-bold text-stone-300">{monthGroup.month ? READ_MONTH_LABELS[monthGroup.month - 1] : 'Sem data de conclusão'}</h3>
+                      <span className="text-xs text-stone-500">{pluralBooks(monthGroup.items.length)}</span>
                     </div>
-                  ) : (
-                    <p className="text-sm text-stone-500">Leitura no capítulo {chapterFromPercent(book, entry.progress)}</p>
-                  )}
-                </>
-              ) : canRateStatus(entry.status) ? (
-                <div>
-                  <p className="mb-2 text-sm text-stone-400">{entry.status === 'abandoned' ? 'Leitura abandonada' : 'Leitura concluída'}</p>
-                  <div className="flex flex-wrap gap-2 text-sm font-bold">
-                    {entry.rating && <span className="text-amber-300">{ratingText(entry.rating)}</span>}
-                    {entry.spiceRating && <span className="text-red-300">{ratingText(entry.spiceRating, 'pimentas')}</span>}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-stone-500">{STATUS_LABELS[entry.status]}</p>
-              )}
-              <button onClick={() => onRemoveShelfEntry(book.id)} className="mt-3 w-full rounded-lg border border-red-400/20 px-3 py-2 text-xs font-bold text-red-300 transition hover:bg-red-400/10 hover:text-red-200">
-                Remover da estante
-              </button>
-            </div>
-          </article>
-        ))}
-        {!filtered.length && <div className="sm:col-span-2 xl:col-span-3"><EmptyState text="Nenhum livro nessa categoria ainda." /></div>}
-      </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {monthGroup.items.map(renderShelfCard)}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+          {filtered.map(renderShelfCard)}
+          {!filtered.length && <div className="sm:col-span-2 xl:col-span-3"><EmptyState text="Nenhum livro nessa categoria ainda." /></div>}
+        </div>
+      )}
       {datePromptDialog}
     </section>
   )
@@ -3606,9 +3712,36 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
   const filteredShelf = visibleShelf
     .filter(({ entry }) => entry.status === shelfFilter)
     .sort(isCompletedStatus(shelfFilter) ? readShelfNewestFirst : () => 0)
+  const profileCompletionGroups = isCompletedStatus(shelfFilter) ? groupShelfByCompletionMonth(filteredShelf) : []
   const shelfFilters = SHELF_STATUSES
   const topGenres = topReadTerms(profileUser.id, shelf, books, 'genres')
   const topTropes = topReadTerms(profileUser.id, shelf, books, 'tropes')
+
+  function renderProfileShelfRow({ entry, book }: ShelfBookItem) {
+    return (
+      <button key={entry.bookId} onClick={() => onBookClick(book.id)} className="flex w-full gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3 text-left">
+        {book.cover ? (
+          <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-20 w-14 rounded object-cover" />
+        ) : (
+          <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
+            {isInProgressStatus(entry.status) ? <ChapterBadge chapter={chapterFromPercent(book, entry.progress)} /> : null}
+          </div>
+          <p className="mb-2 text-xs text-stone-500">{book.author}{isInProgressStatus(entry.status) ? ` · Cap. ${chapterFromPercent(book, entry.progress)}` : ''}</p>
+          {canRateStatus(entry.status) && (
+            <p className="text-xs font-bold text-stone-300">
+              <span className="text-amber-300">{ratingText(entry.rating)}</span>
+              {' · '}
+              <span className="text-red-300">{ratingText(entry.spiceRating, 'pimentas')}</span>
+            </p>
+          )}
+        </div>
+      </button>
+    )
+  }
 
   return (
     <section>
@@ -3763,31 +3896,35 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
           })}
         </div>
 
-        <div className="space-y-3">
-          {filteredShelf.length ? filteredShelf.map(({ entry, book }) => (
-            <button key={entry.bookId} onClick={() => onBookClick(book.id)} className="flex w-full gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3 text-left">
-              {book.cover ? (
-                <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-20 w-14 rounded object-cover" />
-              ) : (
-                <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="mb-1 flex flex-wrap items-center gap-2">
-                  <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
-                  {isInProgressStatus(entry.status) ? <ChapterBadge chapter={chapterFromPercent(book, entry.progress)} /> : null}
+        {isCompletedStatus(shelfFilter) && filteredShelf.length ? (
+          <div className="space-y-6">
+            {profileCompletionGroups.map(yearGroup => (
+              <section key={yearGroup.key}>
+                <div className="mb-3 flex items-end justify-between gap-3 border-b border-stone-800 pb-2">
+                  <h2 className="font-serif text-xl leading-none text-stone-100">{yearGroup.year ?? 'Sem data'}</h2>
+                  <span className="shrink-0 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{pluralBooks(yearGroup.count)}</span>
                 </div>
-                <p className="mb-2 text-xs text-stone-500">{book.author}{isInProgressStatus(entry.status) ? ` · Cap. ${chapterFromPercent(book, entry.progress)}` : ''}</p>
-                {canRateStatus(entry.status) && (
-                  <p className="text-xs font-bold text-stone-300">
-                    <span className="text-amber-300">{ratingText(entry.rating)}</span>
-                    {' · '}
-                    <span className="text-red-300">{ratingText(entry.spiceRating, 'pimentas')}</span>
-                  </p>
-                )}
-              </div>
-            </button>
-          )) : <EmptyState text={`Nenhum livro em ${STATUS_LABELS[shelfFilter]}.`} />}
-        </div>
+                <div className="space-y-4">
+                  {yearGroup.months.map(monthGroup => (
+                    <section key={monthGroup.key}>
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-bold text-stone-300">{monthGroup.month ? READ_MONTH_LABELS[monthGroup.month - 1] : 'Sem data de conclusão'}</h3>
+                        <span className="text-xs text-stone-500">{pluralBooks(monthGroup.items.length)}</span>
+                      </div>
+                      <div className="space-y-3">
+                        {monthGroup.items.map(renderProfileShelfRow)}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredShelf.length ? filteredShelf.map(renderProfileShelfRow) : <EmptyState text={`Nenhum livro em ${STATUS_LABELS[shelfFilter]}.`} />}
+          </div>
+        )}
       </div>
     </section>
   )
