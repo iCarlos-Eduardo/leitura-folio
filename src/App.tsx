@@ -180,6 +180,9 @@ interface DashboardUserReportRow {
   role: 'admin' | 'reader' | string
   hasProfile: boolean
   createdAt?: string | null
+  updatedAt?: string | null
+  booksRead: number
+  pagesRead: number
   posts: number
   replies: number
   shelfEntries: number
@@ -4646,9 +4649,11 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-stone-400">
                 <span>{row.role === 'admin' ? 'Admin' : 'Leitor'}</span>
                 <span>{row.hasProfile ? 'Com perfil Folio' : 'Sem perfil Folio'}</span>
+                <span>{row.booksRead} lidos</span>
+                <span>{row.pagesRead.toLocaleString('pt-BR')} páginas</span>
                 <span>{row.posts} posts</span>
                 <span>{row.replies} respostas</span>
-                <span>{row.shelfEntries} livros</span>
+                <span>{row.shelfEntries} na estante</span>
                 <span>{row.loginsToday} logins hoje</span>
               </div>
               <p className="mt-2 truncate text-xs text-stone-500">Última atividade: {row.lastActivityAt ? formatDateTime(row.lastActivityAt) : 'sem registro'}</p>
@@ -4876,7 +4881,7 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
         {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
 
         <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
-          <DashboardStat label="Usuários" value={dashboard.overview.totalUsers} detail={`${dashboard.overview.totalProfiles} perfis Folio`} tone="cyan" active={activeReport === 'users'} onClick={() => openReport('users')} />
+          <DashboardStat label="Usuários" value={dashboard.overview.totalUsers} detail="perfis Folio cadastrados" tone="cyan" active={activeReport === 'users'} onClick={() => openReport('users')} />
           <DashboardStat label="Posts hoje" value={dashboard.overview.postsToday} detail={`${dashboard.overview.postsThisMonth} no mês`} tone="amber" active={activeReport === 'postsToday'} onClick={() => openReport('postsToday')} />
           <DashboardStat label="Ativos agora" value={dashboard.overview.activeNow} detail="atividade nos últimos 15min" tone="emerald" active={activeReport === 'activeNow'} onClick={() => openReport('activeNow')} />
           <DashboardStat label="Interações hoje" value={dashboard.overview.likesToday + dashboard.overview.repliesToday + dashboard.overview.viewsToday} detail={`${dashboard.overview.viewsToday} visualizações`} tone="rose" active={activeReport === 'interactionsToday'} onClick={() => openReport('interactionsToday')} />
