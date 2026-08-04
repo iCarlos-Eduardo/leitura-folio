@@ -1042,12 +1042,12 @@ function DatePromptDialog({ prompt, onConfirm, onCancel }: {
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-3 backdrop-blur-md sm:items-center">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-lg border border-stone-800 bg-stone-900 p-4 shadow-2xl shadow-black/40">
+      <form onSubmit={submit} className="w-full max-w-sm min-w-0 overflow-hidden rounded-lg border border-stone-800 bg-stone-900 p-4 shadow-2xl shadow-black/40">
         <div className="mb-4">
           <h2 className="font-serif text-xl text-stone-50">{prompt.title}</h2>
           <p className="mt-1 text-sm leading-relaxed text-stone-400">{prompt.description}</p>
         </div>
-        <label className="block text-sm font-semibold text-stone-300">
+        <label className="block min-w-0 text-sm font-semibold text-stone-300">
           Data
           <input
             autoFocus
@@ -1057,11 +1057,11 @@ function DatePromptDialog({ prompt, onConfirm, onCancel }: {
               setValue(e.target.value)
               setError('')
             }}
-            className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+            className="folio-date-input folio-field-control mt-1 w-full min-w-0 max-w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
           />
         </label>
         {error && <p className="mt-3 rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</p>}
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-5 flex min-w-0 flex-wrap justify-end gap-2">
           <button type="button" onClick={onCancel} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800">Cancelar</button>
           <button type="submit" className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950 hover:bg-amber-200">Salvar data</button>
         </div>
@@ -2832,6 +2832,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   const [catalogLoading, setCatalogLoading] = useState(false)
   const [catalogError, setCatalogError] = useState('')
   const [bookSearchAttempted, setBookSearchAttempted] = useState(false)
+  const [collapsedDateGroups, setCollapsedDateGroups] = useState<Set<string>>(() => new Set())
   const { askDate, datePromptDialog } = useDatePrompt()
   const statuses = SHELF_STATUSES
   const myShelf = shelf.filter(s => s.userId === currentUser.id)
@@ -2886,6 +2887,19 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
     })
     if (saved === false) return
     setEditingId(null)
+  }
+
+  function dateGroupKey(kind: 'year' | 'month', key: string) {
+    return `${activeStatus}:${kind}:${key}`
+  }
+
+  function toggleDateGroup(key: string) {
+    setCollapsedDateGroups(previous => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
 
   function renderShelfCard({ entry, book }: ShelfBookItem) {
@@ -3121,27 +3135,55 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
 
       {isCompletedStatus(activeStatus) && filtered.length ? (
         <div className="space-y-8 p-4">
-          {groupedByCompletionMonth.map(yearGroup => (
-            <section key={yearGroup.key}>
-              <div className="mb-4 flex items-end justify-between gap-3 border-b border-stone-800 pb-2">
-                <h2 className="font-serif text-2xl leading-none text-stone-100">{yearGroup.year ?? 'Sem data'}</h2>
-                <span className="shrink-0 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{pluralBooks(yearGroup.count)}</span>
-              </div>
-              <div className="space-y-5">
-                {yearGroup.months.map(monthGroup => (
-                  <section key={monthGroup.key}>
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="text-sm font-bold text-stone-300">{monthGroup.month ? READ_MONTH_LABELS[monthGroup.month - 1] : 'Sem data de conclusão'}</h3>
-                      <span className="text-xs text-stone-500">{pluralBooks(monthGroup.items.length)}</span>
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {monthGroup.items.map(renderShelfCard)}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            </section>
-          ))}
+          {groupedByCompletionMonth.map(yearGroup => {
+            const yearKey = dateGroupKey('year', yearGroup.key)
+            const yearCollapsed = collapsedDateGroups.has(yearKey)
+            return (
+              <section key={yearGroup.key}>
+                <button
+                  type="button"
+                  onClick={() => toggleDateGroup(yearKey)}
+                  aria-expanded={!yearCollapsed}
+                  className="mb-4 flex w-full items-end justify-between gap-3 border-b border-stone-800 pb-2 text-left transition hover:border-stone-700"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="w-4 shrink-0 text-sm text-stone-500">{yearCollapsed ? '▸' : '▾'}</span>
+                    <span className="truncate font-serif text-2xl leading-none text-stone-100">{yearGroup.year ?? 'Sem data'}</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{pluralBooks(yearGroup.count)}</span>
+                </button>
+                {!yearCollapsed && (
+                  <div className="space-y-5">
+                    {yearGroup.months.map(monthGroup => {
+                      const monthKey = dateGroupKey('month', monthGroup.key)
+                      const monthCollapsed = collapsedDateGroups.has(monthKey)
+                      return (
+                        <section key={monthGroup.key}>
+                          <button
+                            type="button"
+                            onClick={() => toggleDateGroup(monthKey)}
+                            aria-expanded={!monthCollapsed}
+                            className="mb-3 flex w-full items-center justify-between gap-3 text-left transition hover:text-stone-100"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="w-4 shrink-0 text-xs text-stone-500">{monthCollapsed ? '▸' : '▾'}</span>
+                              <span className="truncate text-sm font-bold text-stone-300">{monthGroup.month ? READ_MONTH_LABELS[monthGroup.month - 1] : 'Sem data de conclusão'}</span>
+                            </span>
+                            <span className="shrink-0 text-xs text-stone-500">{pluralBooks(monthGroup.items.length)}</span>
+                          </button>
+                          {!monthCollapsed && (
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                              {monthGroup.items.map(renderShelfCard)}
+                            </div>
+                          )}
+                        </section>
+                      )
+                    })}
+                  </div>
+                )}
+              </section>
+            )
+          })}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -3819,6 +3861,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [avatarError, setAvatarError] = useState('')
   const [shelfFilter, setShelfFilter] = useState<BookStatus>('reading')
+  const [collapsedProfileDateGroups, setCollapsedProfileDateGroups] = useState<Set<string>>(() => new Set())
   const myShelf = shelf.filter(entry => entry.userId === profileUser.id)
   const myPosts = posts.filter(post => post.userId === profileUser.id)
   const visibleShelf = myShelf
@@ -3831,6 +3874,19 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
   const shelfFilters = SHELF_STATUSES
   const topGenres = topReadTerms(profileUser.id, shelf, books, 'genres')
   const topTropes = topReadTerms(profileUser.id, shelf, books, 'tropes')
+
+  function profileDateGroupKey(kind: 'year' | 'month', key: string) {
+    return `${profileUser.id}:${shelfFilter}:${kind}:${key}`
+  }
+
+  function toggleProfileDateGroup(key: string) {
+    setCollapsedProfileDateGroups(previous => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   function renderProfileShelfRow({ entry, book }: ShelfBookItem) {
     return (
@@ -4013,27 +4069,55 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
 
         {isCompletedStatus(shelfFilter) && filteredShelf.length ? (
           <div className="space-y-6">
-            {profileCompletionGroups.map(yearGroup => (
-              <section key={yearGroup.key}>
-                <div className="mb-3 flex items-end justify-between gap-3 border-b border-stone-800 pb-2">
-                  <h2 className="font-serif text-xl leading-none text-stone-100">{yearGroup.year ?? 'Sem data'}</h2>
-                  <span className="shrink-0 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{pluralBooks(yearGroup.count)}</span>
-                </div>
-                <div className="space-y-4">
-                  {yearGroup.months.map(monthGroup => (
-                    <section key={monthGroup.key}>
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <h3 className="text-sm font-bold text-stone-300">{monthGroup.month ? READ_MONTH_LABELS[monthGroup.month - 1] : 'Sem data de conclusão'}</h3>
-                        <span className="text-xs text-stone-500">{pluralBooks(monthGroup.items.length)}</span>
-                      </div>
-                      <div className="space-y-3">
-                        {monthGroup.items.map(renderProfileShelfRow)}
-                      </div>
-                    </section>
-                  ))}
-                </div>
-              </section>
-            ))}
+            {profileCompletionGroups.map(yearGroup => {
+              const yearKey = profileDateGroupKey('year', yearGroup.key)
+              const yearCollapsed = collapsedProfileDateGroups.has(yearKey)
+              return (
+                <section key={yearGroup.key}>
+                  <button
+                    type="button"
+                    onClick={() => toggleProfileDateGroup(yearKey)}
+                    aria-expanded={!yearCollapsed}
+                    className="mb-3 flex w-full items-end justify-between gap-3 border-b border-stone-800 pb-2 text-left transition hover:border-stone-700"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="w-4 shrink-0 text-sm text-stone-500">{yearCollapsed ? '▸' : '▾'}</span>
+                      <span className="truncate font-serif text-xl leading-none text-stone-100">{yearGroup.year ?? 'Sem data'}</span>
+                    </span>
+                    <span className="shrink-0 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{pluralBooks(yearGroup.count)}</span>
+                  </button>
+                  {!yearCollapsed && (
+                    <div className="space-y-4">
+                      {yearGroup.months.map(monthGroup => {
+                        const monthKey = profileDateGroupKey('month', monthGroup.key)
+                        const monthCollapsed = collapsedProfileDateGroups.has(monthKey)
+                        return (
+                          <section key={monthGroup.key}>
+                            <button
+                              type="button"
+                              onClick={() => toggleProfileDateGroup(monthKey)}
+                              aria-expanded={!monthCollapsed}
+                              className="mb-2 flex w-full items-center justify-between gap-3 text-left transition hover:text-stone-100"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="w-4 shrink-0 text-xs text-stone-500">{monthCollapsed ? '▸' : '▾'}</span>
+                                <span className="truncate text-sm font-bold text-stone-300">{monthGroup.month ? READ_MONTH_LABELS[monthGroup.month - 1] : 'Sem data de conclusão'}</span>
+                              </span>
+                              <span className="shrink-0 text-xs text-stone-500">{pluralBooks(monthGroup.items.length)}</span>
+                            </button>
+                            {!monthCollapsed && (
+                              <div className="space-y-3">
+                                {monthGroup.items.map(renderProfileShelfRow)}
+                              </div>
+                            )}
+                          </section>
+                        )
+                      })}
+                    </div>
+                  )}
+                </section>
+              )
+            })}
           </div>
         ) : (
           <div className="space-y-3">

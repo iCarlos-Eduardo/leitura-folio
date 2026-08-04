@@ -179,9 +179,12 @@ select.folio-field-control {
   display: block;
   inline-size: 100%;
   max-inline-size: 100%;
+  max-width: 100%;
   min-inline-size: 0;
+  min-width: 0;
   overflow: hidden;
   padding-inline-end: 0.5rem;
+  width: 100%;
 }
 
 .folio-date-input::-webkit-date-and-time-value {
