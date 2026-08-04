@@ -5823,6 +5823,7 @@ export default function App() {
 
   function handleViewPost(postId: string) {
     if (!currentUser || viewedPostIdsRef.current.has(postId)) return
+    if (isSuperAdminUser(currentUser)) return
     const post = posts.find(item => item.id === postId)
     if (!post || post.userId === currentUser.id) return
 
