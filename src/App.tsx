@@ -1024,6 +1024,29 @@ function notificationTargetUrl(notification: FolioNotification) {
   return `/?${params.toString()}`
 }
 
+function canDisplayNotification(notification: FolioNotification, currentUser: User, shelf: ShelfEntry[], books: Book[]) {
+  if (notification.type !== 'book_comment') return true
+  if (!notification.bookId) return true
+
+  const entry = shelf.find(item => item.userId === currentUser.id && item.bookId === notification.bookId)
+  const book = books.find(item => item.id === notification.bookId)
+  if (!entry || !book) return false
+
+  if (hasFullBookAccessStatus(entry.status)) {
+    return true
+  }
+
+  if (entry.status === 'reading') {
+    return !notification.chapter || notification.chapter <= chapterFromPercent(book, entry.progress)
+  }
+
+  if (entry.status === 'abandoned') {
+    return !notification.chapter || notification.chapter <= chapterFromPercent(book, entry.progress)
+  }
+
+  return false
+}
+
 async function showDeviceNotification(notification: FolioNotification, users: User[], books: Book[]) {
   if (deviceNotificationStatus() !== 'granted') return
   const registration = await registerDeviceNotificationWorker()
@@ -4388,6 +4411,10 @@ export default function App() {
   const { askDate, datePromptDialog } = useDatePrompt()
   const { askConfirm, confirmPromptDialog } = useConfirmPrompt()
   const canUseDeviceNotifications = Boolean(currentUser)
+  const visibleNotifications = useMemo(() => {
+    if (!currentUser) return notifications
+    return notifications.filter(notification => canDisplayNotification(notification, currentUser, shelf, books))
+  }, [books, currentUser, notifications, shelf])
 
   function currentViewState(): ViewState {
     return {
@@ -4677,7 +4704,7 @@ export default function App() {
 
     if (deviceNotifications !== 'granted' || remotePushRegistered) return
 
-    const freshUnreadNotifications = notifications
+    const freshUnreadNotifications = visibleNotifications
       .filter(notification => !notification.read && !notifiedDeviceNotificationIds.current.has(notification.id))
       .sort(newestFirst)
 
@@ -4690,7 +4717,7 @@ export default function App() {
         // Device notifications are best-effort; the in-app notification list remains authoritative.
       })
     })
-  }, [currentUser?.id, notifications, users, books, deviceNotifications, remotePushRegistered])
+  }, [currentUser?.id, notifications, visibleNotifications, users, books, deviceNotifications, remotePushRegistered])
 
   useEffect(() => {
     if (!token || !currentUser) return
@@ -5257,7 +5284,7 @@ export default function App() {
 
   const selectedBook = selectedBookId ? books.find(book => book.id === selectedBookId) : null
   const selectedProfileUser = users.find(user => user.id === (selectedProfileUserId || currentUser.id)) || currentUser
-  const notificationCount = notifications.filter(notification => !notification.read).length
+  const notificationCount = visibleNotifications.filter(notification => !notification.read).length
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100">
@@ -5285,7 +5312,7 @@ export default function App() {
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
-          {page === 'notifications' && <NotificationsPage notifications={notifications} users={users} books={books} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
+          {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} users={users} books={books} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
         </main>
 
         <div className="hidden w-88 shrink-0 p-3 xl:block 2xl:w-96">
