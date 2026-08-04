@@ -506,6 +506,7 @@ function isMediaUrl(value?: string | null) {
 
 const IMAGE_RETRY_PARAM = 'folio_img_retry'
 const MAX_IMAGE_RETRY_ATTEMPTS = 2
+const IMAGE_LOAD_TIMEOUT_MS = 18000
 
 function canRetryImageUrl(url: string) {
   return Boolean(url) && !/^(data:|blob:)/i.test(url)
@@ -550,8 +551,18 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
 
   useEffect(() => {
     setLoaded(false)
-    setFailed(false)
+    setFailed(!resolvedSrc)
   }, [resolvedSrc])
+
+  useEffect(() => {
+    if (!resolvedSrc || loaded || failed) return
+
+    const timeoutId = window.setTimeout(() => {
+      setFailed(true)
+    }, IMAGE_LOAD_TIMEOUT_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [failed, loaded, resolvedSrc])
 
   return (
     <span className={`folio-image-frame ${loaded ? 'folio-image-loaded' : ''} ${failed ? 'folio-image-failed' : ''} ${className}`}>
@@ -563,6 +574,7 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
           alt={alt}
           loading={loading}
           decoding={decoding}
+          data-folio-image-managed="true"
           className="folio-image-node"
           onLoad={event => {
             setLoaded(true)
@@ -570,8 +582,10 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
             onLoad?.(event)
           }}
           onError={event => {
-            setFailed(true)
-            retryImageElement(event.currentTarget, 1500)
+            const attempts = Number(event.currentTarget.dataset.folioImageRetryAttempts || '0')
+            const shouldRetry = canRetryImageUrl(event.currentTarget.currentSrc || event.currentTarget.src) && attempts < MAX_IMAGE_RETRY_ATTEMPTS
+            setFailed(!shouldRetry)
+            if (shouldRetry) retryImageElement(event.currentTarget, 1200 + attempts * 900)
             onError?.(event)
           }}
         />
@@ -5737,6 +5751,7 @@ export default function App() {
 
     const handleImageError = (event: Event) => {
       if (!(event.target instanceof HTMLImageElement)) return
+      if (event.target.dataset.folioImageManaged === 'true') return
       event.target.dataset.folioImageFailed = 'true'
       retryImageElement(event.target, 1500)
     }

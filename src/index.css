@@ -122,6 +122,12 @@ body {
   opacity: 0;
 }
 
+.folio-image-failed .folio-image-placeholder {
+  animation: none;
+  background: color-mix(in srgb, var(--color-stone-800) 70%, var(--color-stone-950));
+  opacity: 1;
+}
+
 @keyframes folio-loading-shimmer {
   0% {
     background-position: 200% 0;
