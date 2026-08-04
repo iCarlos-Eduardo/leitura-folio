@@ -4363,11 +4363,27 @@ function DashboardBarChart({ title, points }: { title: string; points: { label: 
         <h2 className="font-serif text-lg text-stone-50 sm:text-xl">{title}</h2>
         <span className="rounded-full border border-stone-700 px-2 py-1 text-xs font-bold text-stone-400">{points.reduce((sum, point) => sum + point.count, 0).toLocaleString('pt-BR')}</span>
       </div>
-      <div className="-mx-1 overflow-x-auto px-1 pb-1">
-        <div className="flex h-44 min-w-[560px] items-end gap-1 sm:h-48 sm:min-w-0">
+
+      <div className="space-y-2 sm:hidden">
+        {points.map(point => (
+          <div key={point.label} className="grid grid-cols-[3.5rem_1fr_2.25rem] items-center gap-2">
+            <span className="truncate text-xs font-bold text-stone-500">{point.label}</span>
+            <div className="h-3 overflow-hidden rounded-full bg-stone-950">
+              <div
+                className="h-full rounded-full bg-amber-300"
+                style={{ width: `${Math.max(point.count ? 8 : 0, (point.count / max) * 100)}%` }}
+              />
+            </div>
+            <span className="text-right text-xs font-black text-stone-200">{point.count}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden sm:block">
+        <div className="flex h-48 items-end gap-1">
           {points.map(point => (
             <div key={point.label} className="group flex min-w-0 flex-1 flex-col items-center gap-2">
-              <div className="relative flex h-32 w-full items-end rounded-md bg-stone-950 sm:h-36">
+              <div className="relative flex h-36 w-full items-end rounded-md bg-stone-950">
                 <div
                   className="w-full rounded-md bg-amber-300 transition group-hover:bg-amber-200"
                   style={{ height: `${Math.max(5, (point.count / max) * 100)}%` }}
