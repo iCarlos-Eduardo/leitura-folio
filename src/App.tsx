@@ -546,31 +546,71 @@ type FolioImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
 
 function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loading = 'lazy', decoding = 'async', onLoad, onError, ...props }: FolioImageProps) {
   const resolvedSrc = resolveMediaUrl(src)
+  const imageRef = useRef<HTMLImageElement | null>(null)
+  const [imageSrc, setImageSrc] = useState(resolvedSrc)
+  const [retryAttempt, setRetryAttempt] = useState(0)
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
+    setImageSrc(resolvedSrc)
+    setRetryAttempt(0)
     setLoaded(false)
     setFailed(!resolvedSrc)
   }, [resolvedSrc])
 
   useEffect(() => {
+    const image = imageRef.current
+    if (!image || !image.complete) return
+
+    if (image.naturalWidth > 0) {
+      setLoaded(true)
+      setFailed(false)
+      return
+    }
+
+    if (imageSrc) setFailed(true)
+  }, [imageSrc])
+
+  function tryNextImageUrl(url?: string | null) {
+    const retrySource = url || imageSrc || resolvedSrc
+    if (!retrySource || !canRetryImageUrl(retrySource)) {
+      setFailed(true)
+      return
+    }
+
+    setRetryAttempt(currentAttempt => {
+      if (currentAttempt >= MAX_IMAGE_RETRY_ATTEMPTS) {
+        setFailed(true)
+        return currentAttempt
+      }
+
+      const nextAttempt = currentAttempt + 1
+      setLoaded(false)
+      setFailed(false)
+      setImageSrc(imageRetryUrl(retrySource))
+      return nextAttempt
+    })
+  }
+
+  useEffect(() => {
     if (!resolvedSrc || loaded || failed) return
 
     const timeoutId = window.setTimeout(() => {
-      setFailed(true)
+      tryNextImageUrl(imageSrc)
     }, IMAGE_LOAD_TIMEOUT_MS)
 
     return () => window.clearTimeout(timeoutId)
-  }, [failed, loaded, resolvedSrc])
+  }, [failed, imageSrc, loaded, resolvedSrc, retryAttempt])
 
   return (
     <span className={`folio-image-frame ${loaded ? 'folio-image-loaded' : ''} ${failed ? 'folio-image-failed' : ''} ${className}`}>
       <span className={`folio-skeleton folio-image-placeholder ${skeletonClassName}`} aria-hidden="true" />
-      {resolvedSrc && (
+      {imageSrc && (
         <img
           {...props}
-          src={resolvedSrc}
+          ref={imageRef}
+          src={imageSrc}
           alt={alt}
           loading={loading}
           decoding={decoding}
@@ -582,10 +622,7 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
             onLoad?.(event)
           }}
           onError={event => {
-            const attempts = Number(event.currentTarget.dataset.folioImageRetryAttempts || '0')
-            const shouldRetry = canRetryImageUrl(event.currentTarget.currentSrc || event.currentTarget.src) && attempts < MAX_IMAGE_RETRY_ATTEMPTS
-            setFailed(!shouldRetry)
-            if (shouldRetry) retryImageElement(event.currentTarget, 1200 + attempts * 900)
+            tryNextImageUrl(event.currentTarget.currentSrc || event.currentTarget.src)
             onError?.(event)
           }}
         />
@@ -609,6 +646,53 @@ function textWithPostImage(text: string, imageUrl: string) {
   const trimmed = text.trim()
   if (!imageUrl) return trimmed
   return [trimmed, `${POST_IMAGE_MARKER}${imageUrl}`].filter(Boolean).join('\n')
+}
+
+const warmedMediaUrls = new Set<string>()
+
+function warmMediaImages(values: (string | null | undefined)[], priorityCount = 6) {
+  values
+    .map(resolveMediaUrl)
+    .filter(url => url && !/^(data:|blob:)/i.test(url))
+    .filter((url, index, urls) => urls.indexOf(url) === index)
+    .slice(0, 24)
+    .forEach((url, index) => {
+      if (warmedMediaUrls.has(url)) return
+      warmedMediaUrls.add(url)
+
+      const image = new Image()
+      image.decoding = 'async'
+      ;(image as HTMLImageElement & { fetchPriority?: 'high' | 'auto' }).fetchPriority = index < priorityCount ? 'high' : 'auto'
+      image.src = url
+    })
+}
+
+function warmBootstrapImages(data: { users: User[]; books: Book[]; shelf: ShelfEntry[]; posts: Post[]; currentUserId: string }) {
+  const currentUser = data.users.find(user => user.id === data.currentUserId) || data.users[0]
+  if (!currentUser) return
+
+  const booksById = new Map(data.books.map(book => [book.id, book]))
+  const usersById = new Map(data.users.map(user => [user.id, user]))
+  const allowedUserIds = new Set([...currentUser.following, currentUser.id])
+  const firstFeedPosts = data.posts
+    .filter(post => allowedUserIds.has(post.userId))
+    .sort(newestFirst)
+    .slice(0, POST_PAGE_SIZE)
+  const currentShelfBooks = data.shelf
+    .filter(entry => entry.userId === currentUser.id && isInProgressStatus(entry.status))
+    .slice(0, 6)
+    .map(entry => booksById.get(entry.bookId)?.cover)
+
+  warmMediaImages([
+    BRAND_LOGO_URL,
+    currentUser.avatar,
+    ...firstFeedPosts.flatMap(post => [
+      usersById.get(post.userId)?.avatar,
+      booksById.get(post.bookId)?.cover,
+      postTextParts(post.text).imageUrl,
+    ]),
+    ...currentShelfBooks,
+  ])
 }
 
 const STATUS_LABELS: Record<BookStatus, string> = {
@@ -1891,7 +1975,7 @@ function EngagementListDialog({ title, users, emptyText, onClose, onUserClick }:
   )
 }
 
-function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit }: {
+function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, imageLoading = 'lazy' }: {
   post: Post
   users: User[]
   books: Book[]
@@ -1909,6 +1993,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   compactBook?: boolean
   protectSpoilers?: boolean
   spoilerChapterLimit?: number
+  imageLoading?: 'eager' | 'lazy'
 }) {
   const articleRef = useRef<HTMLElement | null>(null)
   const [showReplyBox, setShowReplyBox] = useState(false)
@@ -2040,7 +2125,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                 <FolioImage
                   src={postContent.imageUrl}
                   alt="Imagem da publicação"
-                  loading="lazy"
+                  loading={imageLoading}
                   className="mb-3 aspect-square max-h-[520px] w-full rounded-lg border border-stone-800 object-cover"
                 />
               )}
@@ -2239,7 +2324,7 @@ function PaginatedPostList({ posts, emptyText, resetKey, renderPost, initialVisi
   posts: Post[]
   emptyText?: string
   resetKey: string
-  renderPost: (post: Post) => React.ReactNode
+  renderPost: (post: Post, index: number) => React.ReactNode
   initialVisibleCount?: number
 }) {
   const firstVisibleCount = Math.max(POST_PAGE_SIZE, initialVisibleCount)
@@ -2355,7 +2440,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
           posts={feedPosts}
           emptyText="Nenhuma publicação de quem você segue ainda."
           resetKey={`timeline-${currentUser.id}`}
-          renderPost={post => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onViewPost={onViewPost} protectSpoilers />}
+          renderPost={(post, index) => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onViewPost={onViewPost} protectSpoilers imageLoading={index < 2 ? 'eager' : 'lazy'} />}
         />
       )}
 
@@ -5696,6 +5781,7 @@ export default function App() {
       localStorage.setItem('folio_token', data.token)
       setToken(data.token)
     }
+    warmBootstrapImages(data)
     setUsers(data.users)
     setBooks(data.books)
     setShelf(data.shelf)
