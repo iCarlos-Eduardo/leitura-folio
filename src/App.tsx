@@ -1569,11 +1569,11 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
-              className={`relative flex min-h-12 flex-col items-center justify-center rounded-lg text-[11px] font-semibold ${page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-500'
+              className={`relative flex min-h-12 flex-col items-center justify-center rounded-lg px-0.5 text-[10px] font-semibold sm:text-[11px] ${page === item.id || (item.id === 'profile' && page === 'profile-list') ? 'bg-amber-300/10 text-amber-300' : 'text-stone-500'
                 }`}
             >
               <span className="mb-0.5 flex items-center justify-center"><NavIcon name={item.icon} /></span>
-              {item.label}
+              <span className="max-w-full truncate">{item.label}</span>
               {item.id === 'notifications' && notificationCount > 0 && (
                 <span className="absolute right-2 top-1 rounded-full bg-red-400 px-1 text-[9px] font-bold text-stone-950">{notificationCount}</span>
               )}
@@ -4345,18 +4345,11 @@ function DashboardAvatar({ user }: { user: DashboardUser }) {
 }
 
 function DashboardStat({ label, value, detail, tone = 'amber' }: { label: string; value: number | string; detail?: string; tone?: 'amber' | 'emerald' | 'cyan' | 'rose' }) {
-  const toneClass = {
-    amber: 'border-amber-300/25 bg-amber-300/10 text-amber-200',
-    emerald: 'border-emerald-300/25 bg-emerald-300/10 text-emerald-200',
-    cyan: 'border-cyan-300/25 bg-cyan-300/10 text-cyan-200',
-    rose: 'border-rose-300/25 bg-rose-300/10 text-rose-200',
-  }[tone]
-
   return (
-    <article className={`rounded-lg border p-4 ${toneClass}`}>
-      <p className="text-xs font-bold uppercase tracking-[0.14em] opacity-70">{label}</p>
-      <p className="mt-2 text-3xl font-black text-stone-50">{typeof value === 'number' ? value.toLocaleString('pt-BR') : value}</p>
-      {detail && <p className="mt-1 text-sm text-stone-400">{detail}</p>}
+    <article className={`folio-dashboard-stat folio-dashboard-stat-${tone}`}>
+      <p className="folio-dashboard-stat-label">{label}</p>
+      <p className="folio-dashboard-stat-value">{typeof value === 'number' ? value.toLocaleString('pt-BR') : value}</p>
+      {detail && <p className="folio-dashboard-stat-detail">{detail}</p>}
     </article>
   )
 }
@@ -4365,26 +4358,28 @@ function DashboardBarChart({ title, points }: { title: string; points: { label: 
   const max = Math.max(1, ...points.map(point => point.count))
 
   return (
-    <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+    <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="font-serif text-xl text-stone-50">{title}</h2>
+        <h2 className="font-serif text-lg text-stone-50 sm:text-xl">{title}</h2>
         <span className="rounded-full border border-stone-700 px-2 py-1 text-xs font-bold text-stone-400">{points.reduce((sum, point) => sum + point.count, 0).toLocaleString('pt-BR')}</span>
       </div>
-      <div className="flex h-48 items-end gap-1">
-        {points.map(point => (
-          <div key={point.label} className="group flex min-w-0 flex-1 flex-col items-center gap-2">
-            <div className="relative flex h-36 w-full items-end rounded-md bg-stone-950">
-              <div
-                className="w-full rounded-md bg-amber-300 transition group-hover:bg-amber-200"
-                style={{ height: `${Math.max(5, (point.count / max) * 100)}%` }}
-              />
-              <span className="pointer-events-none absolute -top-8 left-1/2 hidden -translate-x-1/2 rounded bg-stone-800 px-2 py-1 text-xs font-bold text-stone-100 shadow-xl group-hover:block">
-                {point.count}
-              </span>
+      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div className="flex h-44 min-w-[560px] items-end gap-1 sm:h-48 sm:min-w-0">
+          {points.map(point => (
+            <div key={point.label} className="group flex min-w-0 flex-1 flex-col items-center gap-2">
+              <div className="relative flex h-32 w-full items-end rounded-md bg-stone-950 sm:h-36">
+                <div
+                  className="w-full rounded-md bg-amber-300 transition group-hover:bg-amber-200"
+                  style={{ height: `${Math.max(5, (point.count / max) * 100)}%` }}
+                />
+                <span className="pointer-events-none absolute -top-8 left-1/2 hidden -translate-x-1/2 rounded bg-stone-800 px-2 py-1 text-xs font-bold text-stone-100 shadow-xl group-hover:block">
+                  {point.count}
+                </span>
+              </div>
+              <span className="max-w-full truncate text-[10px] font-semibold text-stone-500">{point.label}</span>
             </div>
-            <span className="max-w-full truncate text-[10px] font-semibold text-stone-500">{point.label}</span>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </section>
   )
@@ -4402,9 +4397,9 @@ function DashboardEngagementChart({ rows }: { rows: SuperAdminDashboard['engagem
   ]
 
   return (
-    <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+    <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-serif text-xl text-stone-50">Engajamento da semana</h2>
+        <h2 className="font-serif text-lg text-stone-50 sm:text-xl">Engajamento da semana</h2>
         <div className="flex flex-wrap gap-2">
           {segments.map(segment => (
             <span key={String(segment.key)} className="flex items-center gap-1 text-xs font-semibold text-stone-400">
@@ -4418,7 +4413,7 @@ function DashboardEngagementChart({ rows }: { rows: SuperAdminDashboard['engagem
         {rows.map(row => {
           const total = row.posts + row.replies + row.likes + row.views + row.follows + row.checkIns
           return (
-            <div key={row.label} className="grid grid-cols-[3rem_1fr_3rem] items-center gap-3">
+            <div key={row.label} className="grid grid-cols-[2.75rem_1fr_2.5rem] items-center gap-2 sm:grid-cols-[3rem_1fr_3rem] sm:gap-3">
               <span className="text-xs font-bold text-stone-500">{row.label}</span>
               <div className="flex h-4 overflow-hidden rounded-full bg-stone-950">
                 {segments.map(segment => {
@@ -4545,17 +4540,17 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
         </div>
       </Header>
 
-      <div className="space-y-4 p-4">
+      <div className="space-y-3 p-3 sm:space-y-4 sm:p-4">
         {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
           <DashboardStat label="Usuários" value={dashboard.overview.totalUsers} detail={`${dashboard.overview.totalProfiles} perfis Folio`} tone="cyan" />
           <DashboardStat label="Posts hoje" value={dashboard.overview.postsToday} detail={`${dashboard.overview.postsThisMonth} no mês`} tone="amber" />
           <DashboardStat label="Ativos agora" value={dashboard.overview.activeNow} detail="atividade nos últimos 15min" tone="emerald" />
           <DashboardStat label="Interações hoje" value={dashboard.overview.likesToday + dashboard.overview.repliesToday + dashboard.overview.viewsToday} detail={`${dashboard.overview.viewsToday} visualizações`} tone="rose" />
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
           <DashboardStat label="Livros" value={dashboard.overview.totalBooks} detail={`${dashboard.overview.totalShelfEntries} entradas em estantes`} />
           <DashboardStat label="Posts no ano" value={dashboard.overview.postsThisYear} detail={`${dashboard.overview.totalPosts} no total`} tone="cyan" />
           <DashboardStat label="Logins hoje" value={dashboard.overview.loginsToday} detail="entradas autenticadas" tone="emerald" />
@@ -4570,16 +4565,16 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
         <DashboardEngagementChart rows={dashboard.engagementByDay} />
 
         <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-          <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-            <h2 className="mb-4 font-serif text-xl text-stone-50">Usuários mais ativos hoje</h2>
+          <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+            <h2 className="mb-4 font-serif text-lg text-stone-50 sm:text-xl">Usuários mais ativos hoje</h2>
             <div className="space-y-2">
               {dashboard.topUsersToday.length ? dashboard.topUsersToday.map(row => (
-                <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40">
+                <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg border border-stone-800 bg-stone-950 p-2 text-left transition hover:border-amber-300/40 sm:gap-3 sm:p-3">
                   <DashboardAvatar user={row.user} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-bold text-stone-100">{row.user.name}</p>
                     <p className="truncate text-xs text-stone-500">@{row.user.handle || 'sem-handle'} · {formatTime(row.lastSeenAt)}</p>
-                    <p className="mt-1 text-xs text-stone-400">{row.posts} posts · {row.replies} respostas · {row.likes} curtidas · {row.views} views</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-stone-400">{row.posts} posts · {row.replies} respostas · {row.likes} curtidas · {row.views} views</p>
                   </div>
                   <span className="rounded-lg bg-amber-300 px-2 py-1 text-sm font-black text-stone-950">{row.actions}</span>
                 </button>
@@ -4588,11 +4583,11 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
           </section>
 
           <div className="grid gap-4">
-            <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-              <h2 className="mb-4 font-serif text-xl text-stone-50">Ativos agora</h2>
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+              <h2 className="mb-4 font-serif text-lg text-stone-50 sm:text-xl">Ativos agora</h2>
               <div className="space-y-2">
                 {dashboard.activeNow.length ? dashboard.activeNow.map(row => (
-                  <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="flex w-full items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-emerald-300/40">
+                  <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="flex w-full items-center gap-2 rounded-lg border border-stone-800 bg-stone-950 p-2 text-left transition hover:border-emerald-300/40 sm:gap-3 sm:p-3">
                     <DashboardAvatar user={row.user} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-bold text-stone-100">{row.user.name}</p>
@@ -4604,11 +4599,11 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
               </div>
             </section>
 
-            <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-              <h2 className="mb-4 font-serif text-xl text-stone-50">Mais logaram hoje</h2>
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+              <h2 className="mb-4 font-serif text-lg text-stone-50 sm:text-xl">Mais logaram hoje</h2>
               <div className="space-y-2">
                 {dashboard.topLoginsToday.length ? dashboard.topLoginsToday.map(row => (
-                  <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="flex w-full items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-cyan-300/40">
+                  <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="flex w-full items-center gap-2 rounded-lg border border-stone-800 bg-stone-950 p-2 text-left transition hover:border-cyan-300/40 sm:gap-3 sm:p-3">
                     <DashboardAvatar user={row.user} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-bold text-stone-100">{row.user.name}</p>
@@ -4623,11 +4618,11 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
         </div>
 
         <div className="grid gap-4 xl:grid-cols-3">
-          <section className="rounded-lg border border-stone-800 bg-stone-900 p-4 xl:col-span-2">
-            <h2 className="mb-4 font-serif text-xl text-stone-50">Livros com mais posts</h2>
+          <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4 xl:col-span-2">
+            <h2 className="mb-4 font-serif text-lg text-stone-50 sm:text-xl">Livros com mais posts</h2>
             <div className="grid gap-2 sm:grid-cols-2">
               {dashboard.topBooks.length ? dashboard.topBooks.map(book => (
-                <button key={book.id} onClick={() => onBookClick(book.id)} className="grid grid-cols-[52px_1fr_auto] items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40">
+                <button key={book.id} onClick={() => onBookClick(book.id)} className="grid grid-cols-[48px_1fr_auto] items-center gap-2 rounded-lg border border-stone-800 bg-stone-950 p-2 text-left transition hover:border-amber-300/40 sm:grid-cols-[52px_1fr_auto] sm:gap-3 sm:p-3">
                   {book.cover ? <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-16 w-12 rounded-md object-cover" /> : <div className="h-16 w-12 rounded-md bg-stone-800" />}
                   <div className="min-w-0">
                     <p className="line-clamp-2 text-sm font-bold text-stone-100">{book.title}</p>
@@ -4641,12 +4636,12 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
           </section>
 
           <div className="grid gap-4">
-            <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-              <h2 className="mb-4 font-serif text-xl text-stone-50">Estantes</h2>
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+              <h2 className="mb-4 font-serif text-lg text-stone-50 sm:text-xl">Estantes</h2>
               <DashboardListMetric rows={statusRows} emptyText="Sem dados de estante." />
             </section>
-            <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-              <h2 className="mb-4 font-serif text-xl text-stone-50">Tipos de post</h2>
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+              <h2 className="mb-4 font-serif text-lg text-stone-50 sm:text-xl">Tipos de post</h2>
               <DashboardListMetric rows={postTypeRows} emptyText="Sem postagens ainda." />
             </section>
           </div>

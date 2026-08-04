@@ -137,9 +137,108 @@ select.folio-field-control {
   padding: 0;
 }
 
+.folio-dashboard-stat {
+  border: 1px solid var(--dashboard-stat-border);
+  background: var(--dashboard-stat-bg);
+  border-radius: 0.5rem;
+  min-inline-size: 0;
+  padding: 0.875rem;
+}
+
+.folio-dashboard-stat-label {
+  color: var(--dashboard-stat-label);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.folio-dashboard-stat-value {
+  color: var(--color-stone-50);
+  font-size: 1.875rem;
+  font-weight: 900;
+  line-height: 2.15rem;
+  margin-block-start: 0.5rem;
+}
+
+.folio-dashboard-stat-detail {
+  color: var(--color-stone-400);
+  font-size: 0.8125rem;
+  line-height: 1.15rem;
+  margin-block-start: 0.25rem;
+}
+
+.folio-dashboard-stat-amber {
+  --dashboard-stat-bg: rgba(111, 60, 19, 0.08);
+  --dashboard-stat-border: rgba(111, 60, 19, 0.32);
+  --dashboard-stat-label: #8f4f19;
+}
+
+.folio-dashboard-stat-emerald {
+  --dashboard-stat-bg: rgba(22, 101, 52, 0.08);
+  --dashboard-stat-border: rgba(22, 101, 52, 0.24);
+  --dashboard-stat-label: #166534;
+}
+
+.folio-dashboard-stat-cyan {
+  --dashboard-stat-bg: rgba(8, 105, 114, 0.08);
+  --dashboard-stat-border: rgba(8, 105, 114, 0.24);
+  --dashboard-stat-label: #086972;
+}
+
+.folio-dashboard-stat-rose {
+  --dashboard-stat-bg: rgba(159, 18, 57, 0.08);
+  --dashboard-stat-border: rgba(159, 18, 57, 0.22);
+  --dashboard-stat-label: #9f1239;
+}
+
+:root[data-theme='dark'] .folio-dashboard-stat-amber {
+  --dashboard-stat-bg: rgba(245, 189, 105, 0.1);
+  --dashboard-stat-border: rgba(245, 189, 105, 0.25);
+  --dashboard-stat-label: #ffd996;
+}
+
+:root[data-theme='dark'] .folio-dashboard-stat-emerald {
+  --dashboard-stat-bg: rgba(110, 231, 183, 0.1);
+  --dashboard-stat-border: rgba(110, 231, 183, 0.25);
+  --dashboard-stat-label: #a7f3d0;
+}
+
+:root[data-theme='dark'] .folio-dashboard-stat-cyan {
+  --dashboard-stat-bg: rgba(103, 232, 249, 0.1);
+  --dashboard-stat-border: rgba(103, 232, 249, 0.25);
+  --dashboard-stat-label: #a5f3fc;
+}
+
+:root[data-theme='dark'] .folio-dashboard-stat-rose {
+  --dashboard-stat-bg: rgba(253, 164, 175, 0.1);
+  --dashboard-stat-border: rgba(253, 164, 175, 0.25);
+  --dashboard-stat-label: #fecdd3;
+}
+
 @media (max-width: 639px) {
   .folio-book-progress .folio-field-control {
     block-size: 2.25rem;
     min-block-size: 2.25rem;
+  }
+
+  .folio-dashboard-stat {
+    padding: 0.75rem;
+  }
+
+  .folio-dashboard-stat-label {
+    font-size: 0.625rem;
+    letter-spacing: 0.06em;
+  }
+
+  .folio-dashboard-stat-value {
+    font-size: 1.625rem;
+    line-height: 1.85rem;
+  }
+
+  .folio-dashboard-stat-detail {
+    font-size: 0.75rem;
+    line-height: 1rem;
   }
 }
