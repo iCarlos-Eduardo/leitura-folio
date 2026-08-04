@@ -1,5 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 
+import type { ImgHTMLAttributes } from 'react'
+
 type BookStatus = 'reading' | 'want' | 'read' | 'favorite' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
 type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications' | 'superadmin'
@@ -534,6 +536,48 @@ function retryImageElement(image: HTMLImageElement, delayMs = 0) {
     if (!image.isConnected) return
     image.src = imageRetryUrl(currentUrl)
   }, delayMs)
+}
+
+type FolioImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
+  src?: string | null
+  skeletonClassName?: string
+}
+
+function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loading = 'lazy', decoding = 'async', onLoad, onError, ...props }: FolioImageProps) {
+  const resolvedSrc = resolveMediaUrl(src)
+  const [loaded, setLoaded] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    setLoaded(false)
+    setFailed(false)
+  }, [resolvedSrc])
+
+  return (
+    <span className={`folio-image-frame ${loaded ? 'folio-image-loaded' : ''} ${failed ? 'folio-image-failed' : ''} ${className}`}>
+      <span className={`folio-skeleton folio-image-placeholder ${skeletonClassName}`} aria-hidden="true" />
+      {resolvedSrc && (
+        <img
+          {...props}
+          src={resolvedSrc}
+          alt={alt}
+          loading={loading}
+          decoding={decoding}
+          className="folio-image-node"
+          onLoad={event => {
+            setLoaded(true)
+            setFailed(false)
+            onLoad?.(event)
+          }}
+          onError={event => {
+            setFailed(true)
+            retryImageElement(event.currentTarget, 1500)
+            onError?.(event)
+          }}
+        />
+      )}
+    </span>
+  )
 }
 
 function postTextParts(text?: string | null) {
@@ -1325,7 +1369,7 @@ function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }
   const isImage = isMediaUrl(user.avatar)
 
   return isImage ? (
-    <img src={resolveMediaUrl(user.avatar)} alt={user.name} className={`${sizes[size]} shrink-0 select-none rounded-full object-cover`} />
+    <FolioImage src={user.avatar} alt={user.name} className={`${sizes[size]} shrink-0 select-none rounded-full object-cover`} />
   ) : (
     <div className={`${sizes[size]} flex shrink-0 select-none items-center justify-center rounded-full bg-amber-700 font-semibold text-amber-50`}>
       {user.avatar}
@@ -1336,8 +1380,55 @@ function Avatar({ user, size = 'md' }: { user: User; size?: 'sm' | 'md' | 'lg' }
 function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <img src={resolveMediaUrl(BRAND_LOGO_URL)} alt={BRAND_NAME || 'Entrelinhas'} className={`${compact ? 'h-12 w-12' : 'h-56 w-56 sm:h-72 sm:w-72'} rounded-lg object-cover`} />
+      <FolioImage src={BRAND_LOGO_URL} alt={BRAND_NAME || 'Entrelinhas'} loading="eager" className={`${compact ? 'h-12 w-12' : 'h-56 w-56 sm:h-72 sm:w-72'} rounded-lg object-cover`} />
       <span className={`${compact ? 'text-xl' : 'text-7xl sm:text-8xl'} font-serif text-amber-300`}>{BRAND_NAME}</span>
+    </div>
+  )
+}
+
+function SkeletonBlock({ className }: { className: string }) {
+  return <div className={`folio-skeleton ${className}`} aria-hidden="true" />
+}
+
+function FeedCardSkeleton({ compact = false }: { compact?: boolean }) {
+  return (
+    <article className="border-b border-stone-800 px-4 py-4 md:px-5" aria-label="Carregando publicação">
+      <div className="flex gap-3">
+        <SkeletonBlock className="h-10 w-10 shrink-0 rounded-full" />
+        <div className="min-w-0 flex-1">
+          <div className="mb-3 flex items-center gap-2">
+            <SkeletonBlock className="h-3 w-28 rounded" />
+            <SkeletonBlock className="h-3 w-16 rounded" />
+          </div>
+          <SkeletonBlock className="mb-3 h-3 w-10/12 rounded" />
+          <SkeletonBlock className="mb-3 h-3 w-7/12 rounded" />
+          {!compact && <SkeletonBlock className="mb-3 aspect-square max-h-[520px] w-full rounded-lg border border-stone-800" />}
+          <div className="mb-3 flex gap-4">
+            <SkeletonBlock className="h-6 w-6 rounded-md" />
+            <SkeletonBlock className="h-6 w-6 rounded-md" />
+            <SkeletonBlock className="h-6 w-6 rounded-md" />
+          </div>
+          <SkeletonBlock className="h-3 w-5/12 rounded" />
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function AppLoadingScreen() {
+  return (
+    <div className="min-h-screen bg-stone-950 text-stone-100">
+      <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center">
+        <div className="flex items-center gap-3 border-b border-stone-800 px-4 py-4">
+          <FolioImage src={BRAND_LOGO_URL} alt={BRAND_NAME || 'Entrelinhas'} loading="eager" className="h-12 w-12 rounded-lg object-cover" />
+          <div className="min-w-0 flex-1">
+            <SkeletonBlock className="h-4 w-36 rounded" />
+            <SkeletonBlock className="mt-2 h-3 w-24 rounded" />
+          </div>
+        </div>
+        <FeedCardSkeleton />
+        <FeedCardSkeleton compact />
+      </div>
     </div>
   )
 }
@@ -1346,7 +1437,7 @@ function ServiceUnavailableNotice({ notice, onRetry, onLogout }: { notice: Servi
   return (
     <main className="min-h-screen bg-stone-950 px-4 py-6 text-stone-100 sm:py-10">
       <section className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-3xl flex-col items-center justify-center gap-5 text-center sm:min-h-[calc(100vh-5rem)]">
-        <img src={resolveMediaUrl(BRAND_LOGO_URL)} alt={BRAND_NAME || 'Entrelinhas'} className="h-32 w-32 rounded-lg object-cover sm:h-40 sm:w-40" />
+        <FolioImage src={BRAND_LOGO_URL} alt={BRAND_NAME || 'Entrelinhas'} loading="eager" className="h-32 w-32 rounded-lg object-cover sm:h-40 sm:w-40" />
         <article className="w-full rounded-lg border border-stone-800 bg-stone-900/70 p-5 text-left shadow-2xl shadow-stone-800/20 sm:p-7">
           <p className="text-center text-xs font-bold uppercase text-amber-300 sm:text-sm">{notice.eyebrow}</p>
           <h1 className="mt-3 text-center font-serif text-2xl font-semibold leading-tight text-stone-50 sm:text-4xl">{notice.title}</h1>
@@ -1921,7 +2012,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           </div>
           {book && !compactBook && (
             <button onClick={() => onBookClick(book.id)} className="mb-2 flex max-w-full items-center gap-2 text-left">
-              <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-8 w-6 shrink-0 rounded object-cover" />
+              <FolioImage src={book.cover} alt={book.title} className="h-8 w-6 shrink-0 rounded object-cover" />
               <span className="truncate text-xs font-semibold text-amber-300">{book.title}</span>
               <ChapterBadge chapter={post.chapter} />
             </button>
@@ -1932,11 +2023,11 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
               {post.reactionEmoji && <div className="mb-2 text-3xl leading-none">{post.reactionEmoji}</div>}
               {postContent.text && <p className="mb-3 whitespace-pre-line text-sm leading-relaxed text-stone-300">{postContent.text}</p>}
               {postContent.imageUrl && (
-                <img
-                  src={resolveMediaUrl(postContent.imageUrl)}
+                <FolioImage
+                  src={postContent.imageUrl}
                   alt="Imagem da publicação"
                   loading="lazy"
-                  className="mb-3 max-h-[520px] w-full rounded-lg border border-stone-800 object-cover"
+                  className="mb-3 aspect-square max-h-[520px] w-full rounded-lg border border-stone-800 object-cover"
                 />
               )}
             </>
@@ -2303,7 +2394,7 @@ function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondar
   const summary = (
     <>
       {book.cover ? (
-        <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-12 w-8 shrink-0 rounded object-cover" />
+        <FolioImage src={book.cover} alt={book.title} className="h-12 w-8 shrink-0 rounded object-cover" />
       ) : (
         <div className="flex h-12 w-8 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
       )}
@@ -2348,6 +2439,23 @@ function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondar
         <button onClick={onAction} className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">
           {actionLabel}
         </button>
+      </div>
+    </div>
+  )
+}
+
+function BookSearchRowSkeleton() {
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-stone-950 p-2" aria-label="Carregando livro">
+      <SkeletonBlock className="h-12 w-8 shrink-0 rounded" />
+      <div className="min-w-0 flex-1">
+        <SkeletonBlock className="h-3 w-8/12 rounded" />
+        <SkeletonBlock className="mt-2 h-3 w-5/12 rounded" />
+        <SkeletonBlock className="mt-2 h-3 w-4/12 rounded" />
+      </div>
+      <div className="hidden shrink-0 gap-2 sm:flex">
+        <SkeletonBlock className="h-8 w-20 rounded-lg" />
+        <SkeletonBlock className="h-8 w-24 rounded-lg" />
       </div>
     </div>
   )
@@ -2643,7 +2751,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
               </div>
               <div>
                 <p className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Previa da capa</p>
-                {draft.cover ? <img src={resolveMediaUrl(draft.cover)} alt="Previa da capa" className="h-40 w-28 rounded-lg object-cover" /> : <div className="flex h-40 w-28 items-center justify-center rounded-lg border border-stone-800 bg-stone-950 text-xs text-stone-600">Sem capa</div>}
+                {draft.cover ? <FolioImage src={draft.cover} alt="Previa da capa" className="h-40 w-28 rounded-lg object-cover" /> : <div className="flex h-40 w-28 items-center justify-center rounded-lg border border-stone-800 bg-stone-950 text-xs text-stone-600">Sem capa</div>}
                 <button onClick={() => update('cover', '')} className="mt-2 text-xs font-bold text-red-300 hover:text-red-200">Remover capa</button>
               </div>
             </div>
@@ -2785,7 +2893,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
       <article key={book.id} className="overflow-hidden rounded-lg border border-stone-800 bg-stone-900">
         <button onClick={() => onBookClick(book.id)} className="grid w-full grid-cols-[92px_1fr] text-left sm:block">
           {book.cover ? (
-            <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-full min-h-36 w-full object-cover sm:h-48" />
+            <FolioImage src={book.cover} alt={book.title} className="h-full min-h-36 w-full object-cover sm:h-48" />
           ) : (
             <div className="flex h-full min-h-36 w-full items-center justify-center bg-stone-800 text-xs text-stone-500 sm:h-48">Sem capa</div>
           )}
@@ -2953,6 +3061,12 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
           </div>
           {bookQuery && (
             <div className="mt-3 space-y-2">
+              {catalogLoading && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Resultados de busca</p>
+                  {[0, 1, 2].map(item => <BookSearchRowSkeleton key={item} />)}
+                </div>
+              )}
               {catalogResults.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Resultados de busca</p>
@@ -3151,6 +3265,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
       </Header>
 
       <div className="space-y-2 p-4">
+        {loading && [0, 1, 2, 3].map(item => <BookSearchRowSkeleton key={`loading-${item}`} />)}
         {visibleBooks.map(book => {
           const registeredBook = books.some(item => item.id === book.id)
           const shelfEntry = myShelf.find(entry => entry.bookId === book.id)
@@ -3339,7 +3454,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
 
       <div className="border-b border-stone-800 p-3 md:p-5">
         <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-3 sm:grid-cols-[132px_1fr] sm:gap-4">
-          <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-32 w-[5.5rem] rounded-lg object-cover sm:h-52 sm:w-full" />
+          <FolioImage src={book.cover} alt={book.title} className="h-32 w-[5.5rem] rounded-lg object-cover sm:h-52 sm:w-full" />
           <div className="contents min-w-0 sm:block">
             <div className="min-w-0">
               <h2 className="font-serif text-xl leading-tight text-stone-50 sm:text-2xl">{book.title}</h2>
@@ -3721,7 +3836,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
     return (
       <button key={entry.bookId} onClick={() => onBookClick(book.id)} className="flex w-full gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3 text-left">
         {book.cover ? (
-          <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-20 w-14 rounded object-cover" />
+          <FolioImage src={book.cover} alt={book.title} className="h-20 w-14 rounded object-cover" />
         ) : (
           <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
         )}
@@ -4296,7 +4411,7 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
           <div className="space-y-3">
             {currentlyReading.map(({ entry, book }) => (
               <div key={book.id} className="flex gap-3 rounded-lg border border-stone-800 bg-stone-900 p-3">
-                <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-16 w-11 rounded object-cover" />
+                <FolioImage src={book.cover} alt={book.title} className="h-16 w-11 rounded object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
                   <p className="mb-2 text-xs text-stone-500">{book.author}</p>
@@ -4427,7 +4542,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
                       onClick={() => handleBookChange(book.id)}
                       className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition ${active ? 'border-amber-300 bg-amber-300/10 text-amber-200' : 'border-stone-800 bg-stone-900 text-stone-300 hover:border-stone-700 hover:bg-stone-800'}`}
                     >
-                      <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-10 w-7 shrink-0 rounded object-cover" />
+                      <FolioImage src={book.cover} alt={book.title} className="h-10 w-7 shrink-0 rounded object-cover" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-bold">{book.title}</span>
                         <span className="block truncate text-xs text-stone-500">{book.author} · {STATUS_LABELS[entry.status]}</span>
@@ -4527,7 +4642,7 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
                   </div>
                 </div>
                 {postImageUrl && (
-                  <img src={resolveMediaUrl(postImageUrl)} alt="Prévia da imagem" className="mt-3 max-h-72 w-full rounded-lg object-cover" />
+                  <FolioImage src={postImageUrl} alt="Prévia da imagem" loading="eager" className="mt-3 aspect-[4/3] max-h-72 w-full rounded-lg object-cover" />
                 )}
                 {postImageError && <p className="mt-2 text-xs font-semibold text-red-300">{postImageError}</p>}
               </div>
@@ -4557,7 +4672,7 @@ function dashboardInitials(name: string) {
 
 function DashboardAvatar({ user }: { user: DashboardUser }) {
   if (isMediaUrl(user.avatar)) {
-    return <img src={resolveMediaUrl(user.avatar)} alt={user.name} className="h-10 w-10 shrink-0 rounded-full object-cover" />
+    return <FolioImage src={user.avatar} alt={user.name} className="h-10 w-10 shrink-0 rounded-full object-cover" />
   }
 
   return (
@@ -4872,7 +4987,7 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
         <div className="grid gap-2 sm:grid-cols-2">
           {rows.map(row => (
             <button key={row.id} onClick={() => onBookClick(row.id)} className="grid grid-cols-[48px_1fr] gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40">
-              {row.cover ? <img src={resolveMediaUrl(row.cover)} alt={row.title} className="h-16 w-12 rounded-md object-cover" /> : <div className="h-16 w-12 rounded-md bg-stone-800" />}
+              {row.cover ? <FolioImage src={row.cover} alt={row.title} className="h-16 w-12 rounded-md object-cover" /> : <div className="h-16 w-12 rounded-md bg-stone-800" />}
               <div className="min-w-0">
                 <p className="line-clamp-2 text-sm font-bold text-stone-100">{row.title}</p>
                 <p className="truncate text-xs text-stone-500">{row.author}</p>
@@ -4966,8 +5081,31 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
     return (
       <section>
         <Header title="Painel técnico" />
-        <div className="p-4">
-          <div className="rounded-lg border border-stone-800 bg-stone-900 p-6 text-sm text-stone-400">Carregando métricas...</div>
+        <div className="space-y-3 p-3 sm:space-y-4 sm:p-4">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+            {[0, 1, 2, 3].map(item => (
+              <div key={item} className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+                <SkeletonBlock className="h-3 w-24 rounded" />
+                <SkeletonBlock className="mt-4 h-8 w-16 rounded" />
+                <SkeletonBlock className="mt-3 h-3 w-32 rounded" />
+              </div>
+            ))}
+          </div>
+          <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+            <SkeletonBlock className="mb-4 h-5 w-44 rounded" />
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[0, 1, 2, 3].map(item => (
+                <div key={item} className="grid grid-cols-[48px_1fr_auto] items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
+                  <SkeletonBlock className="h-16 w-12 rounded-md" />
+                  <div className="min-w-0">
+                    <SkeletonBlock className="h-3 w-10/12 rounded" />
+                    <SkeletonBlock className="mt-2 h-3 w-7/12 rounded" />
+                  </div>
+                  <SkeletonBlock className="h-7 w-8 rounded-lg" />
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
       </section>
     )
@@ -5107,7 +5245,7 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
             <div className="grid gap-2 sm:grid-cols-2">
               {dashboard.topBooks.length ? dashboard.topBooks.map(book => (
                 <button key={book.id} onClick={() => onBookClick(book.id)} className="grid grid-cols-[48px_1fr_auto] items-center gap-2 rounded-lg border border-stone-800 bg-stone-950 p-2 text-left transition hover:border-amber-300/40 sm:grid-cols-[52px_1fr_auto] sm:gap-3 sm:p-3">
-                  {book.cover ? <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-16 w-12 rounded-md object-cover" /> : <div className="h-16 w-12 rounded-md bg-stone-800" />}
+                  {book.cover ? <FolioImage src={book.cover} alt={book.title} className="h-16 w-12 rounded-md object-cover" /> : <div className="h-16 w-12 rounded-md bg-stone-800" />}
                   <div className="min-w-0">
                     <p className="line-clamp-2 text-sm font-bold text-stone-100">{book.title}</p>
                     <p className="truncate text-xs text-stone-500">{book.author}</p>
@@ -5196,7 +5334,7 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
           <div className="space-y-3">
             {currentlyReading.map(({ entry, book }) => (
               <button key={book.id} onClick={() => onBookClick(book.id)} className="flex w-full gap-3 text-left">
-                <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-14 w-10 rounded object-cover" />
+                <FolioImage src={book.cover} alt={book.title} className="h-14 w-10 rounded object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-stone-100">{book.title}</p>
                   <p className="mb-1 text-xs text-stone-500">Cap. {chapterFromPercent(book, entry.progress)}</p>
@@ -6180,12 +6318,7 @@ export default function App() {
   }
 
   if (!currentUser) {
-    if (loadingApp) return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-stone-950 text-sm text-stone-400">
-        <BrandMark />
-        <span>Carregando {BRAND_NAME}...</span>
-      </div>
-    )
+    if (loadingApp) return <AppLoadingScreen />
     if (resumeError) return <ServiceUnavailableNotice notice={SERVICE_UNAVAILABLE_NOTICE} onRetry={retryStoredLogin} onLogout={handleLogout} />
     return <LoginPage onLogin={handleLogin} />
   }

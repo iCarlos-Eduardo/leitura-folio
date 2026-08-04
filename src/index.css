@@ -76,6 +76,68 @@ body {
   font-family: 'Lora', Georgia, serif;
 }
 
+.folio-skeleton {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-stone-800) 74%, var(--color-stone-950)) 25%,
+    color-mix(in srgb, var(--color-stone-900) 86%, var(--color-stone-50)) 50%,
+    color-mix(in srgb, var(--color-stone-800) 74%, var(--color-stone-950)) 75%
+  );
+  background-size: 200% 100%;
+  animation: folio-loading-shimmer 1.45s infinite ease-in-out;
+}
+
+.folio-image-frame {
+  background: var(--color-stone-900);
+  display: block;
+  overflow: hidden;
+  position: relative;
+  vertical-align: middle;
+}
+
+.folio-image-placeholder {
+  border-radius: inherit;
+  inset: 0;
+  opacity: 1;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity 180ms ease;
+  z-index: 1;
+}
+
+.folio-image-node {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  width: 100%;
+}
+
+.folio-image-loaded .folio-image-node {
+  opacity: 1;
+}
+
+.folio-image-loaded .folio-image-placeholder {
+  opacity: 0;
+}
+
+@keyframes folio-loading-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folio-skeleton {
+    animation: none;
+  }
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--color-stone-700) transparent;
