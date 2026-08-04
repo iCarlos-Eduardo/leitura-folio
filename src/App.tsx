@@ -4,7 +4,7 @@ import type { ImgHTMLAttributes } from 'react'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'favorite' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
-type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications' | 'superadmin'
+type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications' | 'superadmin' | 'store'
 type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 type ColorTheme = 'light' | 'dark'
@@ -146,6 +146,73 @@ interface ReadingGoal {
   checkedInToday: boolean
   year?: number
   booksReadThisYear?: number
+}
+
+interface StoreUserSummary {
+  id: string
+  name: string
+  handle: string
+}
+
+interface StoreProduct {
+  id: string
+  name: string
+  description?: string | null
+  imageUrl?: string | null
+  price: number
+  stock: number
+  category?: string | null
+  bookId?: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+interface StoreProductSuggestion {
+  id: string
+  user: StoreUserSummary
+  name: string
+  description?: string | null
+  referenceUrl?: string | null
+  status: string
+  adminNote?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+interface StoreOrderItem {
+  id: string
+  productId: string
+  productName: string
+  productImageUrl?: string | null
+  unitPrice: number
+  quantity: number
+  total: number
+}
+
+interface StoreOrder {
+  id: string
+  user: StoreUserSummary
+  status: string
+  customerName: string
+  email?: string | null
+  phone?: string | null
+  shippingAddress?: string | null
+  total: number
+  createdAt: string
+  updatedAt: string
+  items: StoreOrderItem[]
+}
+
+interface StoreBootstrap {
+  products: StoreProduct[]
+  requests: StoreProductSuggestion[]
+  orders: StoreOrder[]
+}
+
+type StoreCartItem = {
+  productId: string
+  quantity: number
 }
 
 interface DashboardUser {
@@ -1737,7 +1804,7 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
   )
 }
 
-type NavIconName = 'home' | 'library' | 'goals' | 'notifications' | 'shelf' | 'profile' | 'dashboard'
+type NavIconName = 'home' | 'library' | 'goals' | 'notifications' | 'shelf' | 'profile' | 'dashboard' | 'store'
 
 function NavIcon({ name }: { name: NavIconName }) {
   const common = {
@@ -1758,6 +1825,7 @@ function NavIcon({ name }: { name: NavIconName }) {
     shelf: <><path d="M5 4.5h14v15H5z" /><path d="M9.5 4.5v15" /><path d="M14.5 4.5v15" /><path d="M5 10h14" /><path d="M5 15h14" /></>,
     profile: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" /></>,
     dashboard: <><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 16v-5" /><path d="M12 16V8" /><path d="M16 16v-7" /><path d="M19 7l-3-3-4 4-3-2-4 5" /></>,
+    store: <><path d="M5 10h14l-1 10H6z" /><path d="M8 10a4 4 0 0 1 8 0" /><path d="M9 14h.01" /><path d="M15 14h.01" /></>,
   }
 
   return <svg {...common}>{paths[name]}</svg>
@@ -1801,10 +1869,11 @@ function ThemeToggle({ theme, onToggle, compact = false }: { theme: ColorTheme; 
   )
 }
 
-function MobileQuickActions({ theme, onToggleTheme, onCreatePost }: {
+function MobileQuickActions({ theme, onToggleTheme, onCreatePost, onOpenStore }: {
   theme: ColorTheme
   onToggleTheme: () => void
   onCreatePost: () => void
+  onOpenStore?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const dark = theme === 'dark'
@@ -1836,6 +1905,16 @@ function MobileQuickActions({ theme, onToggleTheme, onCreatePost }: {
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-stone-800 text-base leading-none">{dark ? '☀' : '☾'}</span>
             {dark ? 'Modo claro' : 'Modo escuro'}
           </button>
+          {onOpenStore && (
+            <button
+              type="button"
+              onClick={() => runAction(onOpenStore)}
+              className="flex items-center gap-2 rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-left text-sm font-bold text-stone-200 transition hover:bg-stone-800 hover:text-stone-100"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-stone-800"><NavIcon name="store" /></span>
+              Loja
+            </button>
+          )}
         </div>
       )}
       <button
@@ -1871,7 +1950,9 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
   ]
   if (isSuperAdminUser(currentUser)) {
     navItems.splice(3, 0, { id: 'superadmin', icon: 'dashboard', label: 'Painel' })
+    navItems.splice(4, 0, { id: 'store', icon: 'store', label: 'Loja' })
   }
+  const mobileNavItems = navItems.filter(item => item.id !== 'store')
 
   return (
     <>
@@ -1911,11 +1992,11 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
         </div>
       </aside>
 
-      <MobileQuickActions theme={theme} onToggleTheme={onToggleTheme} onCreatePost={onCreatePost} />
+      <MobileQuickActions theme={theme} onToggleTheme={onToggleTheme} onCreatePost={onCreatePost} onOpenStore={isSuperAdminUser(currentUser) ? () => onNavigate('store') : undefined} />
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-800 bg-stone-950/95 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-2 backdrop-blur-xl md:hidden">
-        <div className="mx-auto grid max-w-md items-center gap-1" style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}>
-          {navItems.map(item => (
+        <div className="mx-auto grid max-w-md items-center gap-1" style={{ gridTemplateColumns: `repeat(${mobileNavItems.length}, minmax(0, 1fr))` }}>
+          {mobileNavItems.map(item => (
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
@@ -5458,6 +5539,328 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
   )
 }
 
+function money(value: number) {
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function StorePage({ token, currentUser }: { token: string; currentUser: User }) {
+  const emptyProduct = { name: '', description: '', imageUrl: '', price: 0, stock: 0, category: '', bookId: '', isActive: true }
+  const [store, setStore] = useState<StoreBootstrap>({ products: [], requests: [], orders: [] })
+  const [tab, setTab] = useState<'shop' | 'cart' | 'products' | 'requests' | 'orders'>('shop')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [productDraft, setProductDraft] = useState(emptyProduct)
+  const [editingProductId, setEditingProductId] = useState<string | null>(null)
+  const [cart, setCart] = useState<StoreCartItem[]>([])
+  const [checkout, setCheckout] = useState({ customerName: currentUser.name, email: currentUser.email, phone: '', shippingAddress: '' })
+  const [suggestion, setSuggestion] = useState({ name: '', description: '', referenceUrl: '' })
+  const activeProducts = store.products.filter(product => product.isActive)
+  const cartRows = cart
+    .map(item => ({ item, product: store.products.find(product => product.id === item.productId) }))
+    .filter((row): row is { item: StoreCartItem; product: StoreProduct } => Boolean(row.product))
+  const cartTotal = cartRows.reduce((sum, row) => sum + row.product.price * row.item.quantity, 0)
+
+  async function loadStore() {
+    setLoading(true)
+    setError('')
+    try {
+      setStore(await apiRequest<StoreBootstrap>('/folio/store', {}, token))
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel carregar a loja.'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadStore()
+  }, [token])
+
+  function editProduct(product: StoreProduct) {
+    setEditingProductId(product.id)
+    setProductDraft({
+      name: product.name,
+      description: product.description || '',
+      imageUrl: product.imageUrl || '',
+      price: product.price,
+      stock: product.stock,
+      category: product.category || '',
+      bookId: product.bookId || '',
+      isActive: product.isActive,
+    })
+    setTab('products')
+  }
+
+  async function saveProduct(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    try {
+      const path = editingProductId ? `/folio/store/products/${editingProductId}` : '/folio/store/products'
+      await apiRequest(path, {
+        method: editingProductId ? 'PATCH' : 'POST',
+        body: JSON.stringify(productDraft),
+      }, token)
+      setProductDraft(emptyProduct)
+      setEditingProductId(null)
+      await loadStore()
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel salvar o produto.'))
+    }
+  }
+
+  function addToCart(productId: string) {
+    setCart(current => {
+      const existing = current.find(item => item.productId === productId)
+      if (existing) return current.map(item => item.productId === productId ? { ...item, quantity: item.quantity + 1 } : item)
+      return [...current, { productId, quantity: 1 }]
+    })
+  }
+
+  function updateCart(productId: string, quantity: number) {
+    setCart(current => current
+      .map(item => item.productId === productId ? { ...item, quantity: Math.max(1, quantity) } : item)
+      .filter(item => item.quantity > 0))
+  }
+
+  async function finishCheckout(e: React.FormEvent) {
+    e.preventDefault()
+    if (!cartRows.length) return
+    setError('')
+    try {
+      await apiRequest('/folio/store/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...checkout,
+          items: cartRows.map(row => ({ productId: row.product.id, quantity: row.item.quantity })),
+        }),
+      }, token)
+      setCart([])
+      await loadStore()
+      setTab('orders')
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel finalizar a compra.'))
+    }
+  }
+
+  async function submitSuggestion(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    try {
+      await apiRequest('/folio/store/product-requests', { method: 'POST', body: JSON.stringify(suggestion) }, token)
+      setSuggestion({ name: '', description: '', referenceUrl: '' })
+      await loadStore()
+      setTab('requests')
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel enviar a solicitacao.'))
+    }
+  }
+
+  async function updateRequestStatus(id: string, status: string) {
+    await apiRequest(`/folio/store/product-requests/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }, token)
+    await loadStore()
+  }
+
+  async function updateOrderStatus(id: string, status: string) {
+    await apiRequest(`/folio/store/orders/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }, token)
+    await loadStore()
+  }
+
+  return (
+    <section>
+      <header className="sticky top-0 z-20 border-b border-stone-800/80 bg-stone-950/95 px-4 py-3 backdrop-blur-xl md:px-5">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="font-serif text-xl text-stone-100">Loja</h1>
+          <button
+            onClick={() => setTab('cart')}
+            aria-label="Abrir carrinho"
+            className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${tab === 'cart' ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-700 bg-stone-900 text-stone-100 hover:bg-stone-800'}`}
+          >
+            <NavIcon name="store" />
+            {cartRows.length > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 rounded-full bg-red-400 px-1.5 py-0.5 text-[10px] font-black text-stone-950">
+                {cartRows.reduce((sum, row) => sum + row.item.quantity, 0)}
+              </span>
+            )}
+          </button>
+        </div>
+        <div className="mt-3 overflow-x-auto pb-0.5">
+          <div className="inline-flex min-w-max rounded-lg border border-stone-800 bg-stone-900 p-1">
+            {(['shop', 'products', 'requests', 'orders'] as const).map(item => (
+              <button
+                key={item}
+                onClick={() => setTab(item)}
+                className={`rounded-md px-3 py-2 text-xs font-bold transition sm:px-4 ${tab === item ? 'bg-amber-300 text-stone-950' : 'text-stone-400 hover:bg-stone-800 hover:text-stone-100'}`}
+              >
+                {item === 'shop' ? 'Vitrine' : item === 'products' ? 'Produtos' : item === 'requests' ? 'Solicitacoes' : 'Pedidos'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      <div className="space-y-4 p-3 sm:p-4">
+        {loading && <div className="rounded-lg border border-stone-800 bg-stone-900 p-4 text-sm text-stone-400">Carregando loja...</div>}
+        {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
+
+        {tab === 'shop' && (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+              {activeProducts.map(product => (
+                <article key={product.id} className="overflow-hidden rounded-lg border border-stone-800 bg-stone-900">
+                  {product.imageUrl ? <img src={resolveMediaUrl(product.imageUrl)} alt={product.name} className="h-44 w-full object-cover" /> : <div className="flex h-44 items-center justify-center bg-stone-800 text-sm text-stone-500">Sem imagem</div>}
+                  <div className="p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h2 className="line-clamp-2 font-serif text-lg text-stone-50">{product.name}</h2>
+                        <p className="mt-1 text-sm font-black text-amber-300">{money(product.price)}</p>
+                      </div>
+                      <button onClick={() => editProduct(product)} className="rounded-lg border border-stone-700 px-2 py-1 text-xs font-bold text-stone-300">Editar</button>
+                    </div>
+                    {product.description && <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-stone-400">{product.description}</p>}
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-stone-500">{product.stock ? `${product.stock} em estoque` : 'Sob consulta'}</span>
+                      <button onClick={() => addToCart(product.id)} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">Adicionar</button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {!activeProducts.length && <div className="sm:col-span-2 2xl:col-span-3"><EmptyState text="Nenhum produto ativo na loja ainda." /></div>}
+            </div>
+
+            <form onSubmit={submitSuggestion} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+                <h2 className="font-serif text-lg text-stone-50">Solicitar produto</h2>
+                <div className="mt-3 grid gap-2">
+                  <input value={suggestion.name} onChange={e => setSuggestion({ ...suggestion, name: e.target.value })} placeholder="O que voce quer encontrar?" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                  <textarea value={suggestion.description} onChange={e => setSuggestion({ ...suggestion, description: e.target.value })} placeholder="Detalhes, edicao, tamanho..." className="min-h-20 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                  <input value={suggestion.referenceUrl} onChange={e => setSuggestion({ ...suggestion, referenceUrl: e.target.value })} placeholder="Link de referencia" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                  <button className="rounded-lg border border-amber-300/40 px-3 py-2 text-sm font-bold text-amber-300">Enviar solicitacao</button>
+                </div>
+              </form>
+          </div>
+        )}
+
+        {tab === 'cart' && (
+          <form onSubmit={finishCheckout} className="grid gap-4 xl:grid-cols-[1fr_22rem]">
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="font-serif text-xl text-stone-50">Carrinho</h2>
+                <button type="button" onClick={() => setTab('shop')} className="rounded-lg border border-stone-700 px-3 py-2 text-xs font-bold text-stone-300">Continuar comprando</button>
+              </div>
+              <div className="space-y-2">
+                {cartRows.length ? cartRows.map(row => (
+                  <div key={row.product.id} className="grid grid-cols-[56px_1fr] gap-3 rounded-lg border border-stone-800 bg-stone-950 p-2 sm:grid-cols-[64px_1fr_auto] sm:items-center">
+                    {row.product.imageUrl ? <img src={resolveMediaUrl(row.product.imageUrl)} alt={row.product.name} className="h-20 w-14 rounded-md object-cover sm:h-24 sm:w-16" /> : <div className="h-20 w-14 rounded-md bg-stone-800 sm:h-24 sm:w-16" />}
+                    <div className="min-w-0">
+                      <p className="line-clamp-2 text-sm font-bold text-stone-100">{row.product.name}</p>
+                      <p className="mt-1 text-xs text-stone-500">{money(row.product.price)} cada</p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <input type="number" min="1" value={row.item.quantity} onChange={e => updateCart(row.product.id, Number(e.target.value))} className="w-20 rounded-lg border border-stone-700 bg-stone-900 px-2 py-1.5 text-sm text-stone-100" />
+                        <button type="button" onClick={() => setCart(current => current.filter(item => item.productId !== row.product.id))} className="rounded-lg px-2 py-1.5 text-xs font-bold text-red-300 hover:bg-red-400/10">Remover</button>
+                      </div>
+                    </div>
+                    <p className="col-span-2 text-right text-sm font-black text-amber-300 sm:col-span-1">{money(row.product.price * row.item.quantity)}</p>
+                  </div>
+                )) : <EmptyState text="Carrinho vazio." />}
+              </div>
+            </section>
+
+            <aside className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+              <h2 className="font-serif text-xl text-stone-50">Finalizar compra</h2>
+              <div className="mt-3 rounded-lg bg-stone-950 p-3">
+                <div className="flex justify-between text-sm font-bold text-stone-400">
+                  <span>Subtotal</span>
+                  <span>{money(cartTotal)}</span>
+                </div>
+                <div className="mt-2 flex justify-between text-lg font-black text-stone-50">
+                  <span>Total</span>
+                  <span>{money(cartTotal)}</span>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2">
+                <input value={checkout.customerName} onChange={e => setCheckout({ ...checkout, customerName: e.target.value })} placeholder="Nome" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                <input value={checkout.email} onChange={e => setCheckout({ ...checkout, email: e.target.value })} placeholder="Email" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                <input value={checkout.phone} onChange={e => setCheckout({ ...checkout, phone: e.target.value })} placeholder="Telefone" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                <textarea value={checkout.shippingAddress} onChange={e => setCheckout({ ...checkout, shippingAddress: e.target.value })} placeholder="Endereco/observacoes" className="min-h-24 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                <button disabled={!cartRows.length} className="rounded-lg bg-amber-300 px-3 py-2.5 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">Finalizar compra</button>
+              </div>
+            </aside>
+          </form>
+        )}
+
+        {tab === 'products' && (
+          <form onSubmit={saveProduct} className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+            <h2 className="font-serif text-xl text-stone-50">{editingProductId ? 'Editar produto' : 'Cadastrar produto'}</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <input value={productDraft.name} onChange={e => setProductDraft({ ...productDraft, name: e.target.value })} placeholder="Nome" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+              <input value={productDraft.category} onChange={e => setProductDraft({ ...productDraft, category: e.target.value })} placeholder="Categoria" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+              <input value={productDraft.imageUrl} onChange={e => setProductDraft({ ...productDraft, imageUrl: e.target.value })} placeholder="URL da imagem" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 sm:col-span-2" />
+              <input type="number" min="0" step="0.01" value={productDraft.price} onChange={e => setProductDraft({ ...productDraft, price: Number(e.target.value) })} placeholder="Preco" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+              <input type="number" min="0" value={productDraft.stock} onChange={e => setProductDraft({ ...productDraft, stock: Number(e.target.value) })} placeholder="Estoque" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+              <textarea value={productDraft.description} onChange={e => setProductDraft({ ...productDraft, description: e.target.value })} placeholder="Descricao" className="min-h-24 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 sm:col-span-2" />
+              <label className="flex items-center gap-2 text-sm font-bold text-stone-300">
+                <input type="checkbox" checked={productDraft.isActive} onChange={e => setProductDraft({ ...productDraft, isActive: e.target.checked })} />
+                Produto ativo
+              </label>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950">Salvar produto</button>
+              {editingProductId && <button type="button" onClick={() => { setEditingProductId(null); setProductDraft(emptyProduct) }} className="rounded-lg border border-stone-700 px-4 py-2 text-sm font-bold text-stone-300">Cancelar edicao</button>}
+            </div>
+          </form>
+        )}
+
+        {tab === 'requests' && (
+          <div className="grid gap-2">
+            {store.requests.map(request => (
+              <article key={request.id} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="font-serif text-lg text-stone-50">{request.name}</h2>
+                    <p className="text-xs text-stone-500">por @{request.user.handle || request.user.name} · {formatDateTime(request.createdAt)}</p>
+                  </div>
+                  <select value={request.status} onChange={e => updateRequestStatus(request.id, e.target.value)} className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100">
+                    {['open', 'reviewing', 'approved', 'declined', 'fulfilled'].map(status => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                </div>
+                {request.description && <p className="mt-2 text-sm text-stone-400">{request.description}</p>}
+                {request.referenceUrl && <p className="mt-2 truncate text-xs text-amber-300">{request.referenceUrl}</p>}
+              </article>
+            ))}
+            {!store.requests.length && <EmptyState text="Nenhuma solicitacao de produto ainda." />}
+          </div>
+        )}
+
+        {tab === 'orders' && (
+          <div className="grid gap-2">
+            {store.orders.map(order => (
+              <article key={order.id} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="font-serif text-lg text-stone-50">{order.customerName}</h2>
+                    <p className="text-xs text-stone-500">{formatDateTime(order.createdAt)} · {money(order.total)}</p>
+                  </div>
+                  <select value={order.status} onChange={e => updateOrderStatus(order.id, e.target.value)} className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100">
+                    {['pending', 'paid', 'preparing', 'sent', 'completed', 'cancelled'].map(status => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {order.items.map(item => (
+                    <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg bg-stone-950 p-2 text-sm">
+                      <span className="min-w-0 truncate text-stone-100">{item.quantity}x {item.productName}</span>
+                      <span className="shrink-0 font-bold text-amber-300">{money(item.total)}</span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+            {!store.orders.length && <EmptyState text="Nenhum pedido finalizado ainda." />}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick, onToggleFollow }: {
   currentUser: User
   users: User[]
@@ -5582,7 +5985,7 @@ function ActionLoadingIndicator({ active }: { active: boolean }) {
 function storedPage() {
   const params = new URLSearchParams(window.location.search)
   const value = params.get('page') || localStorage.getItem('folio_page')
-  return ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications', 'superadmin'].includes(value || '') ? value as Page : 'timeline'
+  return ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications', 'superadmin', 'store'].includes(value || '') ? value as Page : 'timeline'
 }
 
 function storedBookId() {
@@ -5991,7 +6394,7 @@ export default function App() {
   }, [page])
 
   useEffect(() => {
-    if (currentUser && page === 'superadmin' && !isSuperAdminUser(currentUser)) {
+    if (currentUser && (page === 'superadmin' || page === 'store') && !isSuperAdminUser(currentUser)) {
       setPage('timeline')
     }
   }, [currentUser, page])
@@ -6540,6 +6943,7 @@ export default function App() {
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
           {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} users={users} books={books} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
           {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} />}
+          {page === 'store' && isSuperAdminUser(currentUser) && <StorePage token={token} currentUser={currentUser} />}
         </main>
 
         <div className="hidden w-88 shrink-0 p-3 xl:block 2xl:w-96">
