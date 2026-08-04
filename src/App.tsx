@@ -2,7 +2,7 @@
 
 type BookStatus = 'reading' | 'want' | 'read' | 'favorite' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
-type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications'
+type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications' | 'superadmin'
 type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 type ColorTheme = 'light' | 'dark'
@@ -146,6 +146,77 @@ interface ReadingGoal {
   booksReadThisYear?: number
 }
 
+interface DashboardUser {
+  id: string
+  name: string
+  email: string
+  handle: string
+  avatar: string
+}
+
+interface SuperAdminDashboard {
+  generatedAt: string
+  overview: {
+    totalUsers: number
+    totalProfiles: number
+    totalBooks: number
+    totalShelfEntries: number
+    totalPosts: number
+    postsToday: number
+    postsThisMonth: number
+    postsThisYear: number
+    repliesToday: number
+    likesToday: number
+    viewsToday: number
+    loginsToday: number
+    activeNow: number
+    checkInsToday: number
+    pushSubscriptions: number
+  }
+  postsByDay: { label: string; date: string; count: number }[]
+  postsByMonth: { label: string; date: string; count: number }[]
+  postsByYear: { label: string; year: number; count: number }[]
+  engagementByDay: {
+    label: string
+    posts: number
+    replies: number
+    likes: number
+    views: number
+    follows: number
+    checkIns: number
+  }[]
+  topUsersToday: {
+    user: DashboardUser
+    actions: number
+    posts: number
+    replies: number
+    likes: number
+    views: number
+    lastSeenAt: string
+  }[]
+  topLoginsToday: {
+    user: DashboardUser
+    logins: number
+    lastLoginAt: string
+  }[]
+  activeNow: {
+    user: DashboardUser
+    lastSeenAt: string
+    actions: number
+    source: string
+  }[]
+  topBooks: {
+    id: string
+    title: string
+    author: string
+    cover: string
+    posts: number
+    readers: number
+  }[]
+  statusBreakdown: { label: string; count: number }[]
+  postTypeBreakdown: { label: string; count: number }[]
+}
+
 type ActionFeedback = {
   success?: string
   error: string
@@ -180,6 +251,7 @@ const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || API_BASE_URL || 'h
 const BACKGROUND_REFRESH_INTERVAL_MS = 10000
 const DEVICE_NOTIFICATION_SW_URL = '/folio-service-worker.js'
 const DEVICE_NOTIFICATION_STORAGE_PREFIX = 'folio_device_notified_ids_'
+const SUPER_ADMIN_EMAILS = ['eduardo.cpbb@gmail.com']
 const POST_PAGE_SIZE = 5
 const LIBRARY_PAGE_SIZE = 30
 const POST_IMAGE_MARKER = '__folio_post_image__:'
@@ -473,6 +545,11 @@ function readerMatchesSearch(user: User, query: string) {
   const handleWithAt = `@${handle}`
   const name = normalizeSearch(user.name)
   return name.includes(needle) || handle.includes(needle.replace(/^@+/, '')) || handleWithAt.includes(needle)
+}
+
+function isSuperAdminUser(user?: User | null) {
+  const email = user?.email?.trim().toLowerCase()
+  return Boolean(email && SUPER_ADMIN_EMAILS.includes(email))
 }
 
 function uniqueUsersById(users: User[]) {
@@ -933,6 +1010,12 @@ function formatTime(ts: string) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 }
 
+function formatDateTime(ts: string) {
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return 'agora'
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 type DeviceNotificationStatus = NotificationPermission | 'unsupported'
 
 function deviceNotificationStatus(): DeviceNotificationStatus {
@@ -1304,7 +1387,7 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
   )
 }
 
-type NavIconName = 'home' | 'library' | 'goals' | 'notifications' | 'shelf' | 'profile'
+type NavIconName = 'home' | 'library' | 'goals' | 'notifications' | 'shelf' | 'profile' | 'dashboard'
 
 function NavIcon({ name }: { name: NavIconName }) {
   const common = {
@@ -1324,6 +1407,7 @@ function NavIcon({ name }: { name: NavIconName }) {
     notifications: <><path d="M18 9a6 6 0 0 0-12 0c0 7-2 7-2 8h16c0-1-2-1-2-8" /><path d="M10 20a2 2 0 0 0 4 0" /></>,
     shelf: <><path d="M5 4.5h14v15H5z" /><path d="M9.5 4.5v15" /><path d="M14.5 4.5v15" /><path d="M5 10h14" /><path d="M5 15h14" /></>,
     profile: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" /></>,
+    dashboard: <><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 16v-5" /><path d="M12 16V8" /><path d="M16 16v-7" /><path d="M19 7l-3-3-4 4-3-2-4 5" /></>,
   }
 
   return <svg {...common}>{paths[name]}</svg>
@@ -1435,6 +1519,9 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
     { id: 'shelf', icon: 'shelf', label: 'Estante' },
     { id: 'profile', icon: 'profile', label: 'Perfil' },
   ]
+  if (isSuperAdminUser(currentUser)) {
+    navItems.splice(3, 0, { id: 'superadmin', icon: 'dashboard', label: 'Painel' })
+  }
 
   return (
     <>
@@ -1477,7 +1564,7 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
       <MobileQuickActions theme={theme} onToggleTheme={onToggleTheme} onCreatePost={onCreatePost} />
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-800 bg-stone-950/95 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-2 backdrop-blur-xl md:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-6 items-center gap-1">
+        <div className="mx-auto grid max-w-md items-center gap-1" style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}>
           {navItems.map(item => (
             <button
               key={item.id}
@@ -4236,6 +4323,341 @@ function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadI
   )
 }
 
+function dashboardInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase())
+    .join('') || 'L'
+}
+
+function DashboardAvatar({ user }: { user: DashboardUser }) {
+  if (isMediaUrl(user.avatar)) {
+    return <img src={resolveMediaUrl(user.avatar)} alt={user.name} className="h-10 w-10 shrink-0 rounded-full object-cover" />
+  }
+
+  return (
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-300 text-sm font-black text-stone-950">
+      {user.avatar || dashboardInitials(user.name)}
+    </div>
+  )
+}
+
+function DashboardStat({ label, value, detail, tone = 'amber' }: { label: string; value: number | string; detail?: string; tone?: 'amber' | 'emerald' | 'cyan' | 'rose' }) {
+  const toneClass = {
+    amber: 'border-amber-300/25 bg-amber-300/10 text-amber-200',
+    emerald: 'border-emerald-300/25 bg-emerald-300/10 text-emerald-200',
+    cyan: 'border-cyan-300/25 bg-cyan-300/10 text-cyan-200',
+    rose: 'border-rose-300/25 bg-rose-300/10 text-rose-200',
+  }[tone]
+
+  return (
+    <article className={`rounded-lg border p-4 ${toneClass}`}>
+      <p className="text-xs font-bold uppercase tracking-[0.14em] opacity-70">{label}</p>
+      <p className="mt-2 text-3xl font-black text-stone-50">{typeof value === 'number' ? value.toLocaleString('pt-BR') : value}</p>
+      {detail && <p className="mt-1 text-sm text-stone-400">{detail}</p>}
+    </article>
+  )
+}
+
+function DashboardBarChart({ title, points }: { title: string; points: { label: string; count: number }[] }) {
+  const max = Math.max(1, ...points.map(point => point.count))
+
+  return (
+    <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="font-serif text-xl text-stone-50">{title}</h2>
+        <span className="rounded-full border border-stone-700 px-2 py-1 text-xs font-bold text-stone-400">{points.reduce((sum, point) => sum + point.count, 0).toLocaleString('pt-BR')}</span>
+      </div>
+      <div className="flex h-48 items-end gap-1">
+        {points.map(point => (
+          <div key={point.label} className="group flex min-w-0 flex-1 flex-col items-center gap-2">
+            <div className="relative flex h-36 w-full items-end rounded-md bg-stone-950">
+              <div
+                className="w-full rounded-md bg-amber-300 transition group-hover:bg-amber-200"
+                style={{ height: `${Math.max(5, (point.count / max) * 100)}%` }}
+              />
+              <span className="pointer-events-none absolute -top-8 left-1/2 hidden -translate-x-1/2 rounded bg-stone-800 px-2 py-1 text-xs font-bold text-stone-100 shadow-xl group-hover:block">
+                {point.count}
+              </span>
+            </div>
+            <span className="max-w-full truncate text-[10px] font-semibold text-stone-500">{point.label}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function DashboardEngagementChart({ rows }: { rows: SuperAdminDashboard['engagementByDay'] }) {
+  const max = Math.max(1, ...rows.map(row => row.posts + row.replies + row.likes + row.views + row.follows + row.checkIns))
+  const segments: { key: keyof SuperAdminDashboard['engagementByDay'][number]; label: string; className: string }[] = [
+    { key: 'posts', label: 'Posts', className: 'bg-amber-300' },
+    { key: 'replies', label: 'Respostas', className: 'bg-cyan-300' },
+    { key: 'likes', label: 'Curtidas', className: 'bg-rose-300' },
+    { key: 'views', label: 'Views', className: 'bg-emerald-300' },
+    { key: 'follows', label: 'Follows', className: 'bg-violet-300' },
+    { key: 'checkIns', label: 'Check-ins', className: 'bg-lime-300' },
+  ]
+
+  return (
+    <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-serif text-xl text-stone-50">Engajamento da semana</h2>
+        <div className="flex flex-wrap gap-2">
+          {segments.map(segment => (
+            <span key={String(segment.key)} className="flex items-center gap-1 text-xs font-semibold text-stone-400">
+              <span className={`h-2 w-2 rounded-full ${segment.className}`} />
+              {segment.label}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-3">
+        {rows.map(row => {
+          const total = row.posts + row.replies + row.likes + row.views + row.follows + row.checkIns
+          return (
+            <div key={row.label} className="grid grid-cols-[3rem_1fr_3rem] items-center gap-3">
+              <span className="text-xs font-bold text-stone-500">{row.label}</span>
+              <div className="flex h-4 overflow-hidden rounded-full bg-stone-950">
+                {segments.map(segment => {
+                  const value = Number(row[segment.key]) || 0
+                  if (!value) return null
+                  return <div key={String(segment.key)} className={segment.className} style={{ width: `${(value / max) * 100}%` }} />
+                })}
+              </div>
+              <span className="text-right text-xs font-bold text-stone-300">{total}</span>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function DashboardListMetric({ rows, emptyText }: { rows: { label: string; count: number }[]; emptyText: string }) {
+  const max = Math.max(1, ...rows.map(row => row.count))
+
+  if (!rows.length) return <EmptyState text={emptyText} />
+
+  return (
+    <div className="space-y-3">
+      {rows.map(row => (
+        <div key={row.label}>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <span className="truncate text-sm font-bold text-stone-200">{row.label}</span>
+            <span className="text-sm font-bold text-amber-300">{row.count.toLocaleString('pt-BR')}</span>
+          </div>
+          <div className="h-2 rounded-full bg-stone-950">
+            <div className="h-full rounded-full bg-amber-300" style={{ width: `${Math.max(6, (row.count / max) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
+  token: string
+  onUserClick: (id: string) => void
+  onBookClick: (id: string) => void
+}) {
+  const [dashboard, setDashboard] = useState<SuperAdminDashboard | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  async function loadDashboard() {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await apiRequest<SuperAdminDashboard>('/folio/superadmin/dashboard', {}, token)
+      setDashboard(data)
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel carregar o painel tecnico.'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    apiRequest<SuperAdminDashboard>('/folio/superadmin/dashboard', {}, token)
+      .then(data => {
+        if (active) setDashboard(data)
+      })
+      .catch(err => {
+        if (active) setError(errorMessage(err, 'Nao foi possivel carregar o painel tecnico.'))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [token])
+
+  if (loading && !dashboard) {
+    return (
+      <section>
+        <Header title="Painel técnico" />
+        <div className="p-4">
+          <div className="rounded-lg border border-stone-800 bg-stone-900 p-6 text-sm text-stone-400">Carregando métricas...</div>
+        </div>
+      </section>
+    )
+  }
+
+  if (error && !dashboard) {
+    return (
+      <section>
+        <Header title="Painel técnico">
+          <button onClick={loadDashboard} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950">Tentar novamente</button>
+        </Header>
+        <div className="p-4">
+          <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-100">{error}</div>
+        </div>
+      </section>
+    )
+  }
+
+  if (!dashboard) return null
+
+  const statusRows = dashboard.statusBreakdown.map(row => ({ label: STATUS_LABELS[row.label as BookStatus] || row.label, count: row.count }))
+  const postTypeRows = dashboard.postTypeBreakdown.map(row => ({
+    label: row.label === 'comment' ? 'Comentários' : row.label === 'reaction' ? 'Reações' : row.label === 'theory' ? 'Teorias' : row.label,
+    count: row.count,
+  }))
+
+  return (
+    <section>
+      <Header title="Painel técnico">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-lg border border-stone-800 bg-stone-900 px-3 py-2 text-xs font-semibold text-stone-400">
+            Atualizado {formatDateTime(dashboard.generatedAt)}
+          </span>
+          <button onClick={loadDashboard} disabled={loading} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">
+            {loading ? 'Atualizando...' : 'Atualizar'}
+          </button>
+        </div>
+      </Header>
+
+      <div className="space-y-4 p-4">
+        {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <DashboardStat label="Usuários" value={dashboard.overview.totalUsers} detail={`${dashboard.overview.totalProfiles} perfis Folio`} tone="cyan" />
+          <DashboardStat label="Posts hoje" value={dashboard.overview.postsToday} detail={`${dashboard.overview.postsThisMonth} no mês`} tone="amber" />
+          <DashboardStat label="Ativos agora" value={dashboard.overview.activeNow} detail="atividade nos últimos 15min" tone="emerald" />
+          <DashboardStat label="Interações hoje" value={dashboard.overview.likesToday + dashboard.overview.repliesToday + dashboard.overview.viewsToday} detail={`${dashboard.overview.viewsToday} visualizações`} tone="rose" />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <DashboardStat label="Livros" value={dashboard.overview.totalBooks} detail={`${dashboard.overview.totalShelfEntries} entradas em estantes`} />
+          <DashboardStat label="Posts no ano" value={dashboard.overview.postsThisYear} detail={`${dashboard.overview.totalPosts} no total`} tone="cyan" />
+          <DashboardStat label="Logins hoje" value={dashboard.overview.loginsToday} detail="entradas autenticadas" tone="emerald" />
+          <DashboardStat label="Push ativo" value={dashboard.overview.pushSubscriptions} detail="dispositivos registrados" tone="rose" />
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <DashboardBarChart title="Postagens por dia" points={dashboard.postsByDay} />
+          <DashboardBarChart title="Postagens por mês" points={dashboard.postsByMonth} />
+        </div>
+
+        <DashboardEngagementChart rows={dashboard.engagementByDay} />
+
+        <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+            <h2 className="mb-4 font-serif text-xl text-stone-50">Usuários mais ativos hoje</h2>
+            <div className="space-y-2">
+              {dashboard.topUsersToday.length ? dashboard.topUsersToday.map(row => (
+                <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40">
+                  <DashboardAvatar user={row.user} />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-stone-100">{row.user.name}</p>
+                    <p className="truncate text-xs text-stone-500">@{row.user.handle || 'sem-handle'} · {formatTime(row.lastSeenAt)}</p>
+                    <p className="mt-1 text-xs text-stone-400">{row.posts} posts · {row.replies} respostas · {row.likes} curtidas · {row.views} views</p>
+                  </div>
+                  <span className="rounded-lg bg-amber-300 px-2 py-1 text-sm font-black text-stone-950">{row.actions}</span>
+                </button>
+              )) : <EmptyState text="Nenhuma atividade registrada hoje." />}
+            </div>
+          </section>
+
+          <div className="grid gap-4">
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+              <h2 className="mb-4 font-serif text-xl text-stone-50">Ativos agora</h2>
+              <div className="space-y-2">
+                {dashboard.activeNow.length ? dashboard.activeNow.map(row => (
+                  <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="flex w-full items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-emerald-300/40">
+                    <DashboardAvatar user={row.user} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-stone-100">{row.user.name}</p>
+                      <p className="truncate text-xs text-stone-500">{formatTime(row.lastSeenAt)} · {row.actions} ações</p>
+                    </div>
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                  </button>
+                )) : <EmptyState text="Ninguém com atividade nos últimos 15 minutos." />}
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+              <h2 className="mb-4 font-serif text-xl text-stone-50">Mais logaram hoje</h2>
+              <div className="space-y-2">
+                {dashboard.topLoginsToday.length ? dashboard.topLoginsToday.map(row => (
+                  <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="flex w-full items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-cyan-300/40">
+                    <DashboardAvatar user={row.user} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-stone-100">{row.user.name}</p>
+                      <p className="truncate text-xs text-stone-500">último login {formatTime(row.lastLoginAt)}</p>
+                    </div>
+                    <span className="rounded-lg bg-cyan-300 px-2 py-1 text-xs font-black text-stone-950">{row.logins}</span>
+                  </button>
+                )) : <EmptyState text="Nenhum login registrado hoje." />}
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-3">
+          <section className="rounded-lg border border-stone-800 bg-stone-900 p-4 xl:col-span-2">
+            <h2 className="mb-4 font-serif text-xl text-stone-50">Livros com mais posts</h2>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {dashboard.topBooks.length ? dashboard.topBooks.map(book => (
+                <button key={book.id} onClick={() => onBookClick(book.id)} className="grid grid-cols-[52px_1fr_auto] items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40">
+                  {book.cover ? <img src={resolveMediaUrl(book.cover)} alt={book.title} className="h-16 w-12 rounded-md object-cover" /> : <div className="h-16 w-12 rounded-md bg-stone-800" />}
+                  <div className="min-w-0">
+                    <p className="line-clamp-2 text-sm font-bold text-stone-100">{book.title}</p>
+                    <p className="truncate text-xs text-stone-500">{book.author}</p>
+                    <p className="mt-1 text-xs text-stone-400">{book.readers} leitores na estante</p>
+                  </div>
+                  <span className="rounded-lg bg-stone-800 px-2 py-1 text-xs font-black text-amber-300">{book.posts}</span>
+                </button>
+              )) : <EmptyState text="Nenhum post por livro ainda." />}
+            </div>
+          </section>
+
+          <div className="grid gap-4">
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+              <h2 className="mb-4 font-serif text-xl text-stone-50">Estantes</h2>
+              <DashboardListMetric rows={statusRows} emptyText="Sem dados de estante." />
+            </section>
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+              <h2 className="mb-4 font-serif text-xl text-stone-50">Tipos de post</h2>
+              <DashboardListMetric rows={postTypeRows} emptyText="Sem postagens ainda." />
+            </section>
+          </div>
+        </div>
+
+        <DashboardBarChart title="Postagens por ano" points={dashboard.postsByYear} />
+      </div>
+    </section>
+  )
+}
+
 function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick, onToggleFollow }: {
   currentUser: User
   users: User[]
@@ -4360,7 +4782,7 @@ function ActionLoadingIndicator({ active }: { active: boolean }) {
 function storedPage() {
   const params = new URLSearchParams(window.location.search)
   const value = params.get('page') || localStorage.getItem('folio_page')
-  return ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications'].includes(value || '') ? value as Page : 'timeline'
+  return ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications', 'superadmin'].includes(value || '') ? value as Page : 'timeline'
 }
 
 function storedBookId() {
@@ -4765,6 +5187,12 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('folio_page', page)
   }, [page])
+
+  useEffect(() => {
+    if (currentUser && page === 'superadmin' && !isSuperAdminUser(currentUser)) {
+      setPage('timeline')
+    }
+  }, [currentUser, page])
 
   useEffect(() => {
     if (selectedBookId) localStorage.setItem('folio_selected_book_id', selectedBookId)
@@ -5313,6 +5741,7 @@ export default function App() {
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
           {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} users={users} books={books} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
+          {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} />}
         </main>
 
         <div className="hidden w-88 shrink-0 p-3 xl:block 2xl:w-96">
