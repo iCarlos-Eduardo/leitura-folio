@@ -5559,6 +5559,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
     .map(item => ({ item, product: store.products.find(product => product.id === item.productId) }))
     .filter((row): row is { item: StoreCartItem; product: StoreProduct } => Boolean(row.product))
   const cartTotal = cartRows.reduce((sum, row) => sum + row.product.price * row.item.quantity, 0)
+  const hasLoadedStoreData = store.products.length > 0 || store.requests.length > 0 || store.orders.length > 0
 
   async function loadStore() {
     setLoading(true)
@@ -5574,7 +5575,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
 
   useEffect(() => {
     loadStore()
-  }, [token])
+  }, [currentUser.id])
 
   function editProduct(product: StoreProduct) {
     setEditingProductId(product.id)
@@ -5699,7 +5700,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
       </header>
 
       <div className="space-y-4 p-3 sm:p-4">
-        {loading && <div className="rounded-lg border border-stone-800 bg-stone-900 p-4 text-sm text-stone-400">Carregando loja...</div>}
+        {loading && !hasLoadedStoreData && <div className="rounded-lg border border-stone-800 bg-stone-900 p-4 text-sm text-stone-400">Carregando loja...</div>}
         {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
 
         {tab === 'shop' && (
