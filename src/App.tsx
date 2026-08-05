@@ -5564,9 +5564,11 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
   const emptyProduct = { name: '', description: '', imageUrl: '', price: 0, stock: 0, category: '', bookId: '', isActive: true }
   const [store, setStore] = useState<StoreBootstrap>({ products: [], requests: [], orders: [] })
   const [tab, setTab] = useState<'shop' | 'cart' | 'products' | 'requests' | 'orders'>('shop')
+  const [storeViewMode, setStoreViewMode] = useState<'client' | 'admin'>('client')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [productQuery, setProductQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('Todos')
   const [selectedProduct, setSelectedProduct] = useState<StoreProduct | null>(null)
   const [productDraft, setProductDraft] = useState(emptyProduct)
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
@@ -5579,10 +5581,13 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
     if (!needle) return true
     return [product.name, product.description || '', product.category || ''].some(value => normalizeSearch(value).includes(needle))
   })
+  const productCategories = ['Todos', ...Array.from(new Set(activeProducts.map(product => product.category?.trim()).filter((value): value is string => Boolean(value))))]
+  const visibleProducts = filteredProducts.filter(product => selectedCategory === 'Todos' || product.category?.trim() === selectedCategory)
   const cartRows = cart
     .map(item => ({ item, product: store.products.find(product => product.id === item.productId) }))
     .filter((row): row is { item: StoreCartItem; product: StoreProduct } => Boolean(row.product))
   const cartTotal = cartRows.reduce((sum, row) => sum + row.product.price * row.item.quantity, 0)
+  const cartQuantity = cartRows.reduce((sum, row) => sum + row.item.quantity, 0)
   const hasLoadedStoreData = store.products.length > 0 || store.requests.length > 0 || store.orders.length > 0
 
   async function loadStore() {
@@ -5641,6 +5646,12 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
     })
   }
 
+  function switchStoreViewMode(mode: 'client' | 'admin') {
+    setStoreViewMode(mode)
+    setSelectedProduct(null)
+    setTab(mode === 'client' ? 'shop' : 'products')
+  }
+
   function updateCart(productId: string, quantity: number) {
     setCart(current => current
       .map(item => item.productId === productId ? { ...item, quantity: Math.max(1, quantity) } : item)
@@ -5692,42 +5703,140 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
 
   return (
     <section>
-      <header className="sticky top-0 z-20 border-b border-stone-800/80 bg-stone-950/95 px-4 py-3 backdrop-blur-xl md:px-5">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="font-serif text-xl text-stone-100">Loja</h1>
-          <button
-            onClick={() => setTab('cart')}
-            aria-label="Abrir carrinho"
-            className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${tab === 'cart' ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-700 bg-stone-900 text-stone-100 hover:bg-stone-800'}`}
-          >
-            <NavIcon name="store" />
-            {cartRows.length > 0 && (
-              <span className="absolute -right-1.5 -top-1.5 rounded-full bg-red-400 px-1.5 py-0.5 text-[10px] font-black text-stone-950">
-                {cartRows.reduce((sum, row) => sum + row.item.quantity, 0)}
-              </span>
-            )}
-          </button>
-        </div>
-        <div className="mt-3 flex justify-center">
-          <div className="grid w-full max-w-xl grid-cols-4 rounded-lg border border-stone-800 bg-stone-900 p-1">
-            {(['shop', 'products', 'requests', 'orders'] as const).map(item => (
-              <button
-                key={item}
-                onClick={() => setTab(item)}
-                className={`min-w-0 rounded-md px-1.5 py-2 text-center text-[11px] font-bold transition sm:px-4 sm:text-xs ${tab === item ? 'bg-amber-300 text-stone-950' : 'text-stone-400 hover:bg-stone-800 hover:text-stone-100'}`}
-              >
-                <span className="block truncate">{item === 'shop' ? 'Vitrine' : item === 'products' ? 'Produtos' : item === 'requests' ? 'Solicitacoes' : 'Pedidos'}</span>
-              </button>
-            ))}
+      {storeViewMode === 'client' ? (
+        <header className="sticky top-0 z-20 border-b border-stone-800/80 bg-stone-950/95 px-3 py-3 text-stone-100 shadow-sm backdrop-blur-xl">
+          <div className="mx-auto flex w-full max-w-5xl items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-stone-700 bg-stone-900 px-3 py-2 shadow-sm">
+              <svg className="h-5 w-5 shrink-0 text-stone-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+              <input
+                value={productQuery}
+                onChange={e => setProductQuery(e.target.value)}
+                placeholder="Pesquisar em Livros"
+                className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-stone-100 outline-none placeholder:text-stone-500 sm:text-base"
+              />
+            </div>
+            <button
+              onClick={() => setTab('cart')}
+              aria-label="Abrir carrinho"
+              className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition ${tab === 'cart' ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-700 bg-stone-900 text-stone-100 hover:bg-stone-800'}`}
+            >
+              <NavIcon name="store" />
+              {cartQuantity > 0 && (
+                <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-400 px-1.5 py-0.5 text-center text-[10px] font-black text-stone-950">
+                  {cartQuantity}
+                </span>
+              )}
+            </button>
           </div>
-        </div>
-      </header>
+          <div className="mx-auto mt-2 flex w-full max-w-5xl justify-end">
+            <button onClick={() => switchStoreViewMode('admin')} className="rounded-full border border-stone-700 bg-stone-900 px-3 py-1.5 text-xs font-black text-stone-300 transition hover:bg-stone-800 hover:text-stone-100">
+              Modo admin
+            </button>
+          </div>
+        </header>
+      ) : (
+        <header className="sticky top-0 z-20 border-b border-stone-800/80 bg-stone-950/95 px-4 py-3 backdrop-blur-xl md:px-5">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="font-serif text-xl text-stone-100">Loja</h1>
+            <div className="flex items-center gap-2">
+              <button onClick={() => switchStoreViewMode('client')} className="rounded-lg border border-stone-700 px-3 py-2 text-xs font-black text-stone-300 transition hover:bg-stone-900 hover:text-stone-100">
+                Ver como cliente
+              </button>
+              <button
+                onClick={() => setTab('cart')}
+                aria-label="Abrir carrinho"
+                className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${tab === 'cart' ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-700 bg-stone-900 text-stone-100 hover:bg-stone-800'}`}
+              >
+                <NavIcon name="store" />
+                {cartQuantity > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 rounded-full bg-red-400 px-1.5 py-0.5 text-[10px] font-black text-stone-950">
+                    {cartQuantity}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+          <div className="mt-3 flex justify-center overflow-hidden">
+            <div className="grid w-full max-w-xl grid-cols-4 rounded-lg border border-stone-800 bg-stone-900 p-1">
+              {(['shop', 'products', 'requests', 'orders'] as const).map(item => (
+                <button
+                  key={item}
+                  onClick={() => setTab(item)}
+                  className={`min-w-0 rounded-md px-1.5 py-2 text-center text-[11px] font-bold transition sm:px-4 sm:text-xs ${tab === item ? 'bg-amber-300 text-stone-950' : 'text-stone-400 hover:bg-stone-800 hover:text-stone-100'}`}
+                >
+                  <span className="block truncate">{item === 'shop' ? 'Vitrine' : item === 'products' ? 'Produtos' : item === 'requests' ? 'Solicitacoes' : 'Pedidos'}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
+      )}
 
       <div className="space-y-4 p-3 sm:p-4">
         {loading && !hasLoadedStoreData && <div className="rounded-lg border border-stone-800 bg-stone-900 p-4 text-sm text-stone-400">Carregando loja...</div>}
         {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
 
-        {tab === 'shop' && (
+        {tab === 'shop' && storeViewMode === 'client' && (
+          <div className="mx-auto max-w-5xl overflow-hidden rounded-lg border border-stone-800 bg-stone-900 text-stone-100 shadow-sm">
+            <section className="border-b border-stone-800 bg-stone-950 p-3 sm:p-4">
+              <h2 className="text-lg font-black sm:text-xl">Ofertas em livros</h2>
+              <div className="mt-3 max-w-full overflow-x-auto pb-1">
+                <div className="flex w-max max-w-none gap-2">
+                  {productCategories.map(category => (
+                    <button
+                      key={category}
+                      onClick={() => setSelectedCategory(category)}
+                      className={`flex h-16 min-w-24 shrink-0 items-center justify-center rounded-lg border px-3 text-center text-sm font-black transition ${selectedCategory === category ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-800 bg-stone-900 text-stone-400 hover:border-stone-700 hover:text-stone-100'}`}
+                    >
+                      <span className="line-clamp-2">{category}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="p-3 sm:p-4">
+              <div className="mb-3">
+                <h2 className="text-lg font-black">Vitrine</h2>
+                <p className="text-sm font-semibold text-stone-500">{visibleProducts.length} produto{visibleProducts.length === 1 ? '' : 's'} encontrado{visibleProducts.length === 1 ? '' : 's'}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-x-4 gap-y-6 lg:grid-cols-3">
+                {visibleProducts.map(product => (
+                  <article key={product.id} className="flex h-full min-w-0 flex-col bg-stone-900">
+                    <button type="button" onClick={() => setSelectedProduct(product)} className="block w-full text-left">
+                      {product.imageUrl ? (
+                        <img src={resolveMediaUrl(product.imageUrl)} alt={product.name} className="aspect-[3/4] w-full rounded-sm bg-stone-800 object-cover" />
+                      ) : (
+                        <div className="flex aspect-[3/4] w-full items-center justify-center rounded-sm bg-stone-800 text-xs font-bold text-stone-500">Sem imagem</div>
+                      )}
+                    </button>
+                    <button type="button" onClick={() => setSelectedProduct(product)} className="mt-2 block min-w-0 text-left">
+                      <h3 className="line-clamp-2 min-h-10 text-[15px] font-semibold leading-tight text-stone-100">{product.name}</h3>
+                      <p className="mt-0.5 min-h-4 line-clamp-1 text-xs text-stone-500">{product.category || 'Livro'}</p>
+                    </button>
+                    <div className="mt-1 flex items-baseline gap-1 text-amber-300">
+                      <span className="text-xs font-bold">R$</span>
+                      <span className="text-2xl font-semibold leading-none">{money(product.price).replace('R$', '').trim()}</span>
+                    </div>
+                    <p className="mt-1 text-xs leading-snug text-stone-500">{product.stock ? `${product.stock} em estoque` : 'Disponibilidade sob consulta'}</p>
+                    <div className="mt-auto pt-3">
+                      <button onClick={() => addToCart(product.id)} className="h-10 w-full rounded-full bg-amber-300 px-3 text-sm font-semibold leading-tight text-stone-950 shadow-sm transition hover:bg-amber-200">
+                        Adicionar ao carrinho
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!visibleProducts.length && <div className="col-span-2 lg:col-span-3"><EmptyState text={activeProducts.length ? 'Nenhum produto encontrado.' : 'Nenhum produto ativo na loja ainda.'} /></div>}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {tab === 'shop' && storeViewMode === 'admin' && (
           <div className="space-y-4">
             <div className="rounded-lg border border-stone-800 bg-stone-900 p-3">
               <input
@@ -5913,7 +6022,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
               <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-stone-800 pt-4">
                 <span className="text-sm font-semibold text-stone-500">{selectedProduct.stock ? `${selectedProduct.stock} em estoque` : 'Sob consulta'}</span>
                 <div className="flex gap-2">
-                  <button onClick={() => editProduct(selectedProduct)} className="rounded-lg border border-stone-700 px-4 py-2 text-sm font-bold text-stone-300">Editar</button>
+                  {storeViewMode === 'admin' && <button onClick={() => editProduct(selectedProduct)} className="rounded-lg border border-stone-700 px-4 py-2 text-sm font-bold text-stone-300">Editar</button>}
                   <button onClick={() => { addToCart(selectedProduct.id); setSelectedProduct(null); setTab('cart') }} className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950">Adicionar ao carrinho</button>
                 </div>
               </div>
