@@ -5543,18 +5543,42 @@ function money(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+const STORE_ORDER_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pendente',
+  paid: 'Pago',
+  preparing: 'Preparando',
+  sent: 'Enviado',
+  completed: 'Concluido',
+  cancelled: 'Cancelado',
+}
+
+const STORE_REQUEST_STATUS_LABELS: Record<string, string> = {
+  open: 'Aberta',
+  reviewing: 'Em analise',
+  approved: 'Aprovada',
+  declined: 'Recusada',
+  fulfilled: 'Atendida',
+}
+
 function StorePage({ token, currentUser }: { token: string; currentUser: User }) {
   const emptyProduct = { name: '', description: '', imageUrl: '', price: 0, stock: 0, category: '', bookId: '', isActive: true }
   const [store, setStore] = useState<StoreBootstrap>({ products: [], requests: [], orders: [] })
   const [tab, setTab] = useState<'shop' | 'cart' | 'products' | 'requests' | 'orders'>('shop')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [productQuery, setProductQuery] = useState('')
+  const [selectedProduct, setSelectedProduct] = useState<StoreProduct | null>(null)
   const [productDraft, setProductDraft] = useState(emptyProduct)
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [cart, setCart] = useState<StoreCartItem[]>([])
   const [checkout, setCheckout] = useState({ customerName: currentUser.name, email: currentUser.email, phone: '', shippingAddress: '' })
   const [suggestion, setSuggestion] = useState({ name: '', description: '', referenceUrl: '' })
   const activeProducts = store.products.filter(product => product.isActive)
+  const filteredProducts = activeProducts.filter(product => {
+    const needle = normalizeSearch(productQuery)
+    if (!needle) return true
+    return [product.name, product.description || '', product.category || ''].some(value => normalizeSearch(value).includes(needle))
+  })
   const cartRows = cart
     .map(item => ({ item, product: store.products.find(product => product.id === item.productId) }))
     .filter((row): row is { item: StoreCartItem; product: StoreProduct } => Boolean(row.product))
@@ -5705,16 +5729,26 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
 
         {tab === 'shop' && (
           <div className="space-y-4">
+            <div className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+              <input
+                value={productQuery}
+                onChange={e => setProductQuery(e.target.value)}
+                placeholder="Pesquisar produto, categoria ou descricao"
+                className="w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-sm text-stone-100 outline-none focus:border-amber-300"
+              />
+            </div>
             <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-              {activeProducts.map(product => (
+              {filteredProducts.map(product => (
                 <article key={product.id} className="overflow-hidden rounded-lg border border-stone-800 bg-stone-900">
-                  {product.imageUrl ? <img src={resolveMediaUrl(product.imageUrl)} alt={product.name} className="h-44 w-full object-cover" /> : <div className="flex h-44 items-center justify-center bg-stone-800 text-sm text-stone-500">Sem imagem</div>}
+                  <button type="button" onClick={() => setSelectedProduct(product)} className="block w-full text-left">
+                    {product.imageUrl ? <img src={resolveMediaUrl(product.imageUrl)} alt={product.name} className="h-44 w-full object-cover" /> : <div className="flex h-44 items-center justify-center bg-stone-800 text-sm text-stone-500">Sem imagem</div>}
+                  </button>
                   <div className="p-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
+                      <button type="button" onClick={() => setSelectedProduct(product)} className="min-w-0 text-left">
                         <h2 className="line-clamp-2 font-serif text-lg text-stone-50">{product.name}</h2>
                         <p className="mt-1 text-sm font-black text-amber-300">{money(product.price)}</p>
-                      </div>
+                      </button>
                       <button onClick={() => editProduct(product)} className="rounded-lg border border-stone-700 px-2 py-1 text-xs font-bold text-stone-300">Editar</button>
                     </div>
                     {product.description && <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-stone-400">{product.description}</p>}
@@ -5725,18 +5759,8 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
                   </div>
                 </article>
               ))}
-              {!activeProducts.length && <div className="sm:col-span-2 2xl:col-span-3"><EmptyState text="Nenhum produto ativo na loja ainda." /></div>}
+              {!filteredProducts.length && <div className="sm:col-span-2 2xl:col-span-3"><EmptyState text={activeProducts.length ? 'Nenhum produto encontrado.' : 'Nenhum produto ativo na loja ainda.'} /></div>}
             </div>
-
-            <form onSubmit={submitSuggestion} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
-                <h2 className="font-serif text-lg text-stone-50">Solicitar produto</h2>
-                <div className="mt-3 grid gap-2">
-                  <input value={suggestion.name} onChange={e => setSuggestion({ ...suggestion, name: e.target.value })} placeholder="O que voce quer encontrar?" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
-                  <textarea value={suggestion.description} onChange={e => setSuggestion({ ...suggestion, description: e.target.value })} placeholder="Detalhes, edicao, tamanho..." className="min-h-20 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
-                  <input value={suggestion.referenceUrl} onChange={e => setSuggestion({ ...suggestion, referenceUrl: e.target.value })} placeholder="Link de referencia" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
-                  <button className="rounded-lg border border-amber-300/40 px-3 py-2 text-sm font-bold text-amber-300">Enviar solicitacao</button>
-                </div>
-              </form>
           </div>
         )}
 
@@ -5811,7 +5835,16 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
         )}
 
         {tab === 'requests' && (
-          <div className="grid gap-2">
+          <div className="grid gap-3">
+            <form onSubmit={submitSuggestion} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+              <h2 className="font-serif text-lg text-stone-50">Solicitar produto</h2>
+              <div className="mt-3 grid gap-2">
+                <input value={suggestion.name} onChange={e => setSuggestion({ ...suggestion, name: e.target.value })} placeholder="O que voce quer encontrar?" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                <textarea value={suggestion.description} onChange={e => setSuggestion({ ...suggestion, description: e.target.value })} placeholder="Detalhes, edicao, tamanho..." className="min-h-20 rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                <input value={suggestion.referenceUrl} onChange={e => setSuggestion({ ...suggestion, referenceUrl: e.target.value })} placeholder="Link de referencia" className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100" />
+                <button className="rounded-lg border border-amber-300/40 px-3 py-2 text-sm font-bold text-amber-300">Enviar solicitacao</button>
+              </div>
+            </form>
             {store.requests.map(request => (
               <article key={request.id} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -5820,7 +5853,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
                     <p className="text-xs text-stone-500">por @{request.user.handle || request.user.name} · {formatDateTime(request.createdAt)}</p>
                   </div>
                   <select value={request.status} onChange={e => updateRequestStatus(request.id, e.target.value)} className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100">
-                    {['open', 'reviewing', 'approved', 'declined', 'fulfilled'].map(status => <option key={status} value={status}>{status}</option>)}
+                    {['open', 'reviewing', 'approved', 'declined', 'fulfilled'].map(status => <option key={status} value={status}>{STORE_REQUEST_STATUS_LABELS[status]}</option>)}
                   </select>
                 </div>
                 {request.description && <p className="mt-2 text-sm text-stone-400">{request.description}</p>}
@@ -5841,7 +5874,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
                     <p className="text-xs text-stone-500">{formatDateTime(order.createdAt)} · {money(order.total)}</p>
                   </div>
                   <select value={order.status} onChange={e => updateOrderStatus(order.id, e.target.value)} className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100">
-                    {['pending', 'paid', 'preparing', 'sent', 'completed', 'cancelled'].map(status => <option key={status} value={status}>{status}</option>)}
+                    {['pending', 'paid', 'preparing', 'sent', 'completed', 'cancelled'].map(status => <option key={status} value={status}>{STORE_ORDER_STATUS_LABELS[status]}</option>)}
                   </select>
                 </div>
                 <div className="mt-3 space-y-2">
@@ -5858,6 +5891,36 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
           </div>
         )}
       </div>
+
+      {selectedProduct && (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/70 p-3 backdrop-blur-md sm:items-center" onClick={e => e.currentTarget === e.target && setSelectedProduct(null)}>
+          <article className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-stone-800 bg-stone-900 shadow-2xl shadow-black/40">
+            {selectedProduct.imageUrl ? (
+              <img src={resolveMediaUrl(selectedProduct.imageUrl)} alt={selectedProduct.name} className="h-72 w-full object-cover" />
+            ) : (
+              <div className="flex h-60 items-center justify-center bg-stone-800 text-sm text-stone-500">Sem imagem</div>
+            )}
+            <div className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="font-serif text-2xl text-stone-50">{selectedProduct.name}</h2>
+                  <p className="mt-2 text-lg font-black text-amber-300">{money(selectedProduct.price)}</p>
+                </div>
+                <button onClick={() => setSelectedProduct(null)} className="rounded-lg px-2 py-1 text-xl leading-none text-stone-500 hover:bg-stone-800 hover:text-stone-100">×</button>
+              </div>
+              {selectedProduct.category && <p className="mt-2 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{selectedProduct.category}</p>}
+              {selectedProduct.description && <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-stone-300">{selectedProduct.description}</p>}
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-stone-800 pt-4">
+                <span className="text-sm font-semibold text-stone-500">{selectedProduct.stock ? `${selectedProduct.stock} em estoque` : 'Sob consulta'}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => editProduct(selectedProduct)} className="rounded-lg border border-stone-700 px-4 py-2 text-sm font-bold text-stone-300">Editar</button>
+                  <button onClick={() => { addToCart(selectedProduct.id); setSelectedProduct(null); setTab('cart') }} className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950">Adicionar ao carrinho</button>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+      )}
     </section>
   )
 }
