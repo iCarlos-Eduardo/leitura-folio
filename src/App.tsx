@@ -1448,25 +1448,38 @@ async function saveDevicePushSubscription(token: string) {
   return 'saved' as const
 }
 
-function notificationTypeText(type: FolioNotification['type']) {
+function notificationBookCommentText(status?: BookStatus) {
+  if (status === 'reading' || status === 'rereading') return 'comentou no livro que você está lendo'
+  if (status === 'read' || status === 'favorite') return 'comentou em um livro que você já leu'
+  if (status === 'abandoned') return 'comentou em um livro que você abandonou'
+  if (status === 'want') return 'comentou em um livro da sua estante'
+  return 'comentou em um livro'
+}
+
+function notificationTypeText(type: FolioNotification['type'], status?: BookStatus) {
   const textByType: Record<FolioNotification['type'], string> = {
     follow: 'começou a seguir você',
     like: 'curtiu sua publicação',
     reply: 'comentou na sua publicação',
     reply_like: 'curtiu seu comentário',
     reply_reply: 'respondeu seu comentário',
-    book_comment: 'comentou no livro que você está lendo',
+    book_comment: notificationBookCommentText(status),
   }
   return textByType[type]
 }
 
-function notificationBody(notification: FolioNotification, users: User[], books: Book[]) {
+function notificationShelfStatus(notification: FolioNotification, currentUser: User | null | undefined, shelf: ShelfEntry[]) {
+  if (!currentUser || !notification.bookId) return undefined
+  return shelf.find(item => item.userId === currentUser.id && item.bookId === notification.bookId)?.status
+}
+
+function notificationBody(notification: FolioNotification, users: User[], books: Book[], currentUser?: User | null, shelf: ShelfEntry[] = []) {
   const user = users.find(item => item.id === notification.userId)
   const book = notification.bookId ? books.find(item => item.id === notification.bookId) : null
   const actor = user?.name || 'Alguém'
   const bookText = book ? ` em ${book.title}` : ''
   const chapterText = notification.chapter ? ` · cap. ${notification.chapter}` : ''
-  return `${actor} ${notificationTypeText(notification.type)}${bookText}${chapterText}`
+  return `${actor} ${notificationTypeText(notification.type, notificationShelfStatus(notification, currentUser, shelf))}${bookText}${chapterText}`
 }
 
 function notificationTargetUrl(notification: FolioNotification) {
@@ -1500,12 +1513,12 @@ function canDisplayNotification(notification: FolioNotification, currentUser: Us
   return false
 }
 
-async function showDeviceNotification(notification: FolioNotification, users: User[], books: Book[]) {
+async function showDeviceNotification(notification: FolioNotification, users: User[], books: Book[], currentUser: User, shelf: ShelfEntry[]) {
   if (deviceNotificationStatus() !== 'granted') return
   const registration = await registerDeviceNotificationWorker()
   const targetUrl = notificationTargetUrl(notification)
   const options: NotificationOptions = {
-    body: notificationBody(notification, users, books),
+    body: notificationBody(notification, users, books, currentUser, shelf),
     icon: '/icons/icon-192.png',
     badge: '/icons/notification-badge.png',
     tag: `folio-${notification.id}`,
@@ -4406,10 +4419,12 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   )
 }
 
-function NotificationsPage({ notifications, users, books, showDeviceNotificationControls, deviceNotificationStatus, onEnableDeviceNotifications, onNotificationClick, onUserClick }: {
+function NotificationsPage({ notifications, currentUser, users, books, shelf, showDeviceNotificationControls, deviceNotificationStatus, onEnableDeviceNotifications, onNotificationClick, onUserClick }: {
   notifications: FolioNotification[]
+  currentUser: User
   users: User[]
   books: Book[]
+  shelf: ShelfEntry[]
   showDeviceNotificationControls: boolean
   deviceNotificationStatus: DeviceNotificationStatus
   onEnableDeviceNotifications: () => void
@@ -4420,7 +4435,7 @@ function NotificationsPage({ notifications, users, books, showDeviceNotification
     <section>
       <Header title="Notificações">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pelo seu capítulo aparecem aqui.</p>
+          <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pela sua estante aparecem aqui.</p>
           {showDeviceNotificationControls && deviceNotificationStatus === 'default' && (
             <button
               type="button"
@@ -4453,14 +4468,7 @@ function NotificationsPage({ notifications, users, books, showDeviceNotification
             const user = users.find(item => item.id === notification.userId)
             const book = notification.bookId ? books.find(item => item.id === notification.bookId) : null
             if (!user) return null
-            const textByType: Record<FolioNotification['type'], string> = {
-              follow: 'começou a seguir você',
-              like: 'curtiu sua publicação',
-              reply: 'comentou na sua publicação',
-              reply_like: 'curtiu seu comentário',
-              reply_reply: 'respondeu seu comentário',
-              book_comment: 'comentou no livro que você está lendo',
-            }
+            const text = notificationTypeText(notification.type, notificationShelfStatus(notification, currentUser, shelf))
             return (
               <article
                 key={notification.id}
@@ -4486,7 +4494,7 @@ function NotificationsPage({ notifications, users, books, showDeviceNotification
                         e.stopPropagation()
                         onUserClick(user.id)
                       }} className="font-bold text-stone-100 hover:text-amber-300">{user.name}</button>{' '}
-                      {textByType[notification.type]}
+                      {text}
                       {book && (
                         <>
                           {' em '}
@@ -6526,11 +6534,11 @@ export default function App() {
     freshUnreadNotifications.forEach(notification => notifiedDeviceNotificationIds.current.add(notification.id))
     saveDeviceNotificationIds(currentUser.id, notifiedDeviceNotificationIds.current)
     freshUnreadNotifications.slice(0, 3).forEach(notification => {
-      showDeviceNotification(notification, users, books).catch(() => {
+      showDeviceNotification(notification, users, books, currentUser, shelf).catch(() => {
         // Device notifications are best-effort; the in-app notification list remains authoritative.
       })
     })
-  }, [currentUser?.id, notifications, visibleNotifications, users, books, deviceNotifications, remotePushRegistered])
+  }, [currentUser, notifications, visibleNotifications, users, books, shelf, deviceNotifications, remotePushRegistered])
 
   useEffect(() => {
     if (!token || !currentUser) return
@@ -7127,7 +7135,7 @@ export default function App() {
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
-          {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} users={users} books={books} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
+          {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
           {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} />}
           {page === 'store' && isSuperAdminUser(currentUser) && <StorePage token={token} currentUser={currentUser} />}
         </main>
