@@ -4691,20 +4691,27 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   )
 }
 
-function CreatePostModal({ currentUser, shelf, books, onClose, onPost, onUploadImage }: {
+function CreatePostModal({ currentUser, shelf, books, initialBookId, onClose, onPost, onUploadImage }: {
   currentUser: User
   shelf: ShelfEntry[]
   books: Book[]
+  initialBookId?: string | null
   onClose: () => void
   onPost: (post: Post) => Promise<boolean | void> | boolean | void
   onUploadImage: (file: File) => Promise<string>
 }) {
+  function postBookSortPriority(entry: ShelfEntry, book: Book) {
+    if (initialBookId && book.id === initialBookId) return -1
+    return isInProgressStatus(entry.status) ? 0 : 1
+  }
+
   const myBooks = shelf
     .filter(entry => entry.userId === currentUser.id && canPostWithStatus(entry.status))
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
     .filter(item => item.book)
-    .sort((a, b) => a.book.title.localeCompare(b.book.title, 'pt-BR'))
-  const [selectedBookId, setSelectedBookId] = useState(myBooks[0]?.book.id || '')
+    .sort((a, b) => postBookSortPriority(a.entry, a.book) - postBookSortPriority(b.entry, b.book) || a.book.title.localeCompare(b.book.title, 'pt-BR'))
+  const initialBook = myBooks.find(({ book }) => book.id === initialBookId)
+  const [selectedBookId, setSelectedBookId] = useState(initialBook?.book.id || myBooks[0]?.book.id || '')
   const [bookQuery, setBookQuery] = useState('')
   const selectedBook = books.find(book => book.id === selectedBookId) || myBooks[0]?.book
   const selectedEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === selectedBookId)
@@ -7135,6 +7142,7 @@ export default function App() {
           currentUser={currentUser}
           shelf={shelf}
           books={books}
+          initialBookId={page === 'book' ? selectedBookId : null}
           onClose={() => setShowPostModal(false)}
           onPost={handleCreatePost}
           onUploadImage={handleUploadPostImage}
