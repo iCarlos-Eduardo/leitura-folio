@@ -729,7 +729,7 @@ function warmMediaImages(values: (string | null | undefined)[], priorityCount = 
 
       const image = new Image()
       image.decoding = 'async'
-      ;(image as HTMLImageElement & { fetchPriority?: 'high' | 'auto' }).fetchPriority = index < priorityCount ? 'high' : 'auto'
+        ; (image as HTMLImageElement & { fetchPriority?: 'high' | 'auto' }).fetchPriority = index < priorityCount ? 'high' : 'auto'
       image.src = url
     })
 }
@@ -1897,14 +1897,6 @@ function MobileQuickActions({ theme, onToggleTheme, onCreatePost, onOpenStore }:
             </span>
             Publicar
           </button>
-          <button
-            type="button"
-            onClick={() => runAction(onToggleTheme)}
-            className="flex items-center gap-2 rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-left text-sm font-bold text-stone-200 transition hover:bg-stone-800 hover:text-stone-100"
-          >
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-stone-800 text-base leading-none">{dark ? '☀' : '☾'}</span>
-            {dark ? 'Modo claro' : 'Modo escuro'}
-          </button>
           {onOpenStore && (
             <button
               type="button"
@@ -1915,6 +1907,14 @@ function MobileQuickActions({ theme, onToggleTheme, onCreatePost, onOpenStore }:
               Loja
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => runAction(onToggleTheme)}
+            className="flex items-center gap-2 rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-left text-sm font-bold text-stone-200 transition hover:bg-stone-800 hover:text-stone-100"
+          >
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-stone-800 text-base leading-none">{dark ? '☀' : '☾'}</span>
+            {dark ? 'Modo claro' : 'Modo escuro'}
+          </button>
         </div>
       )}
       <button
@@ -5567,6 +5567,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
   const [storeViewMode, setStoreViewMode] = useState<'client' | 'admin'>('client')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [productQuery, setProductQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('Todos')
   const [selectedProduct, setSelectedProduct] = useState<StoreProduct | null>(null)
@@ -5639,6 +5640,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
   }
 
   function addToCart(productId: string) {
+    setNotice('')
     setCart(current => {
       const existing = current.find(item => item.productId === productId)
       if (existing) return current.map(item => item.productId === productId ? { ...item, quantity: item.quantity + 1 } : item)
@@ -5662,6 +5664,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
     e.preventDefault()
     if (!cartRows.length) return
     setError('')
+    setNotice('')
     try {
       await apiRequest('/folio/store/orders', {
         method: 'POST',
@@ -5672,7 +5675,8 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
       }, token)
       setCart([])
       await loadStore()
-      setTab('orders')
+      setNotice('Pedido enviado com sucesso. Voce pode acompanhar a confirmacao pelo atendimento da loja.')
+      setTab(storeViewMode === 'client' ? 'shop' : 'orders')
     } catch (err) {
       setError(errorMessage(err, 'Nao foi possivel finalizar a compra.'))
     }
@@ -5697,6 +5701,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
   }
 
   async function updateOrderStatus(id: string, status: string) {
+    if (storeViewMode !== 'admin') return
     await apiRequest(`/folio/store/orders/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }, token)
     await loadStore()
   }
@@ -5778,6 +5783,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
       <div className="space-y-4 p-3 sm:p-4">
         {loading && !hasLoadedStoreData && <div className="rounded-lg border border-stone-800 bg-stone-900 p-4 text-sm text-stone-400">Carregando loja...</div>}
         {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
+        {notice && <div className="rounded-lg border border-amber-300/30 bg-amber-300/10 p-3 text-sm font-semibold text-amber-300">{notice}</div>}
 
         {tab === 'shop' && storeViewMode === 'client' && (
           <div className="mx-auto max-w-5xl overflow-hidden rounded-lg border border-stone-800 bg-stone-900 text-stone-100 shadow-sm">
@@ -5973,7 +5979,7 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
           </div>
         )}
 
-        {tab === 'orders' && (
+        {tab === 'orders' && storeViewMode === 'admin' && (
           <div className="grid gap-2">
             {store.orders.map(order => (
               <article key={order.id} className="rounded-lg border border-stone-800 bg-stone-900 p-3">
