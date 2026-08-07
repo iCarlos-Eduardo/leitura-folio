@@ -584,6 +584,20 @@ function resolveMediaUrl(value?: string | null) {
   const url = (value || '').trim()
   if (!url) return ''
   if (url.startsWith('//')) return `https:${url}`
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const parsedUrl = new URL(url)
+      const isUploadUrl = parsedUrl.pathname.startsWith('/uploads/')
+      const isPrivateIpUploadHost = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(parsedUrl.hostname)
+      const isLocalUploadHost = ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsedUrl.hostname)
+      const isSameHostUpload = parsedUrl.hostname === window.location.hostname
+      if (isUploadUrl && (isLocalUploadHost || isPrivateIpUploadHost || isSameHostUpload)) {
+        return encodeURI(`${MEDIA_BASE_URL.replace(/\/$/, '')}${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`)
+      }
+    } catch {
+      // Keep the original URL handling below when URL parsing fails.
+    }
+  }
   if (/^http:\/\//i.test(url) && window.location.protocol === 'https:') {
     return url.replace(/^http:\/\//i, 'https://')
   }
