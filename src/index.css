@@ -109,9 +109,11 @@ body {
   display: block;
   height: 100%;
   object-fit: cover;
-  opacity: 0;
+  opacity: 1;
+  position: relative;
   transition: opacity 180ms ease;
   width: 100%;
+  z-index: 2;
 }
 
 .folio-image-contain .folio-image-node {
@@ -135,6 +137,10 @@ body {
   animation: none;
   background: color-mix(in srgb, var(--color-stone-800) 70%, var(--color-stone-950));
   opacity: 1;
+}
+
+.folio-image-failed .folio-image-node {
+  display: none;
 }
 
 @keyframes folio-loading-shimmer {
