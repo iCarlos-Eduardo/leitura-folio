@@ -580,9 +580,26 @@ async function preparePostImageFile(file: File) {
   })
 }
 
+function resolveFolioPostUploadUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url, window.location.origin)
+    const uploadPrefix = '/uploads/folio-posts/'
+    if (!parsedUrl.pathname.toLowerCase().startsWith(uploadPrefix)) return ''
+
+    const fileName = parsedUrl.pathname.slice(uploadPrefix.length).split('/')[0]
+    if (!fileName) return ''
+
+    return encodeURI(`${MEDIA_BASE_URL.replace(/\/$/, '')}/folio/media/${fileName}${parsedUrl.search}${parsedUrl.hash}`)
+  } catch {
+    return ''
+  }
+}
+
 function resolveMediaUrl(value?: string | null) {
   const url = (value || '').trim()
   if (!url) return ''
+  const folioPostUploadUrl = resolveFolioPostUploadUrl(url)
+  if (folioPostUploadUrl) return folioPostUploadUrl
   if (url.startsWith('//')) return `https:${url}`
   if (/^https?:\/\//i.test(url)) {
     try {

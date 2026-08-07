@@ -7,6 +7,14 @@
     {
       "source": "/folio/:path*",
       "destination": "https://api.sgpf.com.br/folio/:path*"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "https://api.sgpf.com.br/uploads/:path*"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/index.html"
     }
   ]
 }
