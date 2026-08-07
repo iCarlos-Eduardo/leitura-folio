@@ -755,7 +755,7 @@ function PostTextWithMentions({ text, users, onUserClick }: {
   const parts: React.ReactNode[] = []
   let lastIndex = 0
 
-  for (const match of text.matchAll(/@([a-zA-Z0-9_.-]+)/g)) {
+  for (const match of text.matchAll(/@([\p{L}\p{N}_.-]+)/gu)) {
     const index = match.index ?? 0
     const rawMention = match[0]
     const user = usersByHandle.get(normalizeSearch(match[1]))
@@ -932,7 +932,7 @@ function mentionableUsers(currentUser: User, users: User[]) {
 
 function activeMentionQuery(value: string, caretIndex: number) {
   const beforeCaret = value.slice(0, caretIndex)
-  const match = /(^|[\s([{])@([a-zA-Z0-9_.-]*)$/.exec(beforeCaret)
+  const match = /(^|[^\p{L}\p{N}_.-])@([\p{L}\p{N}_.-]*)$/u.exec(beforeCaret)
   if (!match) return null
 
   const start = beforeCaret.lastIndexOf('@')
@@ -952,7 +952,7 @@ function mentionedUsersFromText(value: string, currentUser: User, users: User[])
   const found: User[] = []
   const seen = new Set<string>()
 
-  for (const match of value.matchAll(/@([a-zA-Z0-9_.-]+)/g)) {
+  for (const match of value.matchAll(/@([\p{L}\p{N}_.-]+)/gu)) {
     const user = usersByHandle.get(normalizeSearch(match[1]))
     if (!user || seen.has(user.id)) continue
     seen.add(user.id)
@@ -4870,7 +4870,7 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
   const [postType, setPostType] = useState<PostType>('comment')
   const [text, setText] = useState('')
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
-  const [textCaretIndex, setTextCaretIndex] = useState(0)
+  const [activeMention, setActiveMention] = useState<ReturnType<typeof activeMentionQuery>>(null)
   const [reactionEmoji, setReactionEmoji] = useState('🤯')
   const [chapter, setChapter] = useState(selectedBook ? String(chapterFromPercent(selectedBook, defaultPercent)) : '1')
   const [postImageUrl, setPostImageUrl] = useState('')
@@ -4881,7 +4881,7 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
   const postingRef = useRef(false)
   const emojis = ['😭', '🤯', '♥', '😂', '😡', '🔥', '💔', '😱', '🥹', '👏']
   const canPost = selectedBook && chapter !== '' && !uploadingPostImage && !posting && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0 || Boolean(postImageUrl))
-  const mentionQuery = activeMentionQuery(text, textCaretIndex)
+  const mentionQuery = activeMention
   const mentionSuggestions = mentionQuery ? usersMatchingMentionQuery(currentUser, users, mentionQuery.query) : []
   const filteredBooks = myBooks
     .filter(({ book }) => !bookQuery.trim() || bookMatchesSearch(book, bookQuery, 'title') || bookMatchesSearch(book, bookQuery, 'author'))
@@ -4905,8 +4905,9 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
     setChapter(String(next))
   }
 
-  function updateTextCaret(element: HTMLTextAreaElement) {
-    setTextCaretIndex(element.selectionStart)
+  function updateTextMentionState(element: HTMLTextAreaElement, nextText = element.value) {
+    const caretIndex = element.selectionStart ?? nextText.length
+    setActiveMention(activeMentionQuery(nextText, caretIndex))
   }
 
   function selectMention(user: User) {
@@ -4916,7 +4917,7 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
     const nextCaret = mentionQuery.start + mentionText.length
 
     setText(nextText)
-    setTextCaretIndex(nextCaret)
+    setActiveMention(null)
     window.requestAnimationFrame(() => {
       textAreaRef.current?.focus()
       textAreaRef.current?.setSelectionRange(nextCaret, nextCaret)
@@ -5036,11 +5037,13 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
                     value={text}
                     onChange={e => {
                       setText(e.target.value)
-                      updateTextCaret(e.currentTarget)
+                      updateTextMentionState(e.currentTarget, e.target.value)
                     }}
-                    onClick={e => updateTextCaret(e.currentTarget)}
-                    onKeyUp={e => updateTextCaret(e.currentTarget)}
-                    onSelect={e => updateTextCaret(e.currentTarget)}
+                    onInput={e => updateTextMentionState(e.currentTarget)}
+                    onClick={e => updateTextMentionState(e.currentTarget)}
+                    onFocus={e => updateTextMentionState(e.currentTarget)}
+                    onKeyUp={e => updateTextMentionState(e.currentTarget)}
+                    onSelect={e => updateTextMentionState(e.currentTarget)}
                     rows={4}
                     placeholder={postType === 'theory' ? 'Ex.: acho que essa personagem ainda sabe mais do que contou...' : 'Escreva livremente. Quem estiver atrás desse ponto não verá agora.'}
                     className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-base text-stone-100 outline-none focus:border-amber-300 sm:text-sm"
