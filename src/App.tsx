@@ -9,6 +9,7 @@ type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 type ColorTheme = 'light' | 'dark'
 type BookFeedVisibility = 'all' | 'available'
+type BookTab = 'feed' | 'theories' | 'rooms' | 'replay' | 'about'
 
 type ViewState = {
   page: Page
@@ -143,13 +144,19 @@ interface FolioNotification {
 
 interface ReadingGoal {
   targetBooks: number
+  targetBooksMonth?: number
+  targetBooksWeek?: number
   targetDays: number
   checkIns: string[]
   currentStreak: number
   bestStreak: number
   checkedInToday: boolean
   year?: number
+  month?: number
+  weekStart?: string
   booksReadThisYear?: number
+  booksReadThisMonth?: number
+  booksReadThisWeek?: number
 }
 
 interface StoreUserSummary {
@@ -485,6 +492,23 @@ function errorMessage(error: unknown, fallback: string) {
 
 function isImageUpload(file: File) {
   return DIRECT_UPLOAD_IMAGE_TYPES.has(file.type.toLowerCase()) && /\.(jpe?g|png|webp|gif)$/i.test(file.name)
+}
+
+type WeeklySpotlight = {
+  key: string
+  label: string
+  title: string
+  detail: string
+  bookId?: string
+  userId?: string
+}
+
+type SmartNudge = {
+  key: string
+  title: string
+  detail: string
+  bookId?: string
+  action?: 'checkin' | 'post'
 }
 
 function postImageFileName(fileName: string) {
@@ -1271,6 +1295,29 @@ function isDateInYear(value: string | null | undefined, year: number) {
   return Boolean(value && Number(value.slice(0, 4)) === year)
 }
 
+function isDateInMonth(value: string | null | undefined, year: number, month: number) {
+  if (!value) return false
+  return Number(value.slice(0, 4)) === year && Number(value.slice(5, 7)) === month
+}
+
+function weekStartDateKey(date = new Date()) {
+  const start = new Date(date)
+  start.setHours(0, 0, 0, 0)
+  const mondayOffset = (start.getDay() + 6) % 7
+  start.setDate(start.getDate() - mondayOffset)
+  return localDateKey(start)
+}
+
+function isDateInWeek(value: string | null | undefined, weekStart: string) {
+  if (!value) return false
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  const start = new Date(`${weekStart}T00:00:00`)
+  if (!Number.isFinite(date.getTime()) || !Number.isFinite(start.getTime())) return false
+  const end = new Date(start)
+  end.setDate(end.getDate() + 7)
+  return date >= start && date < end
+}
+
 function shelfCompletionTime(entry: ShelfEntry) {
   const date = dateInputValue(entry.endDate)
   if (!date) return Number.NEGATIVE_INFINITY
@@ -1371,6 +1418,143 @@ function hasFullBookAccessStatus(status?: BookStatus) {
 
 function isInProgressStatus(status?: BookStatus) {
   return status === 'reading' || status === 'rereading'
+}
+
+function startOfToday() {
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  return date
+}
+
+function daysAgo(days: number) {
+  const date = startOfToday()
+  date.setDate(date.getDate() - days)
+  return date
+}
+
+function isTodayIso(value: string) {
+  return new Date(value).getTime() >= startOfToday().getTime()
+}
+
+function isSinceIso(value: string, date: Date) {
+  return new Date(value).getTime() >= date.getTime()
+}
+
+function visibleChapterForEntry(book: Book, entry?: ShelfEntry) {
+  if (!entry) return 1
+  if (hasFullBookAccessStatus(entry.status)) return book.totalChapters
+  return chapterFromPercent(book, entry.progress)
+}
+
+function sameChapterReaders(book: Book, shelf: ShelfEntry[], users: User[], currentUser: User, distance = 1) {
+  const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
+  const myChapter = visibleChapterForEntry(book, myEntry)
+  return shelf
+    .filter(entry => entry.bookId === book.id && entry.userId !== currentUser.id && isInProgressStatus(entry.status))
+    .map(entry => ({ entry, user: users.find(user => user.id === entry.userId), chapter: chapterFromPercent(book, entry.progress) }))
+    .filter((item): item is { entry: ShelfEntry; user: User; chapter: number } => Boolean(item.user) && Math.abs(item.chapter - myChapter) <= distance)
+    .sort((a, b) => Math.abs(a.chapter - myChapter) - Math.abs(b.chapter - myChapter) || a.user.name.localeCompare(b.user.name, 'pt-BR'))
+}
+
+function unlockedPostCountForRange(posts: Post[], bookId: string, fromChapter: number, toChapter: number) {
+  if (toChapter < fromChapter) return 0
+  return posts.filter(post => post.bookId === bookId && post.chapter >= fromChapter && post.chapter <= toChapter).length
+}
+
+function buildWeeklySpotlights(users: User[], books: Book[], posts: Post[], shelf: ShelfEntry[]): WeeklySpotlight[] {
+  const weekStart = daysAgo(6)
+  const weeklyPosts = posts.filter(post => isSinceIso(post.timestamp, weekStart))
+  const byBook = new Map<string, number>()
+  const byUser = new Map<string, number>()
+  const byReaction = new Map<string, number>()
+
+  weeklyPosts.forEach(post => {
+    byBook.set(post.bookId, (byBook.get(post.bookId) || 0) + 1)
+    byUser.set(post.userId, (byUser.get(post.userId) || 0) + 1)
+    if (post.reactionEmoji) byReaction.set(post.reactionEmoji, (byReaction.get(post.reactionEmoji) || 0) + 1)
+  })
+
+  const bestBook = [...byBook.entries()].sort((a, b) => b[1] - a[1])[0]
+  const bestUser = [...byUser.entries()].sort((a, b) => b[1] - a[1])[0]
+  const bestReaction = [...byReaction.entries()].sort((a, b) => b[1] - a[1])[0]
+  const bestTheory = weeklyPosts
+    .filter(post => post.type === 'theory')
+    .sort((a, b) => b.likes.length - a.likes.length || new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0]
+  const mostReadBook = books
+    .map(book => ({
+      book,
+      readers: shelf.filter(entry => entry.bookId === book.id && isInProgressStatus(entry.status)).length,
+    }))
+    .sort((a, b) => b.readers - a.readers || a.book.title.localeCompare(b.book.title, 'pt-BR'))[0]
+
+  const rows: WeeklySpotlight[] = []
+  if (bestBook) {
+    const book = books.find(book => book.id === bestBook[0])
+    if (book) rows.push({ key: 'book', label: 'Livro da semana', title: book.title, detail: `${bestBook[1]} posts nos últimos 7 dias`, bookId: book.id })
+  }
+  if (bestTheory) {
+    const book = books.find(book => book.id === bestTheory.bookId)
+    rows.push({ key: 'theory', label: 'Teoria em alta', title: book?.title || 'Teoria da comunidade', detail: `${bestTheory.likes.length} curtidas · cap. ${bestTheory.chapter}`, bookId: bestTheory.bookId, userId: bestTheory.userId })
+  }
+  if (bestReaction) rows.push({ key: 'reaction', label: 'Reação da semana', title: bestReaction[0], detail: `${bestReaction[1]} usos nos feeds literários` })
+  if (bestUser) {
+    const user = users.find(user => user.id === bestUser[0])
+    if (user) rows.push({ key: 'reader', label: 'Leitor em destaque', title: user.name, detail: `${bestUser[1]} posts esta semana`, userId: user.id })
+  }
+  if (mostReadBook?.readers) rows.push({ key: 'club', label: 'Clube mais vivo', title: mostReadBook.book.title, detail: `${mostReadBook.readers} lendo agora`, bookId: mostReadBook.book.id })
+
+  return rows.slice(0, 5)
+}
+
+function buildSmartNudges(currentUser: User, books: Book[], shelf: ShelfEntry[], posts: Post[], readingGoal?: ReadingGoal): SmartNudge[] {
+  const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
+  const readingNow = myShelf
+    .filter(entry => isInProgressStatus(entry.status))
+    .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId) }))
+    .filter((item): item is { entry: ShelfEntry; book: Book } => Boolean(item.book))
+  const myPostsToday = posts.filter(post => post.userId === currentUser.id && isTodayIso(post.timestamp))
+  const nudges: SmartNudge[] = []
+
+  if (readingGoal && !readingGoal.checkedInToday) {
+    nudges.push({
+      key: 'checkin',
+      title: 'Sua sequência precisa de hoje',
+      detail: `${readingGoal.currentStreak} dias seguidos. Faça check-in depois de ler qualquer trecho.`,
+      action: 'checkin',
+    })
+  }
+
+  if (!myPostsToday.length && readingNow.length) {
+    const next = readingNow[0]
+    nudges.push({
+      key: 'post-today',
+      title: 'Registre a reação de hoje',
+      detail: `${next.book.title} está no cap. ${chapterFromPercent(next.book, next.entry.progress)}.`,
+      bookId: next.book.id,
+      action: 'post',
+    })
+  }
+
+  const unlockCandidate = readingNow
+    .map(({ entry, book }) => {
+      const chapter = chapterFromPercent(book, entry.progress)
+      return {
+        book,
+        count: posts.filter(post => post.bookId === book.id && post.userId !== currentUser.id && post.chapter <= chapter).length,
+        chapter,
+      }
+    })
+    .sort((a, b) => b.count - a.count)[0]
+  if (unlockCandidate && unlockCandidate.count > 0) {
+    nudges.push({
+      key: 'unlocked',
+      title: 'Comentários liberados esperando por você',
+      detail: `${unlockCandidate.count} posts já visíveis até o cap. ${unlockCandidate.chapter}.`,
+      bookId: unlockCandidate.book.id,
+    })
+  }
+
+  return nudges.slice(0, 3)
 }
 
 type DatePromptOptions = {
@@ -1865,8 +2049,8 @@ function Header({ title, children }: { title: string; children?: React.ReactNode
   return (
     <header className="sticky top-0 z-20 border-b border-stone-800/80 bg-stone-950/90 px-4 py-3 backdrop-blur-xl md:px-5">
       <div className="flex flex-col gap-3">
-        <h1 className="font-serif text-lg text-stone-100">{title}</h1>
-        {children}
+        <h1 className="pr-14 font-serif text-lg text-stone-100">{title}</h1>
+        {children && <div className="pt-2">{children}</div>}
       </div>
     </header>
   )
@@ -2158,10 +2342,9 @@ function MobileQuickActions({ theme, onToggleTheme, onCreatePost, onOpenStore }:
   )
 }
 
-function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme, onNavigate, onCreatePost, onLogout }: {
+function Navigation({ currentUser, page, theme, onToggleTheme, onNavigate, onCreatePost, onLogout }: {
   currentUser: User
   page: Page
-  notificationCount: number
   theme: ColorTheme
   onToggleTheme: () => void
   onNavigate: (p: Page) => void
@@ -2172,7 +2355,6 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
     { id: 'timeline', icon: 'home', label: 'Início' },
     { id: 'library', icon: 'library', label: 'Biblioteca' },
     { id: 'goals', icon: 'goals', label: 'Metas' },
-    { id: 'notifications', icon: 'notifications', label: 'Notificações' },
     { id: 'shelf', icon: 'shelf', label: 'Estante' },
     { id: 'profile', icon: 'profile', label: 'Perfil' },
   ]
@@ -2198,9 +2380,6 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
             >
               <span className="flex w-5 items-center justify-center"><NavIcon name={item.icon} /></span>
               {item.label}
-              {item.id === 'notifications' && notificationCount > 0 && (
-                <span className="ml-auto rounded-full bg-red-400 px-1.5 py-0.5 text-[10px] font-bold text-stone-950">{notificationCount}</span>
-              )}
             </button>
           ))}
         </nav>
@@ -2233,9 +2412,6 @@ function Navigation({ currentUser, page, notificationCount, theme, onToggleTheme
             >
               <span className="mb-0.5 flex items-center justify-center"><NavIcon name={item.icon} /></span>
               <span className="max-w-full truncate">{item.label}</span>
-              {item.id === 'notifications' && notificationCount > 0 && (
-                <span className="absolute right-2 top-1 rounded-full bg-red-400 px-1 text-[9px] font-bold text-stone-950">{notificationCount}</span>
-              )}
             </button>
           ))}
         </div>
@@ -2653,6 +2829,24 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   )
 }
 
+function NotificationTopButton({ count, active, onClick }: { count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={count > 0 ? `${count} notificações não lidas` : 'Notificações'}
+      className={`fixed right-3 top-2 z-[65] flex h-9 w-9 items-center justify-center rounded-full border bg-stone-950/95 backdrop-blur transition xl:right-[calc(22rem+0.75rem)] 2xl:right-[calc(24rem+0.75rem)] ${active ? 'border-amber-300 text-amber-300' : 'border-stone-700 text-stone-200 hover:border-amber-300/60 hover:text-amber-200'}`}
+    >
+      <NavIcon name="notifications" />
+      {count > 0 && (
+        <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-red-400 px-1 py-0.5 text-[9px] font-black leading-none text-stone-950">
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </button>
+  )
+}
+
 function PaginatedPostList({ posts, emptyText, resetKey, renderPost, initialVisibleCount = POST_PAGE_SIZE }: {
   posts: Post[]
   emptyText?: string
@@ -2687,6 +2881,130 @@ function PaginatedPostList({ posts, emptyText, resetKey, renderPost, initialVisi
         </div>
       )}
     </div>
+  )
+}
+
+function DailyMissionPanel({ currentUser, books, shelf, posts, readingGoal, onCreatePost, onBookClick, onToggleReadingCheckIn }: {
+  currentUser: User
+  books: Book[]
+  shelf: ShelfEntry[]
+  posts: Post[]
+  readingGoal: ReadingGoal
+  onCreatePost: (bookId?: string) => void
+  onBookClick: (id: string) => void
+  onToggleReadingCheckIn: () => Promise<boolean | void> | boolean | void
+}) {
+  const myReading = shelf
+    .filter(entry => entry.userId === currentUser.id && isInProgressStatus(entry.status))
+    .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId) }))
+    .filter((item): item is { entry: ShelfEntry; book: Book } => Boolean(item.book))
+  const focus = myReading[0]
+  const todayPosts = posts.filter(post => post.userId === currentUser.id && isTodayIso(post.timestamp))
+  const completedCount = Number(readingGoal.checkedInToday) + Number(todayPosts.length > 0)
+  const prompt = focus
+    ? `Você está no cap. ${chapterFromPercent(focus.book, focus.entry.progress)} de ${focus.book.title}.`
+    : 'Adicione um livro como Lendo para receber missões mais certeiras.'
+
+  return (
+    <section className="border-b border-stone-800 bg-stone-950 p-4 md:p-5">
+      <div className="rounded-lg border border-amber-300/25 bg-stone-900 p-4">
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-300">Missão diária</p>
+            <h2 className="mt-1 font-serif text-xl text-stone-50">Dê sinal de vida literário hoje</h2>
+            <p className="mt-1 text-sm text-stone-400">{prompt}</p>
+          </div>
+          <span className="rounded-full border border-stone-700 px-3 py-1 text-xs font-black text-stone-300">{completedCount}/2 feito</span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => onToggleReadingCheckIn()}
+            className={`rounded-lg border p-3 text-left transition ${readingGoal.checkedInToday ? 'border-emerald-300/40 bg-emerald-300/10' : 'border-stone-800 bg-stone-950 hover:border-amber-300/50'}`}
+          >
+            <span className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Check-in</span>
+            <span className="mt-1 block text-sm font-bold text-stone-100">{readingGoal.checkedInToday ? 'Leitura marcada hoje' : 'Marcar leitura de hoje'}</span>
+            <span className="mt-1 block text-xs text-stone-500">{readingGoal.currentStreak} dias seguidos</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => focus ? onCreatePost(focus.book.id) : onCreatePost()}
+            className={`rounded-lg border p-3 text-left transition ${todayPosts.length ? 'border-cyan-300/40 bg-cyan-300/10' : 'border-stone-800 bg-stone-950 hover:border-amber-300/50'}`}
+          >
+            <span className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Reação</span>
+            <span className="mt-1 block text-sm font-bold text-stone-100">{todayPosts.length ? `${todayPosts.length} post hoje` : 'Postar uma reação rápida'}</span>
+            <span className="mt-1 block text-xs text-stone-500">{focus ? 'O capítulo já vem sugerido.' : 'Escolha um livro da sua estante.'}</span>
+          </button>
+        </div>
+        {focus && (
+          <button onClick={() => onBookClick(focus.book.id)} className="mt-3 text-xs font-bold text-amber-300 hover:text-amber-200">
+            Abrir feed anti-spoiler de {focus.book.title}
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function SmartNudgesPanel({ nudges, onBookClick, onCreatePost, onToggleReadingCheckIn }: {
+  nudges: SmartNudge[]
+  onBookClick: (id: string) => void
+  onCreatePost: (bookId?: string) => void
+  onToggleReadingCheckIn: () => Promise<boolean | void> | boolean | void
+}) {
+  if (!nudges.length) return null
+
+  return (
+    <section className="border-b border-stone-800 p-4 md:p-5">
+      <div className="grid gap-2 sm:grid-cols-3">
+        {nudges.map(nudge => (
+          <button
+            key={nudge.key}
+            type="button"
+            onClick={() => {
+              if (nudge.action === 'checkin') void onToggleReadingCheckIn()
+              else if (nudge.action === 'post') onCreatePost(nudge.bookId)
+              else if (nudge.bookId) onBookClick(nudge.bookId)
+            }}
+            className="rounded-lg border border-stone-800 bg-stone-900 p-3 text-left transition hover:border-amber-300/50 hover:bg-stone-800"
+          >
+            <span className="block text-sm font-bold text-stone-100">{nudge.title}</span>
+            <span className="mt-1 block text-xs leading-relaxed text-stone-500">{nudge.detail}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function WeeklySpotlightsPanel({ rows, onBookClick, onUserClick }: {
+  rows: WeeklySpotlight[]
+  onBookClick: (id: string) => void
+  onUserClick: (id: string) => void
+}) {
+  if (!rows.length) return null
+
+  return (
+    <section className="border-b border-stone-800 p-4 md:p-5">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="font-serif text-lg text-stone-100">Destaques da semana</h2>
+        <span className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">ranking vivo</span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {rows.map(row => (
+          <button
+            key={row.key}
+            type="button"
+            onClick={() => row.bookId ? onBookClick(row.bookId) : row.userId ? onUserClick(row.userId) : undefined}
+            className="rounded-lg border border-stone-800 bg-stone-900 p-3 text-left transition hover:border-amber-300/50 hover:bg-stone-800"
+          >
+            <span className="text-xs font-bold uppercase tracking-[0.14em] text-amber-300">{row.label}</span>
+            <span className="mt-1 block truncate text-base font-bold text-stone-100">{row.title}</span>
+            <span className="mt-1 block text-xs text-stone-500">{row.detail}</span>
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -2728,9 +3046,9 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   return (
     <section>
       <Header title="Início">
-        <div className="grid grid-cols-2 rounded-lg bg-stone-900 p-1">
+        <div className="grid w-full grid-cols-2 rounded-lg bg-stone-900 p-1">
           {([['posts', 'Publicações'], ['activity', 'Atividade']] as const).map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)} className={`rounded-md px-3 py-2 text-sm font-bold transition ${tab === id ? 'bg-amber-300 text-stone-950' : 'text-stone-400'}`}>
+            <button key={id} onClick={() => setTab(id)} className={`min-h-9 rounded-md px-3 py-1.5 text-sm font-bold transition ${tab === id ? 'bg-amber-300 text-stone-950' : 'text-stone-400'}`}>
               {label}
             </button>
           ))}
@@ -3463,7 +3781,7 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
   return (
     <section>
       <Header title="Minha estante">
-        <div className="flex gap-1 overflow-x-auto pb-1">
+        <div className="folio-scrollbar-hidden flex gap-1 overflow-x-auto pb-1">
           {statuses.map(status => (
             <button
               key={status}
@@ -3823,7 +4141,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
   )
 }
 
-function BookPage({ book, shelf, posts, replies, users, currentUser, highlightedPostId, onBack, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, onUpdateShelfEntry, onAddBook }: {
+function BookPage({ book, shelf, posts, replies, users, currentUser, highlightedPostId, onBack, onUserClick, onCreatePost, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, onUpdateShelfEntry, onAddBook }: {
   book: Book
   shelf: ShelfEntry[]
   posts: Post[]
@@ -3833,6 +4151,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   highlightedPostId?: string | null
   onBack: () => void
   onUserClick: (id: string) => void
+  onCreatePost: (bookId?: string) => void
   onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
@@ -3842,10 +4161,11 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback, options?: UpdateShelfOptions) => Promise<boolean | void> | boolean | void
   onAddBook: (bookId: string, status: BookStatus) => Promise<boolean | void> | boolean | void
 }) {
-  const [tab, setTab] = useState<'feed' | 'theories' | 'about'>('feed')
+  const [tab, setTab] = useState<BookTab>('feed')
   const [newShelfStatus, setNewShelfStatus] = useState<BookStatus>('reading')
   const [readersModalOpen, setReadersModalOpen] = useState(false)
   const [feedVisibility, setFeedVisibility] = useState<BookFeedVisibility>('all')
+  const [unlockedRange, setUnlockedRange] = useState<{ from: number; to: number; count: number } | null>(null)
   const highlightedScrollKeyRef = useRef<string | null>(null)
   const { askDate, datePromptDialog } = useDatePrompt()
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
@@ -3878,6 +4198,19 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   const postsInBook = posts.filter(post => post.bookId === book.id)
   const comments = postsInBook.filter(post => post.type !== 'theory').sort(newestFirst)
   const theories = postsInBook.filter(post => post.type === 'theory').sort(newestFirst)
+  const myReplayPosts = postsInBook
+    .filter(post => post.userId === currentUser.id)
+    .sort((a, b) => a.chapter - b.chapter || new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  const chapterRoomReaders = sameChapterReaders(book, shelf, users, currentUser)
+  const milestoneRows = [25, 50, 75, 100].map(percent => {
+    const chapter = chapterFromPercent(book, percent)
+    return {
+      percent,
+      chapter,
+      readers: readerRows.filter(({ entry }) => visibleChapterForEntry(book, entry) >= chapter).length,
+      posts: postsInBook.filter(post => post.chapter <= chapter).length,
+    }
+  })
   const highlightedPost = highlightedPostId ? postsInBook.find(post => post.id === highlightedPostId) : undefined
   const highlightedList = highlightedPost?.type === 'theory' ? theories : comments
   const highlightedPostIndex = highlightedPost ? highlightedList.findIndex(post => post.id === highlightedPost.id) : -1
@@ -3888,6 +4221,9 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
     ? activeList.filter(post => post.chapter <= visibleChapterLimit)
     : activeList
   const hiddenFuturePostCount = Math.max(0, activeList.length - visibleActiveList.length)
+  const visibleUnlockedPosts = unlockedRange
+    ? activeList.filter(post => post.chapter >= unlockedRange.from && post.chapter <= unlockedRange.to).length
+    : 0
   const detailRows = [
     ['Série', book.series || 'Não informado'],
     ['Volume', book.volume || 'Não informado'],
@@ -3919,7 +4255,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
 
   return (
     <section>
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-stone-800 bg-stone-950/90 px-4 py-3 backdrop-blur-xl md:px-5">
+      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-stone-800 bg-stone-950/90 px-4 py-3 pr-16 backdrop-blur-xl md:px-5 md:pr-16">
         <button onClick={onBack} className="rounded-lg px-2 py-1 text-xl leading-none text-stone-400 hover:bg-stone-900 hover:text-stone-100">
           ←
         </button>
@@ -4023,7 +4359,9 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                           </label>
                         </div>
                         <button onClick={async () => {
+                          const previousChapter = visibleChapterForEntry(book, myEntry)
                           const nextProgress = percentFromChapter(book, Number(chapterInput))
+                          const nextChapter = chapterFromPercent(book, nextProgress)
                           const status = nextProgress >= 100 ? 'read' : myEntry.status
                           const dateChanges = await datesForShelfStatus(status, myEntry, askDate)
                           if (!dateChanges) return
@@ -4038,7 +4376,9 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                             offerReadingCheckIn: true,
                           })
                           if (saved === false) return
-                          setChapterLimit(chapterFromPercent(book, nextProgress))
+                          setChapterLimit(nextChapter)
+                          const unlockedCount = unlockedPostCountForRange(postsInBook, book.id, previousChapter + 1, nextChapter)
+                          setUnlockedRange(unlockedCount > 0 ? { from: previousChapter + 1, to: nextChapter, count: unlockedCount } : null)
                         }} className="mb-2 w-full rounded-lg bg-amber-300 px-3 py-1.5 text-sm font-bold text-stone-950 sm:mb-3 sm:py-2">
                           Atualizar
                         </button>
@@ -4121,14 +4461,41 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                   </div>
                 )}
               </div>
+              {unlockedRange && (
+                <div className="mt-2 rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-300">Novo trecho liberado</p>
+                  <p className="mt-1 text-sm font-bold text-stone-100">
+                    {unlockedRange.count} {unlockedRange.count === 1 ? 'post foi liberado' : 'posts foram liberados'} entre os capítulos {unlockedRange.from} e {unlockedRange.to}.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFeedVisibility('available')
+                        setTab('feed')
+                      }}
+                      className="rounded-lg bg-emerald-300 px-3 py-2 text-xs font-bold text-stone-950"
+                    >
+                      Ver liberados
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onCreatePost(book.id)}
+                      className="rounded-lg border border-emerald-300/40 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-300/10"
+                    >
+                      Postar reação
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="sticky top-[53px] z-10 grid grid-cols-3 border-b border-stone-800 bg-stone-950">
-        {([['feed', 'Feed'], ['theories', 'Teorias'], ['about', 'Sobre']] as const).map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} className={`border-b-2 px-3 py-3 text-sm font-bold transition ${tab === id ? 'border-amber-300 text-amber-300' : 'border-transparent text-stone-500'}`}>
+      <div className="sticky top-[53px] z-10 grid grid-cols-5 border-b border-stone-800 bg-stone-950">
+        {([['feed', 'Feed'], ['theories', 'Teorias'], ['rooms', 'Salas'], ['replay', 'Replay'], ['about', 'Sobre']] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} className={`border-b-2 px-1 py-3 text-xs font-bold transition sm:px-3 sm:text-sm ${tab === id ? 'border-amber-300 text-amber-300' : 'border-transparent text-stone-500'}`}>
             {label}
           </button>
         ))}
@@ -4203,8 +4570,104 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
             </div>
           )}
         </div>
+      ) : tab === 'rooms' ? (
+        <div className="space-y-4 p-4 md:p-5">
+          <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-serif text-xl text-stone-50">Sala do seu capítulo</h2>
+                <p className="mt-1 text-sm text-stone-500">Leitores perto do seu progresso aparecem aqui para conversar com menos risco de spoiler.</p>
+              </div>
+              <span className="rounded-full border border-stone-700 px-3 py-1 text-xs font-bold text-stone-400">cap. {visibleChapterLimit}</span>
+            </div>
+            <div className="space-y-2">
+              {chapterRoomReaders.length ? chapterRoomReaders.map(({ user, chapter }) => (
+                <button key={user.id} onClick={() => onUserClick(user.id)} className="flex w-full items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40">
+                  <Avatar user={user} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-stone-100">{user.name}</p>
+                    <p className="truncate text-xs text-stone-500">@{user.handle} · cap. {chapter}</p>
+                  </div>
+                  <span className="rounded-full bg-amber-300/10 px-2 py-1 text-xs font-bold text-amber-200">mesmo trecho</span>
+                </button>
+              )) : <EmptyState text="Ainda não há leitores perto do seu capítulo neste livro." />}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-serif text-xl text-stone-50">Clube da leitura</h2>
+              <button onClick={() => onCreatePost(book.id)} className="rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-stone-950">
+                Criar tópico
+              </button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {milestoneRows.map(row => (
+                <button
+                  key={row.percent}
+                  type="button"
+                  onClick={() => {
+                    setChapterLimit(row.chapter)
+                    setFeedVisibility('available')
+                    setTab('feed')
+                  }}
+                  className="rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40"
+                >
+                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{row.percent}% do livro</span>
+                  <span className="mt-1 block text-sm font-bold text-stone-100">Até o cap. {row.chapter}</span>
+                  <span className="mt-1 block text-xs text-stone-500">{row.readers} leitores · {row.posts} posts liberáveis</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : tab === 'replay' ? (
+        <div className="space-y-4 p-4 md:p-5">
+          <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-serif text-xl text-stone-50">Replay da leitura</h2>
+                <p className="mt-1 text-sm text-stone-500">Suas publicações aparecem na ordem em que a história avançou.</p>
+              </div>
+              {hasFullBookAccess && <span className="rounded-full border border-amber-300/40 bg-amber-300/10 px-3 py-1 text-xs font-bold text-amber-200">livro liberado</span>}
+            </div>
+            {myReplayPosts.length ? (
+              <div className="space-y-3">
+                {myReplayPosts.map((post, index) => {
+                  const parts = postTextParts(post.text)
+                  return (
+                    <article key={post.id} className="grid grid-cols-[3rem_1fr] gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
+                      <div className="text-center">
+                        <div className="font-serif text-xl text-amber-300">{index + 1}</div>
+                        <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-stone-600">cap. {post.chapter}</div>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{post.type === 'theory' ? 'Teoria' : post.type === 'reaction' ? 'Reação' : 'Comentário'} · {formatDateTime(post.timestamp)}</p>
+                        {post.reactionEmoji && <p className="mt-1 text-3xl leading-none">{post.reactionEmoji}</p>}
+                        {parts.text && <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-stone-200">{parts.text}</p>}
+                        <p className="mt-2 text-xs text-stone-600">{post.likes.length} curtidas · {post.comments} respostas</p>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-stone-800 bg-stone-950 p-4">
+                <p className="text-sm text-stone-400">Você ainda não registrou nenhuma reação neste livro.</p>
+                <button onClick={() => onCreatePost(book.id)} className="mt-3 rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-stone-950">
+                  Criar primeira reação
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
       ) : (
         <div>
+          {unlockedRange && visibleUnlockedPosts > 0 && (
+            <div className="border-b border-stone-800 bg-emerald-300/10 px-4 py-3 md:px-5">
+              <p className="text-sm font-bold text-emerald-100">{visibleUnlockedPosts} posts do trecho recém-liberado estão neste feed.</p>
+            </div>
+          )}
           {!visibleActiveList.length && <EmptyState text={feedVisibility === 'available' && activeList.length ? (tab === 'theories' ? `Nenhuma teoria liberada até o capítulo ${visibleChapterLimit}.` : `Nenhum comentário liberado até o capítulo ${visibleChapterLimit}.`) : tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
           <PaginatedPostList
             posts={visibleActiveList}
@@ -4349,7 +4812,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
   return (
     <section>
       <Header title={isOwnProfile ? 'Perfil' : `@${profileUser.handle}`} />
-      <div className="border-b border-stone-800 p-4 md:p-5">
+      <div className="border-b border-stone-800 px-4 pb-4 pt-6 md:px-5 md:pb-5 md:pt-7">
         <div className="flex gap-4">
           <Avatar user={profileUser} size="lg" />
           <div className="min-w-0 flex-1">
@@ -4483,7 +4946,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
       </div>
 
       <div className="p-4 md:p-5">
-        <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+        <div className="folio-scrollbar-hidden mb-4 flex gap-2 overflow-x-auto pb-1">
           {shelfFilters.map(status => {
             const count = myShelf.filter(entry => entry.status === status).length
             return (
@@ -4658,18 +5121,25 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   )
 }
 
-function NotificationsPage({ notifications, currentUser, users, books, shelf, showDeviceNotificationControls, deviceNotificationStatus, onEnableDeviceNotifications, onNotificationClick, onUserClick }: {
+function NotificationsPage({ notifications, currentUser, users, books, shelf, posts, readingGoal, showDeviceNotificationControls, deviceNotificationStatus, onEnableDeviceNotifications, onNotificationClick, onUserClick, onBookClick, onCreatePost, onToggleReadingCheckIn }: {
   notifications: FolioNotification[]
   currentUser: User
   users: User[]
   books: Book[]
   shelf: ShelfEntry[]
+  posts: Post[]
+  readingGoal: ReadingGoal
   showDeviceNotificationControls: boolean
   deviceNotificationStatus: DeviceNotificationStatus
   onEnableDeviceNotifications: () => void
   onNotificationClick: (notification: FolioNotification) => void
   onUserClick: (id: string) => void
+  onBookClick: (id: string) => void
+  onCreatePost: (bookId?: string) => void
+  onToggleReadingCheckIn: () => Promise<boolean | void> | boolean | void
 }) {
+  const nudges = buildSmartNudges(currentUser, books, shelf, posts, readingGoal)
+
   return (
     <section>
       <Header title="Notificações">
@@ -4701,6 +5171,7 @@ function NotificationsPage({ notifications, currentUser, users, books, shelf, sh
           )}
         </div>
       </Header>
+      <SmartNudgesPanel nudges={nudges} onBookClick={onBookClick} onCreatePost={onCreatePost} onToggleReadingCheckIn={onToggleReadingCheckIn} />
       {notifications.length ? (
         <div>
           {notifications.map(notification => {
@@ -4764,19 +5235,33 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   shelf: ShelfEntry[]
   books: Book[]
   readingGoal: ReadingGoal
-  onUpdateReadingGoal: (changes: { targetBooks?: number; targetDays?: number }) => Promise<boolean | void> | boolean | void
+  onUpdateReadingGoal: (changes: { targetBooks?: number; targetBooksMonth?: number; targetBooksWeek?: number; targetDays?: number }) => Promise<boolean | void> | boolean | void
   onToggleReadingCheckIn: () => Promise<boolean | void> | boolean | void
   onResetReadingCheckIns: () => Promise<boolean | void> | boolean | void
 }) {
   const [editing, setEditing] = useState(false)
   const [inputVal, setInputVal] = useState(String(readingGoal.targetBooks || 40))
+  const [editingMonth, setEditingMonth] = useState(false)
+  const [monthInputVal, setMonthInputVal] = useState(String(readingGoal.targetBooksMonth || 4))
+  const [editingWeek, setEditingWeek] = useState(false)
+  const [weekInputVal, setWeekInputVal] = useState(String(readingGoal.targetBooksWeek || 1))
   const [editingDays, setEditingDays] = useState(false)
   const [dayInputVal, setDayInputVal] = useState(String(readingGoal.targetDays || 120))
   const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
   const goalYear = readingGoal.year || new Date().getFullYear()
+  const goalMonth = readingGoal.month || new Date().getMonth() + 1
+  const goalWeekStart = readingGoal.weekStart || weekStartDateKey()
+  const targetBooksMonth = readingGoal.targetBooksMonth || 4
+  const targetBooksWeek = readingGoal.targetBooksWeek || 1
   const readThisYear = readingGoal.booksReadThisYear ?? myShelf.filter(entry => isCompletedStatus(entry.status) && isDateInYear(entry.endDate, goalYear)).length
+  const readThisMonth = readingGoal.booksReadThisMonth ?? myShelf.filter(entry => isCompletedStatus(entry.status) && isDateInMonth(entry.endDate, goalYear, goalMonth)).length
+  const readThisWeek = readingGoal.booksReadThisWeek ?? myShelf.filter(entry => isCompletedStatus(entry.status) && isDateInWeek(entry.endDate, goalWeekStart)).length
   const progress = Math.min(100, Math.round((readThisYear / Math.max(1, readingGoal.targetBooks)) * 100))
   const remaining = Math.max(0, readingGoal.targetBooks - readThisYear)
+  const monthProgress = Math.min(100, Math.round((readThisMonth / Math.max(1, targetBooksMonth)) * 100))
+  const monthRemaining = Math.max(0, targetBooksMonth - readThisMonth)
+  const weekProgress = Math.min(100, Math.round((readThisWeek / Math.max(1, targetBooksWeek)) * 100))
+  const weekRemaining = Math.max(0, targetBooksWeek - readThisWeek)
   const dayProgress = Math.min(100, Math.round((readingGoal.checkIns.length / Math.max(1, readingGoal.targetDays)) * 100))
   const remainingDays = Math.max(0, readingGoal.targetDays - readingGoal.checkIns.length)
   const dayGoalCompleted = readingGoal.checkIns.length >= readingGoal.targetDays
@@ -4794,11 +5279,113 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
       checked: readingGoal.checkIns.includes(key),
     }
   })
+  const weeklyCheckIns = recentDays.slice(-7).filter(day => day.checked).length
+  const badgeRows = [
+    { label: 'Sequência acesa', value: readingGoal.currentStreak >= 3 ? 'Conquistado' : `${Math.max(0, 3 - readingGoal.currentStreak)} dias faltando`, active: readingGoal.currentStreak >= 3 },
+    { label: 'Semana leitora', value: weeklyCheckIns >= 5 ? 'Conquistado' : `${weeklyCheckIns}/5 dias`, active: weeklyCheckIns >= 5 },
+    { label: 'Estante viva', value: currentlyReading.length >= 2 ? 'Conquistado' : `${currentlyReading.length}/2 lendo`, active: currentlyReading.length >= 2 },
+  ]
 
   return (
     <section>
       <Header title="Metas de leitura" />
-      <div className="space-y-4 p-4 md:p-5">
+      <div className="space-y-4 px-4 pb-4 pt-6 md:px-5 md:pb-5 md:pt-7">
+        <div className="rounded-lg border border-amber-300/25 bg-stone-900 p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-300">Desafio da semana</p>
+              <h2 className="mt-1 font-serif text-xl text-stone-100">Leia em 5 dias diferentes</h2>
+              <p className="mt-1 text-sm text-stone-500">O desafio usa seus check-ins dos últimos 7 dias.</p>
+            </div>
+            <span className="rounded-full border border-stone-700 px-3 py-1 text-xs font-black text-stone-300">{weeklyCheckIns}/5</span>
+          </div>
+          <ProgressBar value={Math.min(100, Math.round((weeklyCheckIns / 5) * 100))} />
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            {badgeRows.map(badge => (
+              <div key={badge.label} className={`rounded-lg border p-3 ${badge.active ? 'border-amber-300/40 bg-amber-300/10' : 'border-stone-800 bg-stone-950'}`}>
+                <p className="text-sm font-bold text-stone-100">{badge.label}</p>
+                <p className={`mt-1 text-xs font-semibold ${badge.active ? 'text-amber-200' : 'text-stone-500'}`}>{badge.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-stone-800 bg-stone-900 p-5">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-serif text-xl text-stone-100">Meta semanal</h2>
+                <p className="text-sm text-stone-500">Conta livros concluídos desde {goalWeekStart.slice(8, 10)}/{goalWeekStart.slice(5, 7)}.</p>
+              </div>
+              {editingWeek ? (
+                <div className="flex gap-2">
+                  <input value={weekInputVal} onChange={e => setWeekInputVal(e.target.value)} type="number" className="w-20 rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-center text-sm text-stone-100 outline-none focus:border-amber-300" />
+                  <button onClick={async () => {
+                    const targetBooksWeek = clamp(Number(weekInputVal), 1, 30)
+                    const saved = await onUpdateReadingGoal({ targetBooksWeek })
+                    if (saved === false) return
+                    setWeekInputVal(String(targetBooksWeek))
+                    setEditingWeek(false)
+                  }} className="rounded-lg bg-amber-300 px-3 text-sm font-bold text-stone-950">
+                    OK
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => {
+                  setWeekInputVal(String(targetBooksWeek))
+                  setEditingWeek(true)
+                }} className="text-sm font-bold text-amber-300">Editar</button>
+              )}
+            </div>
+            <div className="mb-4 flex items-end gap-3">
+              <span className="font-serif text-6xl leading-none text-amber-300">{readThisWeek}</span>
+              <span className="pb-2 text-sm text-stone-400">de {targetBooksWeek} livros</span>
+            </div>
+            <ProgressBar value={weekProgress} />
+            <div className="mt-2 flex justify-between text-xs text-stone-500">
+              <span>{weekProgress}% concluído</span>
+              <span>{weekRemaining} restantes</span>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-stone-800 bg-stone-900 p-5">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-serif text-xl text-stone-100">Meta mensal</h2>
+                <p className="text-sm text-stone-500">Conta livros concluídos em {READ_MONTH_LABELS[goalMonth - 1]}.</p>
+              </div>
+              {editingMonth ? (
+                <div className="flex gap-2">
+                  <input value={monthInputVal} onChange={e => setMonthInputVal(e.target.value)} type="number" className="w-20 rounded-lg border border-stone-700 bg-stone-950 px-2 py-2 text-center text-sm text-stone-100 outline-none focus:border-amber-300" />
+                  <button onClick={async () => {
+                    const targetBooksMonth = clamp(Number(monthInputVal), 1, 99)
+                    const saved = await onUpdateReadingGoal({ targetBooksMonth })
+                    if (saved === false) return
+                    setMonthInputVal(String(targetBooksMonth))
+                    setEditingMonth(false)
+                  }} className="rounded-lg bg-amber-300 px-3 text-sm font-bold text-stone-950">
+                    OK
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => {
+                  setMonthInputVal(String(targetBooksMonth))
+                  setEditingMonth(true)
+                }} className="text-sm font-bold text-amber-300">Editar</button>
+              )}
+            </div>
+            <div className="mb-4 flex items-end gap-3">
+              <span className="font-serif text-6xl leading-none text-amber-300">{readThisMonth}</span>
+              <span className="pb-2 text-sm text-stone-400">de {targetBooksMonth} livros</span>
+            </div>
+            <ProgressBar value={monthProgress} />
+            <div className="mt-2 flex justify-between text-xs text-stone-500">
+              <span>{monthProgress}% concluído</span>
+              <span>{monthRemaining} restantes</span>
+            </div>
+          </div>
+        </div>
+
         <div className="rounded-lg border border-stone-800 bg-stone-900 p-5">
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
@@ -6300,16 +6887,22 @@ function StorePage({ token, currentUser }: { token: string; currentUser: User })
   )
 }
 
-function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick, onToggleFollow }: {
+function RightPanel({ currentUser, users, shelf, books, posts, readingGoal, onBookClick, onUserClick, onCreatePost, onToggleReadingCheckIn, onToggleFollow }: {
   currentUser: User
   users: User[]
   shelf: ShelfEntry[]
   books: Book[]
+  posts: Post[]
+  readingGoal: ReadingGoal
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
+  onCreatePost: (bookId?: string) => void
+  onToggleReadingCheckIn: () => Promise<boolean | void> | boolean | void
   onToggleFollow: (userId: string) => Promise<boolean | void> | boolean | void
 }) {
   const [readerQuery, setReaderQuery] = useState('')
+  const nudges = buildSmartNudges(currentUser, books, shelf, posts, readingGoal)
+  const spotlights = buildWeeklySpotlights(users, books, posts, shelf).slice(0, 3)
   const currentlyReading = shelf
     .filter(entry => entry.userId === currentUser.id && entry.status === 'reading')
     .map(entry => ({ entry, book: books.find(book => book.id === entry.bookId)! }))
@@ -6321,6 +6914,28 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
 
   return (
     <aside className="sticky top-3 space-y-3">
+      {nudges.length > 0 && (
+        <div className="rounded-lg border border-amber-300/25 bg-stone-900 p-3">
+          <h2 className="mb-2 font-serif text-base text-stone-100">Voltar hoje</h2>
+          <div className="space-y-2">
+            {nudges.map(nudge => (
+              <button
+                key={nudge.key}
+                type="button"
+                onClick={() => {
+                  if (nudge.action === 'checkin') void onToggleReadingCheckIn()
+                  else if (nudge.action === 'post') onCreatePost(nudge.bookId)
+                  else if (nudge.bookId) onBookClick(nudge.bookId)
+                }}
+                className="w-full rounded-lg border border-stone-800 bg-stone-950 p-2.5 text-left transition hover:border-amber-300/50"
+              >
+                <span className="block text-sm font-bold text-stone-100">{nudge.title}</span>
+                <span className="mt-1 block text-xs leading-relaxed text-stone-500">{nudge.detail}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="rounded-lg border border-stone-800 bg-stone-900 p-3">
         <h2 className="mb-2 font-serif text-base text-stone-100">Buscar leitores</h2>
         <input
@@ -6353,6 +6968,25 @@ function RightPanel({ currentUser, users, shelf, books, onBookClick, onUserClick
           Nos feeds de obra, comentários são liberados por capítulo para reduzir spoilers.
         </p>
       </div>
+      {spotlights.length > 0 && (
+        <div className="rounded-lg border border-stone-800 bg-stone-900 p-3">
+          <h2 className="mb-2 font-serif text-base text-stone-100">Em alta</h2>
+          <div className="space-y-2">
+            {spotlights.map(row => (
+              <button
+                key={row.key}
+                type="button"
+                onClick={() => row.bookId ? onBookClick(row.bookId) : row.userId ? onUserClick(row.userId) : undefined}
+                className="w-full rounded-lg bg-stone-950 p-2.5 text-left transition hover:bg-stone-800"
+              >
+                <span className="block text-xs font-bold uppercase tracking-[0.14em] text-amber-300">{row.label}</span>
+                <span className="mt-1 block truncate text-sm font-bold text-stone-100">{row.title}</span>
+                <span className="mt-1 block text-xs text-stone-500">{row.detail}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {currentlyReading.length > 0 && (
         <div className="rounded-lg border border-stone-800 bg-stone-900 p-3">
           <h2 className="mb-2 font-serif text-base text-stone-100">Lendo agora</h2>
@@ -6455,12 +7089,13 @@ export default function App() {
   const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(() => localStorage.getItem('folio_selected_profile_user_id'))
   const [profileListKind, setProfileListKind] = useState<ProfileListKind>('following')
   const [showPostModal, setShowPostModal] = useState(false)
+  const [postModalBookId, setPostModalBookId] = useState<string | null>(null)
   const [shelf, setShelf] = useState<ShelfEntry[]>([])
   const [posts, setPosts] = useState<Post[]>([])
   const [replies, setReplies] = useState<Reply[]>([])
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
   const [notifications, setNotifications] = useState<FolioNotification[]>([])
-  const [readingGoal, setReadingGoal] = useState<ReadingGoal>({ targetBooks: 40, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
+  const [readingGoal, setReadingGoal] = useState<ReadingGoal>({ targetBooks: 40, targetBooksMonth: 4, targetBooksWeek: 1, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
   const [loadingApp, setLoadingApp] = useState(true)
   const [resumeError, setResumeError] = useState('')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
@@ -6561,6 +7196,11 @@ export default function App() {
     setTheme(current => current === 'dark' ? 'light' : 'dark')
   }
 
+  function handleOpenCreatePost(bookId?: string | null) {
+    setPostModalBookId(bookId || null)
+    setShowPostModal(true)
+  }
+
   async function handleEnableDeviceNotifications() {
     if (deviceNotificationStatus() === 'unsupported') {
       setDeviceNotifications('unsupported')
@@ -6631,7 +7271,7 @@ export default function App() {
     setReplies(data.replies)
     setTimeline(data.timeline || [])
     setNotifications(data.notifications || [])
-    setReadingGoal(data.readingGoal || { targetBooks: 40, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
+    setReadingGoal(data.readingGoal || { targetBooks: 40, targetBooksMonth: 4, targetBooksWeek: 1, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
     setCurrentUser(data.users.find(user => user.id === data.currentUserId) || data.users[0] || null)
     setResumeError('')
     setLoadingApp(false)
@@ -7277,7 +7917,7 @@ export default function App() {
     }
   }
 
-  async function handleUpdateReadingGoal(changes: { targetBooks?: number; targetDays?: number }) {
+  async function handleUpdateReadingGoal(changes: { targetBooks?: number; targetBooksMonth?: number; targetBooksWeek?: number; targetDays?: number }) {
     return runAction(async () => {
       await apiRequest('/folio/reading-goal', { method: 'PATCH', body: JSON.stringify(changes) }, token)
       await loadBootstrap()
@@ -7366,15 +8006,15 @@ export default function App() {
       <Navigation
         currentUser={currentUser}
         page={page}
-        notificationCount={notificationCount}
         theme={theme}
         onToggleTheme={handleToggleTheme}
         onNavigate={handleNavigate}
-        onCreatePost={() => setShowPostModal(true)}
+        onCreatePost={() => handleOpenCreatePost()}
         onLogout={handleLogout}
       />
       <ActionLoadingIndicator active={actionLoadingCount > 0} />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      <NotificationTopButton count={notificationCount} active={page === 'notifications'} onClick={() => void handleNavigate('notifications')} />
       {datePromptDialog}
       {confirmPromptDialog}
 
@@ -7383,17 +8023,17 @@ export default function App() {
           {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} onToggleFollow={handleToggleFollow} />}
           {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSearchBooks={handleSearchBooks} />}
           {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
-          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
+          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
-          {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} />}
+          {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
           {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} />}
           {page === 'store' && isSuperAdminUser(currentUser) && <StorePage token={token} currentUser={currentUser} />}
         </main>
 
         <div className="hidden w-88 shrink-0 p-3 xl:block 2xl:w-96">
-          <RightPanel currentUser={currentUser} users={users} shelf={shelf} books={books} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} />
+          <RightPanel currentUser={currentUser} users={users} shelf={shelf} books={books} posts={posts} readingGoal={readingGoal} onBookClick={handleBookClick} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} onToggleFollow={handleToggleFollow} />
         </div>
       </div>
 
@@ -7403,8 +8043,11 @@ export default function App() {
           users={users}
           shelf={shelf}
           books={books}
-          initialBookId={page === 'book' ? selectedBookId : null}
-          onClose={() => setShowPostModal(false)}
+          initialBookId={postModalBookId || (page === 'book' ? selectedBookId : null)}
+          onClose={() => {
+            setShowPostModal(false)
+            setPostModalBookId(null)
+          }}
           onPost={handleCreatePost}
           onUploadImage={handleUploadPostImage}
         />

@@ -171,6 +171,15 @@ body {
   border-radius: 2px;
 }
 
+.folio-scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.folio-scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 .folio-field-control {
   align-items: center;
   box-sizing: border-box;
