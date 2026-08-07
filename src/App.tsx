@@ -124,7 +124,10 @@ interface Reply {
   timestamp: string
   likes: string[]
   comments: number
+  mentionedUserIds?: string[]
 }
+
+type AddReplyHandler = (postId: string, text: string, parentReplyId?: string, mentionedUserIds?: string[]) => Promise<boolean | void> | boolean | void
 
 interface FolioNotification {
   id: string
@@ -746,10 +749,11 @@ function PostImageLightbox({ src, alt, onClose }: {
   )
 }
 
-function PostTextWithMentions({ text, users, onUserClick }: {
+function PostTextWithMentions({ text, users, onUserClick, className = 'mb-3 whitespace-pre-line text-sm leading-relaxed text-stone-300' }: {
   text: string
   users: User[]
   onUserClick: (id: string) => void
+  className?: string
 }) {
   const usersByHandle = new Map(users.map(user => [normalizeSearch(user.handle), user]))
   const parts: React.ReactNode[] = []
@@ -776,7 +780,7 @@ function PostTextWithMentions({ text, users, onUserClick }: {
 
   if (lastIndex < text.length) parts.push(text.slice(lastIndex))
 
-  return <p className="mb-3 whitespace-pre-line text-sm leading-relaxed text-stone-300">{parts}</p>
+  return <p className={className}>{parts}</p>
 }
 
 function postTextParts(text?: string | null) {
@@ -977,6 +981,93 @@ function uniqueUsersById(users: User[]) {
     seen.add(user.id)
     return true
   })
+}
+
+function MentionTextarea({ value, onChange, currentUser, users, rows, placeholder, disabled, className }: {
+  value: string
+  onChange: (value: string) => void
+  currentUser: User
+  users: User[]
+  rows: number
+  placeholder: string
+  disabled?: boolean
+  className: string
+}) {
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [activeMention, setActiveMention] = useState<ReturnType<typeof activeMentionQuery>>(null)
+  const mentionSuggestions = activeMention ? usersMatchingMentionQuery(currentUser, users, activeMention.query) : []
+
+  useEffect(() => {
+    if (disabled) setActiveMention(null)
+  }, [disabled])
+
+  function updateMentionState(element: HTMLTextAreaElement, nextValue = element.value) {
+    if (disabled) {
+      setActiveMention(null)
+      return
+    }
+    const caretIndex = element.selectionStart ?? nextValue.length
+    setActiveMention(activeMentionQuery(nextValue, caretIndex))
+  }
+
+  function selectMention(user: User) {
+    if (!activeMention || disabled) return
+    const mentionText = `@${user.handle} `
+    const nextValue = `${value.slice(0, activeMention.start)}${mentionText}${value.slice(activeMention.end)}`
+    const nextCaret = activeMention.start + mentionText.length
+
+    onChange(nextValue)
+    setActiveMention(null)
+    window.requestAnimationFrame(() => {
+      textAreaRef.current?.focus()
+      textAreaRef.current?.setSelectionRange(nextCaret, nextCaret)
+    })
+  }
+
+  return (
+    <>
+      <textarea
+        ref={textAreaRef}
+        value={value}
+        onChange={e => {
+          onChange(e.target.value)
+          updateMentionState(e.currentTarget, e.target.value)
+        }}
+        onInput={e => updateMentionState(e.currentTarget)}
+        onClick={e => updateMentionState(e.currentTarget)}
+        onFocus={e => updateMentionState(e.currentTarget)}
+        onKeyUp={e => updateMentionState(e.currentTarget)}
+        onSelect={e => updateMentionState(e.currentTarget)}
+        disabled={disabled}
+        rows={rows}
+        placeholder={placeholder}
+        className={className}
+      />
+      {activeMention && (
+        <div className="mt-2 overflow-hidden rounded-lg border border-stone-800 bg-stone-950">
+          {mentionSuggestions.length ? mentionSuggestions.map(user => (
+            <button
+              key={user.id}
+              type="button"
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => selectMention(user)}
+              className="flex w-full items-center gap-3 border-b border-stone-800 px-3 py-2 text-left last:border-b-0 hover:bg-stone-900"
+            >
+              <Avatar user={user} size="sm" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-bold text-stone-100">{user.name}</span>
+                <span className="block truncate text-xs text-stone-500">@{user.handle}</span>
+              </span>
+            </button>
+          )) : (
+            <p className="px-3 py-3 text-xs font-semibold text-stone-500">
+              Nenhuma pessoa seguida encontrada.
+            </p>
+          )}
+        </div>
+      )}
+    </>
+  )
 }
 
 function mergeBooksById(...groups: Book[][]) {
@@ -1587,7 +1678,7 @@ function notificationTypeText(type: FolioNotification['type'], status?: BookStat
     reply_like: 'curtiu seu comentário',
     reply_reply: 'respondeu seu comentário',
     book_comment: notificationBookCommentText(status),
-    mention: 'mencionou você em uma publicação',
+    mention: 'mencionou você',
   }
   return textByType[type]
 }
@@ -2202,7 +2293,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   shelf?: ShelfEntry[]
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
-  onAddReply: (postId: string, text: string, parentReplyId?: string) => Promise<boolean | void> | boolean | void
+  onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
@@ -2286,7 +2377,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
     submittingReplyRef.current = true
     setSubmittingReply(true)
     try {
-      const saved = await onAddReply(post.id, trimmed)
+      const mentionedUserIds = mentionedUsersFromText(trimmed, currentUser, users).map(user => user.id)
+      const saved = await onAddReply(post.id, trimmed, undefined, mentionedUserIds)
       if (saved === false) return
       setReplyText('')
       setShowReplyBox(false)
@@ -2302,7 +2394,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
     submittingNestedReplyRef.current = parentReplyId
     setSubmittingNestedReplyId(parentReplyId)
     try {
-      const saved = await onAddReply(post.id, trimmed, parentReplyId)
+      const mentionedUserIds = mentionedUsersFromText(trimmed, currentUser, users).map(user => user.id)
+      const saved = await onAddReply(post.id, trimmed, parentReplyId, mentionedUserIds)
       if (saved === false) return
       setNestedReplyText('')
       setReplyingToReplyId(null)
@@ -2398,9 +2491,11 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           </div>
           {showReplyBox && canInteractWithContent && (
             <div className="mt-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
-              <textarea
+              <MentionTextarea
                 value={replyText}
-                onChange={e => setReplyText(e.target.value)}
+                onChange={setReplyText}
+                currentUser={currentUser}
+                users={users}
                 disabled={submittingReply}
                 rows={2}
                 placeholder="Responder a publicação..."
@@ -2434,7 +2529,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                             <button onClick={() => onDeleteReply(reply.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button>
                           )}
                         </div>
-                        <p className="text-sm text-stone-400">{reply.text}</p>
+                        <PostTextWithMentions text={reply.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />
                         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                           <button onClick={() => onToggleReplyLike(reply.id)} className={`font-semibold ${replyLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
                             {replyLiked ? '♥' : '♡'} {replyLikes.length}
@@ -2456,9 +2551,11 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                         </div>
                         {replyingToReplyId === reply.id && (
                           <div className="mt-2 rounded-lg border border-stone-800 bg-stone-900 p-2">
-                            <textarea
+                            <MentionTextarea
                               value={nestedReplyText}
-                              onChange={e => setNestedReplyText(e.target.value)}
+                              onChange={setNestedReplyText}
+                              currentUser={currentUser}
+                              users={users}
                               disabled={submittingNestedReplyId === reply.id}
                               rows={2}
                               placeholder={`Responder @${replyUser.handle}...`}
@@ -2490,7 +2587,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                                         <button onClick={() => onDeleteReply(child.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button>
                                       )}
                                     </div>
-                                    <p className="text-sm text-stone-400">{child.text}</p>
+                                    <PostTextWithMentions text={child.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />
                                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                                       <button onClick={() => onToggleReplyLike(child.id)} className={`font-semibold ${childLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
                                         {childLiked ? '♥' : '♡'} {childLikes.length}
@@ -2603,7 +2700,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   timeline: TimelineEvent[]
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
-  onAddReply: (postId: string, text: string, parentReplyId?: string) => Promise<boolean | void> | boolean | void
+  onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
@@ -3736,7 +3833,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   highlightedPostId?: string | null
   onBack: () => void
   onUserClick: (id: string) => void
-  onAddReply: (postId: string, text: string, parentReplyId?: string) => Promise<boolean | void> | boolean | void
+  onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
@@ -4476,7 +4573,7 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   onBookClick: (id: string) => void
   onUserClick: (userId: string) => void
   onToggleFollow: (userId: string) => Promise<boolean | void> | boolean | void
-  onAddReply: (postId: string, text: string, parentReplyId?: string) => Promise<boolean | void> | boolean | void
+  onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
@@ -4869,8 +4966,6 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
   const defaultPercent = isCompletedStatus(selectedEntry?.status) ? 100 : selectedEntry?.progress ?? 0
   const [postType, setPostType] = useState<PostType>('comment')
   const [text, setText] = useState('')
-  const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
-  const [activeMention, setActiveMention] = useState<ReturnType<typeof activeMentionQuery>>(null)
   const [reactionEmoji, setReactionEmoji] = useState('🤯')
   const [chapter, setChapter] = useState(selectedBook ? String(chapterFromPercent(selectedBook, defaultPercent)) : '1')
   const [postImageUrl, setPostImageUrl] = useState('')
@@ -4881,8 +4976,6 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
   const postingRef = useRef(false)
   const emojis = ['😭', '🤯', '♥', '😂', '😡', '🔥', '💔', '😱', '🥹', '👏']
   const canPost = selectedBook && chapter !== '' && !uploadingPostImage && !posting && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0 || Boolean(postImageUrl))
-  const mentionQuery = activeMention
-  const mentionSuggestions = mentionQuery ? usersMatchingMentionQuery(currentUser, users, mentionQuery.query) : []
   const filteredBooks = myBooks
     .filter(({ book }) => !bookQuery.trim() || bookMatchesSearch(book, bookQuery, 'title') || bookMatchesSearch(book, bookQuery, 'author'))
     .slice(0, 8)
@@ -4903,25 +4996,6 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
     }
     const next = clamp(Number(value), 1, selectedBook.totalChapters)
     setChapter(String(next))
-  }
-
-  function updateTextMentionState(element: HTMLTextAreaElement, nextText = element.value) {
-    const caretIndex = element.selectionStart ?? nextText.length
-    setActiveMention(activeMentionQuery(nextText, caretIndex))
-  }
-
-  function selectMention(user: User) {
-    if (!mentionQuery) return
-    const mentionText = `@${user.handle} `
-    const nextText = `${text.slice(0, mentionQuery.start)}${mentionText}${text.slice(mentionQuery.end)}`
-    const nextCaret = mentionQuery.start + mentionText.length
-
-    setText(nextText)
-    setActiveMention(null)
-    window.requestAnimationFrame(() => {
-      textAreaRef.current?.focus()
-      textAreaRef.current?.setSelectionRange(nextCaret, nextCaret)
-    })
   }
 
   async function handlePost() {
@@ -5032,45 +5106,15 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
               ) : (
                 <div className="text-sm font-semibold text-stone-300">
                   <p>{postType === 'theory' ? 'Sua teoria' : 'Comentário'}</p>
-                  <textarea
-                    ref={textAreaRef}
+                  <MentionTextarea
                     value={text}
-                    onChange={e => {
-                      setText(e.target.value)
-                      updateTextMentionState(e.currentTarget, e.target.value)
-                    }}
-                    onInput={e => updateTextMentionState(e.currentTarget)}
-                    onClick={e => updateTextMentionState(e.currentTarget)}
-                    onFocus={e => updateTextMentionState(e.currentTarget)}
-                    onKeyUp={e => updateTextMentionState(e.currentTarget)}
-                    onSelect={e => updateTextMentionState(e.currentTarget)}
+                    onChange={setText}
+                    currentUser={currentUser}
+                    users={users}
                     rows={4}
                     placeholder={postType === 'theory' ? 'Ex.: acho que essa personagem ainda sabe mais do que contou...' : 'Escreva livremente. Quem estiver atrás desse ponto não verá agora.'}
                     className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-base text-stone-100 outline-none focus:border-amber-300 sm:text-sm"
                   />
-                  {mentionQuery && (
-                    <div className="mt-2 overflow-hidden rounded-lg border border-stone-800 bg-stone-950">
-                      {mentionSuggestions.length ? mentionSuggestions.map(user => (
-                        <button
-                          key={user.id}
-                          type="button"
-                          onMouseDown={event => event.preventDefault()}
-                          onClick={() => selectMention(user)}
-                          className="flex w-full items-center gap-3 border-b border-stone-800 px-3 py-2 text-left last:border-b-0 hover:bg-stone-900"
-                        >
-                          <Avatar user={user} size="sm" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-bold text-stone-100">{user.name}</span>
-                            <span className="block truncate text-xs text-stone-500">@{user.handle}</span>
-                          </span>
-                        </button>
-                      )) : (
-                        <p className="px-3 py-3 text-xs font-semibold text-stone-500">
-                          Nenhuma pessoa seguida encontrada.
-                        </p>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -7018,14 +7062,19 @@ export default function App() {
     }
   }
 
-  async function handleAddReply(postId: string, text: string, parentReplyId?: string) {
+  async function handleAddReply(postId: string, text: string, parentReplyId?: string, mentionedUserIds: string[] = []) {
     if (!currentUser) return false
     return runAction(async () => {
       const activeToken = activeAuthToken()
       const path = parentReplyId
         ? '/folio/replies/replies'
         : `/folio/posts/${encodeURIComponent(postId)}/replies`
-      await apiRequest(path, { method: 'POST', body: JSON.stringify(parentReplyId ? { text, parentReplyId } : { text }) }, activeToken)
+      const payload = {
+        text,
+        ...(parentReplyId ? { parentReplyId } : {}),
+        ...(mentionedUserIds.length ? { mentionedUserIds } : {}),
+      }
+      await apiRequest(path, { method: 'POST', body: JSON.stringify(payload) }, activeToken)
       await loadBootstrap(activeToken)
     }, {
       success: 'Resposta publicada com sucesso.',
