@@ -26,7 +26,7 @@ interface User {
   name: string
   email: string
   password: string
-  role?: 'admin' | 'reader'
+  role?: 'admin' | 'superadmin' | 'reader'
   handle: string
   bio: string
   avatar: string
@@ -246,7 +246,7 @@ interface DashboardPostReportRow {
 
 interface DashboardUserReportRow {
   user: DashboardUser
-  role: 'admin' | 'reader' | string
+  role: 'admin' | 'superadmin' | 'reader' | string
   hasProfile: boolean
   createdAt?: string | null
   updatedAt?: string | null
@@ -401,12 +401,11 @@ interface ServiceNotice {
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
-  (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7113' : '')
-const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || API_BASE_URL || 'https://api.sgpf.com.br'
+  (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7198' : 'https://entrelinhas.sgpf.com.br')
+const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || API_BASE_URL || 'https://entrelinhas.sgpf.com.br'
 const BACKGROUND_REFRESH_INTERVAL_MS = 10000
 const DEVICE_NOTIFICATION_SW_URL = '/folio-service-worker.js'
 const DEVICE_NOTIFICATION_STORAGE_PREFIX = 'folio_device_notified_ids_'
-const SUPER_ADMIN_EMAILS = ['eduardo.cpbb@gmail.com']
 const POST_PAGE_SIZE = 5
 const LIBRARY_PAGE_SIZE = 30
 const POST_IMAGE_MARKER = '__folio_post_image__:'
@@ -414,6 +413,7 @@ const POST_IMAGE_MAX_DIMENSION = 1600
 const POST_IMAGE_COMPRESS_ABOVE_BYTES = 1400 * 1024
 const POST_IMAGE_JPEG_QUALITY = 0.82
 const DIRECT_UPLOAD_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const IMAGE_UPLOAD_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif'
 // Personalize este comunicado quando o motivo da indisponibilidade mudar.
 const SERVICE_UNAVAILABLE_NOTICE: ServiceNotice = {
   eyebrow: 'Comunicado Oficial - Grupo Entrelinhas',
@@ -479,7 +479,7 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 function isImageUpload(file: File) {
-  return file.type.startsWith('image/') || /\.(jpe?g|png|webp|gif)$/i.test(file.name)
+  return DIRECT_UPLOAD_IMAGE_TYPES.has(file.type.toLowerCase()) && /\.(jpe?g|png|webp|gif)$/i.test(file.name)
 }
 
 function postImageFileName(fileName: string) {
@@ -554,7 +554,6 @@ async function preparePostImageFile(file: File) {
 function resolveMediaUrl(value?: string | null) {
   const url = (value || '').trim()
   if (!url) return ''
-  if (/^(data:|blob:)/i.test(url)) return url
   if (url.startsWith('//')) return `https:${url}`
   if (/^http:\/\//i.test(url) && window.location.protocol === 'https:') {
     return url.replace(/^http:\/\//i, 'https://')
@@ -568,7 +567,7 @@ function resolveMediaUrl(value?: string | null) {
 
 function isMediaUrl(value?: string | null) {
   const url = (value || '').trim()
-  return /^(https?:|data:|blob:|\/\/|\/|uploads\/|media\/|files\/)/i.test(url)
+  return /^(https?:|\/\/|\/|uploads\/|media\/|files\/)/i.test(url)
 }
 
 const IMAGE_RETRY_PARAM = 'folio_img_retry'
@@ -842,9 +841,12 @@ function readerMatchesSearch(user: User, query: string) {
   return name.includes(needle) || handle.includes(needle.replace(/^@+/, '')) || handleWithAt.includes(needle)
 }
 
-function isSuperAdminUser(user?: User | null) {
-  const email = user?.email?.trim().toLowerCase()
-  return Boolean(email && SUPER_ADMIN_EMAILS.includes(email))
+function isSuperAdminUser(user?: { role?: string | null } | null) {
+  return user?.role === 'superadmin'
+}
+
+function isAdminUser(user?: { role?: string | null } | null) {
+  return user?.role === 'admin' || user?.role === 'superadmin'
 }
 
 function uniqueUsersById(users: User[]) {
@@ -2925,7 +2927,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
                 <p className="text-sm font-semibold text-stone-300">Capa do livro *</p>
                 <label className="inline-flex w-fit cursor-pointer rounded-lg border border-stone-700 px-3 py-2 text-xs font-bold text-stone-300 hover:bg-stone-800">
                   {uploadingCover ? 'Enviando...' : 'Enviar capa'}
-                  <input type="file" accept="image/*" className="hidden" onChange={async e => {
+                  <input type="file" accept={IMAGE_UPLOAD_ACCEPT} className="hidden" onChange={async e => {
                     const file = e.target.files?.[0]
                     if (!file) return
                     setUploadingCover(true)
@@ -3410,7 +3412,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
   const [bookModal, setBookModal] = useState<{ mode: 'new' | 'edit'; book?: Book } | null>(null)
   const [newBookStatus, setNewBookStatus] = useState<BookStatus>('want')
   const [visibleBookCount, setVisibleBookCount] = useState(LIBRARY_PAGE_SIZE)
-  const isAdmin = currentUser.role === 'admin'
+  const isAdmin = isAdminUser(currentUser)
   const myShelf = shelf.filter(entry => entry.userId === currentUser.id)
   const normalizedQuery = query.trim()
   const allMatchingBooks = useMemo(() => {
@@ -4118,7 +4120,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <p className="text-sm text-stone-500">@{profileUser.handle}</p>
               <span className="rounded-full border border-stone-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-500">
-                {profileUser.role === 'admin' ? 'Administrador' : 'Leitor'}
+                {isAdminUser(profileUser) ? 'Administrador' : 'Leitor'}
               </span>
             </div>
             <p className="mt-2 text-sm leading-relaxed text-stone-300">{profileUser.bio}</p>
@@ -4163,7 +4165,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
                     {uploadingAvatar ? 'Enviando...' : 'Enviar imagem'}
                     <input
                       type="file"
-                      accept="image/*"
+                      accept={IMAGE_UPLOAD_ACCEPT}
                       className="hidden"
                       onChange={async e => {
                         const file = e.target.files?.[0]
@@ -4897,7 +4899,7 @@ function CreatePostModal({ currentUser, shelf, books, initialBookId, onClose, on
                       {uploadingPostImage ? 'Enviando...' : 'Anexar'}
                       <input
                         type="file"
-                        accept="image/*"
+                        accept={IMAGE_UPLOAD_ACCEPT}
                         className="hidden"
                         disabled={uploadingPostImage}
                         onChange={async e => {
@@ -5178,7 +5180,7 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
             <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-cyan-300/40">
               <DashboardUserLine user={row.user} />
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-stone-400">
-                <span>{row.role === 'admin' ? 'Admin' : 'Leitor'}</span>
+                <span>{isAdminUser(row) ? 'Admin' : 'Leitor'}</span>
                 <span>{row.hasProfile ? 'Com perfil Folio' : 'Sem perfil Folio'}</span>
                 <span>{row.booksRead} lidos</span>
                 <span>{row.pagesRead.toLocaleString('pt-BR')} páginas</span>
@@ -6770,6 +6772,7 @@ export default function App() {
   async function handleUploadBookCover(file: File) {
     beginActionLoading()
     try {
+      if (!isImageUpload(file)) throw new Error('Envie uma imagem em JPG, PNG, WEBP ou GIF.')
       const formData = new FormData()
       formData.append('file', file)
       const response = await fetch(`${API_BASE_URL}/folio/books/cover`, {
@@ -6954,6 +6957,7 @@ export default function App() {
   async function handleUploadAvatar(file: File) {
     beginActionLoading()
     try {
+      if (!isImageUpload(file)) throw new Error('Envie uma imagem em JPG, PNG, WEBP ou GIF.')
       const formData = new FormData()
       formData.append('file', file)
       const response = await fetch(`${API_BASE_URL}/folio/me/avatar`, {
