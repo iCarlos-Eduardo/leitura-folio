@@ -114,6 +114,15 @@ body {
   width: 100%;
 }
 
+.folio-image-contain .folio-image-node {
+  object-fit: contain;
+}
+
+.folio-post-image {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-stone-900) 88%, white) 0%, var(--color-stone-950) 100%);
+}
+
 .folio-image-loaded .folio-image-node {
   opacity: 1;
 }

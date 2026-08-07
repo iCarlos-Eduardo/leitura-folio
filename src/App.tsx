@@ -102,6 +102,7 @@ interface Post {
   comments: number
   views?: string[]
   viewCount?: number
+  mentionedUserIds?: string[]
 }
 
 interface TimelineEvent {
@@ -127,7 +128,7 @@ interface Reply {
 
 interface FolioNotification {
   id: string
-  type: 'follow' | 'like' | 'reply' | 'reply_like' | 'reply_reply' | 'book_comment'
+  type: 'follow' | 'like' | 'reply' | 'reply_like' | 'reply_reply' | 'book_comment' | 'mention'
   userId: string
   postId?: string
   bookId?: string
@@ -264,7 +265,7 @@ interface DashboardUserReportRow {
 interface DashboardInteractionReportRow {
   id: string
   user: DashboardUser
-  type: 'like' | 'reply_like' | 'view' | 'reply' | string
+  type: 'like' | 'reply_like' | 'view' | 'reply' | 'mention' | string
   createdAt: string
   postId?: string | null
   book: DashboardBookRef
@@ -315,6 +316,7 @@ interface SuperAdminDashboard {
     postsThisMonth: number
     postsThisYear: number
     repliesToday: number
+    mentionsToday?: number
     likesToday: number
     viewsToday: number
     loginsToday: number
@@ -697,6 +699,86 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
   )
 }
 
+function PostImageLightbox({ src, alt, onClose }: {
+  src: string
+  alt: string
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Imagem da publicação"
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/85 p-3 backdrop-blur-md sm:p-6"
+      onClick={event => event.currentTarget === event.target && onClose()}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-3 top-3 z-10 rounded-full border border-white/15 bg-stone-950/85 px-3 py-2 text-sm font-bold text-stone-100 shadow-2xl shadow-black/40 transition hover:bg-stone-800 sm:right-5 sm:top-5"
+      >
+        Fechar
+      </button>
+      <div className="flex h-full max-h-[calc(100vh-5.5rem)] w-full max-w-6xl items-center justify-center sm:max-h-[calc(100vh-6rem)]">
+        <FolioImage
+          src={src}
+          alt={alt}
+          loading="eager"
+          className="folio-image-contain h-full w-full rounded-lg bg-black/20"
+        />
+      </div>
+    </div>
+  )
+}
+
+function PostTextWithMentions({ text, users, onUserClick }: {
+  text: string
+  users: User[]
+  onUserClick: (id: string) => void
+}) {
+  const usersByHandle = new Map(users.map(user => [normalizeSearch(user.handle), user]))
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+
+  for (const match of text.matchAll(/@([a-zA-Z0-9_.-]+)/g)) {
+    const index = match.index ?? 0
+    const rawMention = match[0]
+    const user = usersByHandle.get(normalizeSearch(match[1]))
+
+    if (index > lastIndex) parts.push(text.slice(lastIndex, index))
+    parts.push(user ? (
+      <button
+        key={`${user.id}-${index}`}
+        type="button"
+        onClick={() => onUserClick(user.id)}
+        className="font-bold text-amber-300 hover:text-amber-200"
+      >
+        {rawMention}
+      </button>
+    ) : rawMention)
+    lastIndex = index + rawMention.length
+  }
+
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex))
+
+  return <p className="mb-3 whitespace-pre-line text-sm leading-relaxed text-stone-300">{parts}</p>
+}
+
 function postTextParts(text?: string | null) {
   const rawText = text || ''
   const lines = rawText.split('\n')
@@ -839,6 +921,45 @@ function readerMatchesSearch(user: User, query: string) {
   const handleWithAt = `@${handle}`
   const name = normalizeSearch(user.name)
   return name.includes(needle) || handle.includes(needle.replace(/^@+/, '')) || handleWithAt.includes(needle)
+}
+
+function mentionableUsers(currentUser: User, users: User[]) {
+  const following = new Set(currentUser.following)
+  return users
+    .filter(user => user.id !== currentUser.id && following.has(user.id) && user.handle)
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+}
+
+function activeMentionQuery(value: string, caretIndex: number) {
+  const beforeCaret = value.slice(0, caretIndex)
+  const match = /(^|[\s([{])@([a-zA-Z0-9_.-]*)$/.exec(beforeCaret)
+  if (!match) return null
+
+  const start = beforeCaret.lastIndexOf('@')
+  if (start < 0) return null
+  return { start, end: caretIndex, query: match[2] || '' }
+}
+
+function usersMatchingMentionQuery(currentUser: User, users: User[], query: string) {
+  const needle = query.replace(/^@+/, '')
+  return mentionableUsers(currentUser, users)
+    .filter(user => readerMatchesSearch(user, needle))
+    .slice(0, 6)
+}
+
+function mentionedUsersFromText(value: string, currentUser: User, users: User[]) {
+  const usersByHandle = new Map(mentionableUsers(currentUser, users).map(user => [normalizeSearch(user.handle), user]))
+  const found: User[] = []
+  const seen = new Set<string>()
+
+  for (const match of value.matchAll(/@([a-zA-Z0-9_.-]+)/g)) {
+    const user = usersByHandle.get(normalizeSearch(match[1]))
+    if (!user || seen.has(user.id)) continue
+    seen.add(user.id)
+    found.push(user)
+  }
+
+  return found
 }
 
 function isSuperAdminUser(user?: { role?: string | null } | null) {
@@ -1466,6 +1587,7 @@ function notificationTypeText(type: FolioNotification['type'], status?: BookStat
     reply_like: 'curtiu seu comentário',
     reply_reply: 'respondeu seu comentário',
     book_comment: notificationBookCommentText(status),
+    mention: 'mencionou você em uma publicação',
   }
   return textByType[type]
 }
@@ -2104,6 +2226,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const submittingReplyRef = useRef(false)
   const submittingNestedReplyRef = useRef<string | null>(null)
   const [spoilerAccepted, setSpoilerAccepted] = useState(false)
+  const [expandedPostImage, setExpandedPostImage] = useState<string | null>(null)
   const author = users.find(u => u.id === post.userId)!
   const book = books.find(b => b.id === post.bookId)
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === post.bookId)
@@ -2216,14 +2339,24 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           {canInteractWithContent ? (
             <>
               {post.reactionEmoji && <div className="mb-2 text-3xl leading-none">{post.reactionEmoji}</div>}
-              {postContent.text && <p className="mb-3 whitespace-pre-line text-sm leading-relaxed text-stone-300">{postContent.text}</p>}
+              {postContent.text && <PostTextWithMentions text={postContent.text} users={users} onUserClick={onUserClick} />}
               {postContent.imageUrl && (
-                <FolioImage
-                  src={postContent.imageUrl}
-                  alt="Imagem da publicação"
-                  loading={imageLoading}
-                  className="mb-3 aspect-square max-h-[520px] w-full rounded-lg border border-stone-800 object-cover"
-                />
+                <button
+                  type="button"
+                  onClick={() => setExpandedPostImage(postContent.imageUrl)}
+                  className="group relative mb-3 block w-full cursor-zoom-in overflow-hidden rounded-lg border border-stone-800 bg-stone-950 text-left transition hover:border-stone-700 focus:outline-none focus:ring-2 focus:ring-amber-300/70"
+                  aria-label="Abrir imagem da publicação"
+                >
+                  <FolioImage
+                    src={postContent.imageUrl}
+                    alt="Imagem da publicação"
+                    loading={imageLoading}
+                    className="folio-image-contain folio-post-image aspect-[4/3] max-h-[520px] w-full"
+                  />
+                  <span className="pointer-events-none absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-stone-950/80 text-base font-black leading-none text-stone-100 opacity-80 shadow-lg shadow-black/30 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+                    ↗
+                  </span>
+                </button>
               )}
             </>
           ) : (
@@ -2410,6 +2543,13 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           emptyText={replyEngagementDialog.emptyText}
           onClose={() => setReplyEngagementDialog(null)}
           onUserClick={onUserClick}
+        />
+      )}
+      {expandedPostImage && (
+        <PostImageLightbox
+          src={expandedPostImage}
+          alt="Imagem ampliada da publicação"
+          onClose={() => setExpandedPostImage(null)}
         />
       )}
     </article>
@@ -4437,7 +4577,7 @@ function NotificationsPage({ notifications, currentUser, users, books, shelf, sh
     <section>
       <Header title="Notificações">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas e comentários liberados pela sua estante aparecem aqui.</p>
+          <p className="text-sm text-stone-500">Novos seguidores, curtidas, respostas, menções e comentários liberados pela sua estante aparecem aqui.</p>
           {showDeviceNotificationControls && deviceNotificationStatus === 'default' && (
             <button
               type="button"
@@ -4701,8 +4841,9 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   )
 }
 
-function CreatePostModal({ currentUser, shelf, books, initialBookId, onClose, onPost, onUploadImage }: {
+function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onClose, onPost, onUploadImage }: {
   currentUser: User
+  users: User[]
   shelf: ShelfEntry[]
   books: Book[]
   initialBookId?: string | null
@@ -4728,6 +4869,8 @@ function CreatePostModal({ currentUser, shelf, books, initialBookId, onClose, on
   const defaultPercent = isCompletedStatus(selectedEntry?.status) ? 100 : selectedEntry?.progress ?? 0
   const [postType, setPostType] = useState<PostType>('comment')
   const [text, setText] = useState('')
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [textCaretIndex, setTextCaretIndex] = useState(0)
   const [reactionEmoji, setReactionEmoji] = useState('🤯')
   const [chapter, setChapter] = useState(selectedBook ? String(chapterFromPercent(selectedBook, defaultPercent)) : '1')
   const [postImageUrl, setPostImageUrl] = useState('')
@@ -4738,6 +4881,8 @@ function CreatePostModal({ currentUser, shelf, books, initialBookId, onClose, on
   const postingRef = useRef(false)
   const emojis = ['😭', '🤯', '♥', '😂', '😡', '🔥', '💔', '😱', '🥹', '👏']
   const canPost = selectedBook && chapter !== '' && !uploadingPostImage && !posting && (postType === 'reaction' ? Boolean(reactionEmoji) : text.trim().length > 0 || Boolean(postImageUrl))
+  const mentionQuery = activeMentionQuery(text, textCaretIndex)
+  const mentionSuggestions = mentionQuery ? usersMatchingMentionQuery(currentUser, users, mentionQuery.query) : []
   const filteredBooks = myBooks
     .filter(({ book }) => !bookQuery.trim() || bookMatchesSearch(book, bookQuery, 'title') || bookMatchesSearch(book, bookQuery, 'author'))
     .slice(0, 8)
@@ -4760,6 +4905,24 @@ function CreatePostModal({ currentUser, shelf, books, initialBookId, onClose, on
     setChapter(String(next))
   }
 
+  function updateTextCaret(element: HTMLTextAreaElement) {
+    setTextCaretIndex(element.selectionStart)
+  }
+
+  function selectMention(user: User) {
+    if (!mentionQuery) return
+    const mentionText = `@${user.handle} `
+    const nextText = `${text.slice(0, mentionQuery.start)}${mentionText}${text.slice(mentionQuery.end)}`
+    const nextCaret = mentionQuery.start + mentionText.length
+
+    setText(nextText)
+    setTextCaretIndex(nextCaret)
+    window.requestAnimationFrame(() => {
+      textAreaRef.current?.focus()
+      textAreaRef.current?.setSelectionRange(nextCaret, nextCaret)
+    })
+  }
+
   async function handlePost() {
     if (!canPost || !selectedBook || postingRef.current) return
     postingRef.current = true
@@ -4767,6 +4930,7 @@ function CreatePostModal({ currentUser, shelf, books, initialBookId, onClose, on
     const selectedChapter = clamp(Number(chapter), 1, selectedBook.totalChapters)
     const percent = percentFromChapter(selectedBook, selectedChapter)
     const postText = textWithPostImage(postType === 'reaction' ? '' : text, postImageUrl)
+    const mentionedUserIds = postType === 'reaction' ? [] : mentionedUsersFromText(text, currentUser, users).map(user => user.id)
     try {
       const posted = await onPost({
         id: `p${Date.now()}`,
@@ -4782,6 +4946,7 @@ function CreatePostModal({ currentUser, shelf, books, initialBookId, onClose, on
         comments: 0,
         views: [],
         viewCount: 0,
+        ...(mentionedUserIds.length ? { mentionedUserIds } : {}),
       })
       if (posted === false) return
       onClose()
@@ -4864,16 +5029,46 @@ function CreatePostModal({ currentUser, shelf, books, initialBookId, onClose, on
                   </div>
                 </div>
               ) : (
-                <label className="block text-sm font-semibold text-stone-300">
-                  {postType === 'theory' ? 'Sua teoria' : 'Comentário'}
+                <div className="text-sm font-semibold text-stone-300">
+                  <p>{postType === 'theory' ? 'Sua teoria' : 'Comentário'}</p>
                   <textarea
+                    ref={textAreaRef}
                     value={text}
-                    onChange={e => setText(e.target.value)}
+                    onChange={e => {
+                      setText(e.target.value)
+                      updateTextCaret(e.currentTarget)
+                    }}
+                    onClick={e => updateTextCaret(e.currentTarget)}
+                    onKeyUp={e => updateTextCaret(e.currentTarget)}
+                    onSelect={e => updateTextCaret(e.currentTarget)}
                     rows={4}
                     placeholder={postType === 'theory' ? 'Ex.: acho que essa personagem ainda sabe mais do que contou...' : 'Escreva livremente. Quem estiver atrás desse ponto não verá agora.'}
                     className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 text-base text-stone-100 outline-none focus:border-amber-300 sm:text-sm"
                   />
-                </label>
+                  {mentionQuery && (
+                    <div className="mt-2 overflow-hidden rounded-lg border border-stone-800 bg-stone-950">
+                      {mentionSuggestions.length ? mentionSuggestions.map(user => (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onMouseDown={event => event.preventDefault()}
+                          onClick={() => selectMention(user)}
+                          className="flex w-full items-center gap-3 border-b border-stone-800 px-3 py-2 text-left last:border-b-0 hover:bg-stone-900"
+                        >
+                          <Avatar user={user} size="sm" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-bold text-stone-100">{user.name}</span>
+                            <span className="block truncate text-xs text-stone-500">@{user.handle}</span>
+                          </span>
+                        </button>
+                      )) : (
+                        <p className="px-3 py-3 text-xs font-semibold text-stone-500">
+                          Nenhuma pessoa seguida encontrada.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
               <div className="rounded-lg border border-stone-800 bg-stone-950 p-3">
@@ -5127,6 +5322,7 @@ function dashboardInteractionLabel(type: string) {
     reply_like: 'curtiu uma resposta',
     view: 'visualizou uma postagem',
     reply: 'respondeu uma postagem',
+    mention: 'mencionou uma pessoa',
   }[type] || type
 }
 
@@ -5440,7 +5636,7 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
           <DashboardStat label="Usuários" value={dashboard.overview.totalUsers} detail="perfis Folio cadastrados" tone="cyan" active={activeReport === 'users'} onClick={() => openReport('users')} />
           <DashboardStat label="Posts hoje" value={dashboard.overview.postsToday} detail={`${dashboard.overview.postsThisMonth} no mês`} tone="amber" active={activeReport === 'postsToday'} onClick={() => openReport('postsToday')} />
           <DashboardStat label="Ativos agora" value={dashboard.overview.activeNow} detail="atividade nos últimos 15min" tone="emerald" active={activeReport === 'activeNow'} onClick={() => openReport('activeNow')} />
-          <DashboardStat label="Interações hoje" value={dashboard.overview.likesToday + dashboard.overview.repliesToday + dashboard.overview.viewsToday} detail={`${dashboard.overview.viewsToday} visualizações`} tone="rose" active={activeReport === 'interactionsToday'} onClick={() => openReport('interactionsToday')} />
+          <DashboardStat label="Interações hoje" value={dashboard.overview.likesToday + dashboard.overview.repliesToday + dashboard.overview.viewsToday + (dashboard.overview.mentionsToday || 0)} detail={`${dashboard.overview.viewsToday} visualizações · ${dashboard.overview.mentionsToday || 0} menções`} tone="rose" active={activeReport === 'interactionsToday'} onClick={() => openReport('interactionsToday')} />
         </div>
 
         <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
@@ -7152,6 +7348,7 @@ export default function App() {
       {showPostModal && (
         <CreatePostModal
           currentUser={currentUser}
+          users={users}
           shelf={shelf}
           books={books}
           initialBookId={page === 'book' ? selectedBookId : null}
