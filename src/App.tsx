@@ -6000,7 +6000,7 @@ const DASHBOARD_REPORT_TITLES: Record<DashboardReportKey, string> = {
   books: 'Relatório de livros',
   postsThisYear: 'Postagens do ano',
   loginsToday: 'Logins de hoje',
-  pushSubscriptions: 'Dispositivos com push',
+  pushSubscriptions: 'Notificações ativas por usuário',
 }
 
 function dashboardPostTypeLabel(type: string) {
@@ -6186,17 +6186,48 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
   }
 
   const rows = dashboard.reports.pushSubscriptions
+  const pushUsers = Array.from(rows.reduce((map, row) => {
+    const current = map.get(row.user.id)
+    if (current) {
+      current.devices.push(row)
+      if (new Date(row.updatedAt).getTime() > new Date(current.lastUpdatedAt).getTime()) {
+        current.lastUpdatedAt = row.updatedAt
+      }
+      return map
+    }
+
+    map.set(row.user.id, {
+      user: row.user,
+      devices: [row],
+      lastUpdatedAt: row.updatedAt,
+    })
+    return map
+  }, new Map<string, { user: DashboardUser; devices: DashboardPushReportRow[]; lastUpdatedAt: string }>()).values())
+    .sort((a, b) => new Date(b.lastUpdatedAt).getTime() - new Date(a.lastUpdatedAt).getTime())
+
   return (
-    <DashboardReportShell title={DASHBOARD_REPORT_TITLES[report]} count={rows.length} onClose={onClose}>
+    <DashboardReportShell title={DASHBOARD_REPORT_TITLES[report]} count={pushUsers.length} onClose={onClose}>
       <div className="space-y-2">
-        {rows.length ? rows.map(row => (
-          <button key={row.id} onClick={() => onUserClick(row.user.id)} className="grid w-full gap-2 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-rose-300/40">
-            <DashboardUserLine user={row.user} />
-            <p className="truncate text-xs text-stone-500">{row.userAgent || 'Dispositivo sem identificação'}</p>
-            <p className="truncate text-xs text-stone-600">{row.endpoint}</p>
-            <p className="text-xs font-bold text-stone-400">Atualizado {formatDateTime(row.updatedAt)}</p>
+        {pushUsers.length ? pushUsers.map(row => (
+          <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="grid w-full gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-rose-300/40">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <DashboardUserLine user={row.user} />
+              <div className="text-right">
+                <p className="text-xs font-black text-rose-200">{row.devices.length} {row.devices.length === 1 ? 'dispositivo' : 'dispositivos'}</p>
+                <p className="mt-1 text-xs font-bold text-stone-500">Atualizado {formatDateTime(row.lastUpdatedAt)}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {row.devices.map(device => (
+                <div key={device.id} className="rounded-lg border border-stone-800 bg-stone-900 p-2">
+                  <p className="truncate text-xs text-stone-500">{device.userAgent || 'Dispositivo sem identificação'}</p>
+                  <p className="mt-1 truncate text-xs text-stone-600">{device.endpoint}</p>
+                  <p className="mt-1 text-[11px] font-bold text-stone-500">Atualizado {formatDateTime(device.updatedAt)}</p>
+                </div>
+              ))}
+            </div>
           </button>
-        )) : <EmptyState text="Nenhum dispositivo com push registrado." />}
+        )) : <EmptyState text="Nenhum usuário com notificações ativas." />}
       </div>
     </DashboardReportShell>
   )
