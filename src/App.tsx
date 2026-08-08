@@ -332,6 +332,7 @@ interface SuperAdminDashboard {
     loginsToday: number
     activeNow: number
     checkInsToday: number
+    pushUsers?: number
     pushSubscriptions: number
   }
   postsByDay: { label: string; date: string; count: number }[]
@@ -6333,7 +6334,7 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
           <DashboardStat label="Livros" value={dashboard.overview.totalBooks} detail={`${dashboard.overview.totalShelfEntries} entradas em estantes`} active={activeReport === 'books'} onClick={() => openReport('books')} />
           <DashboardStat label="Posts no ano" value={dashboard.overview.postsThisYear} detail={`${dashboard.overview.totalPosts} no total`} tone="cyan" active={activeReport === 'postsThisYear'} onClick={() => openReport('postsThisYear')} />
           <DashboardStat label="Logins hoje" value={dashboard.overview.loginsToday} detail="entradas autenticadas" tone="emerald" active={activeReport === 'loginsToday'} onClick={() => openReport('loginsToday')} />
-          <DashboardStat label="Push ativo" value={dashboard.overview.pushSubscriptions} detail="dispositivos registrados" tone="rose" active={activeReport === 'pushSubscriptions'} onClick={() => openReport('pushSubscriptions')} />
+          <DashboardStat label="Push ativo" value={dashboard.overview.pushUsers ?? dashboard.overview.pushSubscriptions} detail={`${dashboard.overview.pushSubscriptions} dispositivos registrados`} tone="rose" active={activeReport === 'pushSubscriptions'} onClick={() => openReport('pushSubscriptions')} />
         </div>
 
         {activeReport && (
