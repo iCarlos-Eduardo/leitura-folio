@@ -1883,6 +1883,13 @@ function urlBase64ToUint8Array(value: string) {
   return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)))
 }
 
+function equalUint8Array(a?: ArrayBuffer | null, b?: Uint8Array | null) {
+  if (!a || !b) return false
+  const left = new Uint8Array(a)
+  if (left.length !== b.length) return false
+  return left.every((value, index) => value === b[index])
+}
+
 function deviceNotificationStorageKey(userId: string) {
   return `${DEVICE_NOTIFICATION_STORAGE_PREFIX}${userId}`
 }
@@ -1915,12 +1922,18 @@ async function saveDevicePushSubscription(token: string) {
   if (!registration || !('PushManager' in window)) return 'unsupported' as const
 
   const keyResponse = await apiRequest<{ publicKey: string }>('/folio/notifications/push-public-key', {}, token)
-  if (!keyResponse.publicKey) return 'missing-key' as const
+  if (!keyResponse.publicKey || keyResponse.publicKey.trim().toLowerCase().startsWith('sua_')) return 'missing-key' as const
 
+  const applicationServerKey = urlBase64ToUint8Array(keyResponse.publicKey)
   const existingSubscription = await registration.pushManager.getSubscription()
-  const subscription = existingSubscription || await registration.pushManager.subscribe({
+  if (existingSubscription && !equalUint8Array(existingSubscription.options.applicationServerKey, applicationServerKey)) {
+    await existingSubscription.unsubscribe()
+  }
+
+  const currentSubscription = await registration.pushManager.getSubscription()
+  const subscription = currentSubscription || await registration.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(keyResponse.publicKey),
+    applicationServerKey,
   })
 
   await apiRequest('/folio/notifications/push-subscriptions', {
@@ -6399,8 +6412,9 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
     setError('')
     setNotice('')
     try {
-      const result = await apiRequest<{ recipients: number; sent: number }>('/folio/superadmin/push-test', { method: 'POST' }, token)
-      setNotice(`${result.sent} de ${result.recipients} super admin(s) receberam o push de teste em ao menos um dispositivo.`)
+      const result = await apiRequest<{ recipients: number; subscriptions: number; sent: number; expired: number; failed: number; vapidConfigured: boolean }>('/folio/superadmin/push-test', { method: 'POST' }, token)
+      const vapidText = result.vapidConfigured ? 'VAPID configurado' : 'VAPID sem chave válida'
+      setNotice(`${result.sent} envio(s) para ${result.recipients} super admin(s), ${result.subscriptions} dispositivo(s). ${result.failed} falha(s), ${result.expired} expirado(s). ${vapidText}.`)
       return true
     } catch (err) {
       setError(errorMessage(err, 'Nao foi possivel enviar o push de teste.'))
