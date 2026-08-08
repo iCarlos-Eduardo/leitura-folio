@@ -159,6 +159,30 @@ interface ReadingGoal {
   booksReadThisWeek?: number
 }
 
+type ReminderFrequency = 'off' | 'low' | 'normal' | 'intense'
+
+interface NotificationPreferences {
+  checkInReminders: boolean
+  readingGoalReminders: boolean
+  reactionReminders: boolean
+  clubReminders: boolean
+  returnReminders: boolean
+  reminderFrequency: ReminderFrequency
+  quietStartHour?: number
+  quietEndHour?: number
+}
+
+const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  checkInReminders: true,
+  readingGoalReminders: true,
+  reactionReminders: true,
+  clubReminders: true,
+  returnReminders: true,
+  reminderFrequency: 'normal',
+  quietStartHour: 21,
+  quietEndHour: 8,
+}
+
 interface StoreUserSummary {
   id: string
   name: string
@@ -332,6 +356,8 @@ interface SuperAdminDashboard {
     loginsToday: number
     activeNow: number
     checkInsToday: number
+    remindersToday?: number
+    reminderUsersToday?: number
     pushUsers?: number
     pushSubscriptions: number
   }
@@ -5178,7 +5204,7 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   )
 }
 
-function NotificationsPage({ notifications, currentUser, users, books, shelf, posts, readingGoal, showDeviceNotificationControls, deviceNotificationStatus, onEnableDeviceNotifications, onNotificationClick, onUserClick, onBookClick, onCreatePost, onToggleReadingCheckIn }: {
+function NotificationsPage({ notifications, currentUser, users, books, shelf, posts, readingGoal, notificationPreferences, showDeviceNotificationControls, deviceNotificationStatus, onEnableDeviceNotifications, onUpdateNotificationPreferences, onNotificationClick, onUserClick, onBookClick, onCreatePost, onToggleReadingCheckIn }: {
   notifications: FolioNotification[]
   currentUser: User
   users: User[]
@@ -5186,9 +5212,11 @@ function NotificationsPage({ notifications, currentUser, users, books, shelf, po
   shelf: ShelfEntry[]
   posts: Post[]
   readingGoal: ReadingGoal
+  notificationPreferences: NotificationPreferences
   showDeviceNotificationControls: boolean
   deviceNotificationStatus: DeviceNotificationStatus
   onEnableDeviceNotifications: () => void
+  onUpdateNotificationPreferences: (changes: Partial<NotificationPreferences>) => Promise<boolean | void> | boolean | void
   onNotificationClick: (notification: FolioNotification) => void
   onUserClick: (id: string) => void
   onBookClick: (id: string) => void
@@ -5228,6 +5256,48 @@ function NotificationsPage({ notifications, currentUser, users, books, shelf, po
           )}
         </div>
       </Header>
+      <section className="border-b border-stone-800 p-4 md:p-5">
+        <div className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-serif text-lg text-stone-50">Lembretes inteligentes</h2>
+              <p className="mt-1 text-sm text-stone-500">No máximo 1 lembrete por dia, enviados só em horário seguro.</p>
+            </div>
+            <select
+              value={notificationPreferences.reminderFrequency}
+              onChange={e => onUpdateNotificationPreferences({ reminderFrequency: e.target.value as ReminderFrequency })}
+              className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
+            >
+              <option value="off">Desligados</option>
+              <option value="low">Baixa</option>
+              <option value="normal">Normal</option>
+              <option value="intense">Intensa</option>
+            </select>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {([
+              ['checkInReminders', 'Check-in diário', 'Lembrar de marcar leitura do dia.'],
+              ['readingGoalReminders', 'Metas de leitura', 'Motivar semana e mês sem cobrança.'],
+              ['reactionReminders', 'Postar reação', 'Sugerir reação ao avançar no livro.'],
+              ['clubReminders', 'Clube da leitura', 'Avisar quando houver gente no mesmo trecho.'],
+              ['returnReminders', 'Voltar hoje', 'Convite suave para continuar lendo.'],
+            ] as const).map(([key, title, detail]) => (
+              <label key={key} className="flex items-start gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences[key]}
+                  onChange={e => onUpdateNotificationPreferences({ [key]: e.target.checked } as Partial<NotificationPreferences>)}
+                  className="mt-1 h-4 w-4 accent-amber-300"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-stone-100">{title}</span>
+                  <span className="mt-1 block text-xs text-stone-500">{detail}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </section>
       <SmartNudgesPanel nudges={nudges} onBookClick={onBookClick} onCreatePost={onCreatePost} onToggleReadingCheckIn={onToggleReadingCheckIn} />
       {notifications.length ? (
         <div>
@@ -6381,10 +6451,11 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
           <DashboardStat label="Interações hoje" value={dashboard.overview.likesToday + dashboard.overview.repliesToday + dashboard.overview.viewsToday + (dashboard.overview.mentionsToday || 0)} detail={`${dashboard.overview.viewsToday} visualizações · ${dashboard.overview.mentionsToday || 0} menções`} tone="rose" active={activeReport === 'interactionsToday'} onClick={() => openReport('interactionsToday')} />
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-5">
           <DashboardStat label="Livros" value={dashboard.overview.totalBooks} detail={`${dashboard.overview.totalShelfEntries} entradas em estantes`} active={activeReport === 'books'} onClick={() => openReport('books')} />
           <DashboardStat label="Posts no ano" value={dashboard.overview.postsThisYear} detail={`${dashboard.overview.totalPosts} no total`} tone="cyan" active={activeReport === 'postsThisYear'} onClick={() => openReport('postsThisYear')} />
           <DashboardStat label="Logins hoje" value={dashboard.overview.loginsToday} detail="entradas autenticadas" tone="emerald" active={activeReport === 'loginsToday'} onClick={() => openReport('loginsToday')} />
+          <DashboardStat label="Lembretes hoje" value={dashboard.overview.remindersToday || 0} detail={`${dashboard.overview.reminderUsersToday || 0} usuários alcançados`} tone="amber" />
           <DashboardStat label="Push mobile" value={pushMobileUsers} detail={`${pushTotalUsers} usuários · ${dashboard.overview.pushSubscriptions} dispositivos`} tone="rose" active={activeReport === 'pushSubscriptions'} onClick={() => openReport('pushSubscriptions')} />
         </div>
 
@@ -7204,6 +7275,7 @@ export default function App() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
   const [notifications, setNotifications] = useState<FolioNotification[]>([])
   const [readingGoal, setReadingGoal] = useState<ReadingGoal>({ targetBooks: 40, targetBooksMonth: 4, targetBooksWeek: 1, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES)
   const [loadingApp, setLoadingApp] = useState(true)
   const [resumeError, setResumeError] = useState('')
   const [toasts, setToasts] = useState<ToastMessage[]>([])
@@ -7364,6 +7436,7 @@ export default function App() {
       replies: Reply[]
       timeline: TimelineEvent[]
       notifications?: FolioNotification[]
+      notificationPreferences?: NotificationPreferences
       readingGoal?: ReadingGoal
     }>('/folio/bootstrap', {}, activeToken || undefined)
 
@@ -7379,6 +7452,7 @@ export default function App() {
     setReplies(data.replies)
     setTimeline(data.timeline || [])
     setNotifications(data.notifications || [])
+    setNotificationPreferences({ ...DEFAULT_NOTIFICATION_PREFERENCES, ...(data.notificationPreferences || {}) })
     setReadingGoal(data.readingGoal || { targetBooks: 40, targetBooksMonth: 4, targetBooksWeek: 1, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
     setCurrentUser(data.users.find(user => user.id === data.currentUserId) || data.users[0] || null)
     setResumeError('')
@@ -8035,6 +8109,23 @@ export default function App() {
     })
   }
 
+  async function handleUpdateNotificationPreferences(changes: Partial<NotificationPreferences>) {
+    const previous = notificationPreferences
+    const next = { ...notificationPreferences, ...changes }
+    setNotificationPreferences(next)
+    return runAction(async () => {
+      const saved = await apiRequest<NotificationPreferences>('/folio/notifications/preferences', { method: 'PATCH', body: JSON.stringify(changes) }, token)
+      setNotificationPreferences({ ...DEFAULT_NOTIFICATION_PREFERENCES, ...saved })
+    }, {
+      success: 'Preferências de notificação atualizadas.',
+      error: 'Nao foi possivel atualizar as notificações.',
+      silentSuccess: true,
+    }).then(result => {
+      if (!result) setNotificationPreferences(previous)
+      return result
+    })
+  }
+
   async function handleAddReadingCheckIn() {
     return runAction(async () => {
       const activeToken = activeAuthToken()
@@ -8135,7 +8226,7 @@ export default function App() {
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
-          {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
+          {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} notificationPreferences={notificationPreferences} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onUpdateNotificationPreferences={handleUpdateNotificationPreferences} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
           {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} />}
           {page === 'store' && isSuperAdminUser(currentUser) && <StorePage token={token} currentUser={currentUser} />}
         </main>
