@@ -1514,16 +1514,6 @@ function visibleChapterForEntry(book: Book, entry?: ShelfEntry) {
   return chapterFromPercent(book, entry.progress)
 }
 
-function sameChapterReaders(book: Book, shelf: ShelfEntry[], users: User[], currentUser: User, distance = 1) {
-  const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === book.id)
-  const myChapter = visibleChapterForEntry(book, myEntry)
-  return shelf
-    .filter(entry => entry.bookId === book.id && entry.userId !== currentUser.id && isInProgressStatus(entry.status))
-    .map(entry => ({ entry, user: users.find(user => user.id === entry.userId), chapter: chapterFromPercent(book, entry.progress) }))
-    .filter((item): item is { entry: ShelfEntry; user: User; chapter: number } => Boolean(item.user) && Math.abs(item.chapter - myChapter) <= distance)
-    .sort((a, b) => Math.abs(a.chapter - myChapter) - Math.abs(b.chapter - myChapter) || a.user.name.localeCompare(b.user.name, 'pt-BR'))
-}
-
 function unlockedPostCountForRange(posts: Post[], bookId: string, fromChapter: number, toChapter: number) {
   if (toChapter < fromChapter) return 0
   return posts.filter(post => post.bookId === bookId && post.chapter >= fromChapter && post.chapter <= toChapter).length
@@ -4269,14 +4259,23 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   const myReplayPosts = postsInBook
     .filter(post => post.userId === currentUser.id)
     .sort((a, b) => a.chapter - b.chapter || new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-  const chapterRoomReaders = sameChapterReaders(book, shelf, users, currentUser)
-  const milestoneRows = [25, 50, 75, 100].map(percent => {
-    const chapter = chapterFromPercent(book, percent)
+  const clubRoomRows = [
+    { label: 'Começo', fromPercent: 0, toPercent: 25 },
+    { label: 'Entrando fundo', fromPercent: 25, toPercent: 50 },
+    { label: 'Virada', fromPercent: 50, toPercent: 75 },
+    { label: 'Reta final', fromPercent: 75, toPercent: 100 },
+  ].map(room => {
+    const fromChapter = room.fromPercent <= 0 ? 1 : Math.min(book.totalChapters, chapterFromPercent(book, room.fromPercent) + 1)
+    const toChapter = chapterFromPercent(book, room.toPercent)
     return {
-      percent,
-      chapter,
-      readers: readerRows.filter(({ entry }) => visibleChapterForEntry(book, entry) >= chapter).length,
-      posts: postsInBook.filter(post => post.chapter <= chapter).length,
+      ...room,
+      fromChapter,
+      toChapter,
+      readers: readerRows.filter(({ entry }) => {
+        const chapter = visibleChapterForEntry(book, entry)
+        return chapter >= fromChapter && chapter <= toChapter
+      }).length,
+      posts: postsInBook.filter(post => post.chapter >= fromChapter && post.chapter <= toChapter).length,
     }
   })
   const highlightedPost = highlightedPostId ? postsInBook.find(post => post.id === highlightedPostId) : undefined
@@ -4641,50 +4640,39 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
       ) : tab === 'rooms' ? (
         <div className="space-y-4 p-4 md:p-5">
           <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="font-serif text-xl text-stone-50">Sala do seu capítulo</h2>
-                <p className="mt-1 text-sm text-stone-500">Leitores perto do seu progresso aparecem aqui para conversar com menos risco de spoiler.</p>
+                <h2 className="font-serif text-xl text-stone-50">Clube da leitura</h2>
+                <p className="mt-1 text-sm text-stone-500">Veja onde a leitura está mais viva por trecho do livro.</p>
               </div>
-              <span className="rounded-full border border-stone-700 px-3 py-1 text-xs font-bold text-stone-400">cap. {visibleChapterLimit}</span>
-            </div>
-            <div className="space-y-2">
-              {chapterRoomReaders.length ? chapterRoomReaders.map(({ user, chapter }) => (
-                <button key={user.id} onClick={() => onUserClick(user.id)} className="flex w-full items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40">
-                  <Avatar user={user} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-stone-100">{user.name}</p>
-                    <p className="truncate text-xs text-stone-500">@{user.handle} · cap. {chapter}</p>
-                  </div>
-                  <span className="rounded-full bg-amber-300/10 px-2 py-1 text-xs font-bold text-amber-200">mesmo trecho</span>
-                </button>
-              )) : <EmptyState text="Ainda não há leitores perto do seu capítulo neste livro." />}
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-serif text-xl text-stone-50">Clube da leitura</h2>
               <button onClick={() => onCreatePost(book.id)} className="rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-stone-950">
                 Criar tópico
               </button>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              {milestoneRows.map(row => (
-                <button
-                  key={row.percent}
-                  type="button"
-                  onClick={() => {
-                    setChapterLimit(row.chapter)
-                    setFeedVisibility('available')
-                    setTab('feed')
-                  }}
-                  className="rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40"
-                >
-                  <span className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{row.percent}% do livro</span>
-                  <span className="mt-1 block text-sm font-bold text-stone-100">Até o cap. {row.chapter}</span>
-                  <span className="mt-1 block text-xs text-stone-500">{row.readers} leitores · {row.posts} posts liberáveis</span>
-                </button>
+              {clubRoomRows.map(row => (
+                <div key={`${row.fromPercent}-${row.toPercent}`} className="rounded-lg border border-stone-800 bg-stone-950 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">{row.fromPercent}-{row.toPercent}%</span>
+                      <h3 className="mt-1 text-sm font-bold text-stone-100">{row.label}</h3>
+                      <p className="mt-1 text-xs text-stone-500">Caps. {row.fromChapter}-{row.toChapter}</p>
+                    </div>
+                    <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-1 text-xs font-bold text-amber-200">
+                      {row.readers} {row.readers === 1 ? 'leitor' : 'leitores'}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+                    <div className="rounded-lg bg-stone-900 p-2">
+                      <p className="font-serif text-lg text-amber-300">{row.readers}</p>
+                      <p className="text-[11px] text-stone-500">no trecho</p>
+                    </div>
+                    <div className="rounded-lg bg-stone-900 p-2">
+                      <p className="font-serif text-lg text-amber-300">{row.posts}</p>
+                      <p className="text-[11px] text-stone-500">posts</p>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           </section>
