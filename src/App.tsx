@@ -595,11 +595,24 @@ function resolveFolioPostUploadUrl(url: string) {
   }
 }
 
+function resolveFolioPostMediaUploadUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url, window.location.origin)
+    const mediaPrefix = '/folio/media/'
+    if (!parsedUrl.pathname.toLowerCase().startsWith(mediaPrefix)) return ''
+
+    const fileName = parsedUrl.pathname.slice(mediaPrefix.length).split('/')[0]
+    if (!fileName) return ''
+
+    return encodeURI(`${MEDIA_BASE_URL.replace(/\/$/, '')}/uploads/folio-posts/${fileName}${parsedUrl.search}${parsedUrl.hash}`)
+  } catch {
+    return ''
+  }
+}
+
 function resolveMediaUrl(value?: string | null) {
   const url = (value || '').trim()
   if (!url) return ''
-  const folioPostUploadUrl = resolveFolioPostUploadUrl(url)
-  if (folioPostUploadUrl) return folioPostUploadUrl
   if (url.startsWith('//')) return `https:${url}`
   if (/^https?:\/\//i.test(url)) {
     try {
@@ -623,6 +636,19 @@ function resolveMediaUrl(value?: string | null) {
   if (url.startsWith('/')) return `${MEDIA_BASE_URL.replace(/\/$/, '')}${url}`
   if (/^(uploads|media|files)\//i.test(url)) return `${MEDIA_BASE_URL.replace(/\/$/, '')}/${url}`
   return url
+}
+
+function resolveMediaUrlCandidates(value?: string | null) {
+  const primary = resolveMediaUrl(value)
+  const candidates = [primary]
+  const postMediaUrl = value ? resolveFolioPostUploadUrl(value) : ''
+  const postUploadUrl = value ? resolveFolioPostMediaUploadUrl(value) : ''
+
+  for (const candidate of [postMediaUrl, postUploadUrl]) {
+    if (candidate && !candidates.includes(candidate)) candidates.push(candidate)
+  }
+
+  return candidates.filter(Boolean)
 }
 
 function isMediaUrl(value?: string | null) {
@@ -671,19 +697,22 @@ type FolioImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
 }
 
 function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loading = 'lazy', decoding = 'async', onLoad, onError, ...props }: FolioImageProps) {
-  const resolvedSrc = resolveMediaUrl(src)
+  const imageCandidates = useMemo(() => resolveMediaUrlCandidates(src), [src])
+  const resolvedSrc = imageCandidates[0] || ''
   const imageRef = useRef<HTMLImageElement | null>(null)
   const [imageSrc, setImageSrc] = useState(resolvedSrc)
+  const [imageIndex, setImageIndex] = useState(0)
   const [retryAttempt, setRetryAttempt] = useState(0)
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     setImageSrc(resolvedSrc)
+    setImageIndex(0)
     setRetryAttempt(0)
     setLoaded(false)
     setFailed(!resolvedSrc)
-  }, [resolvedSrc])
+  }, [imageCandidates, resolvedSrc])
 
   useEffect(() => {
     const image = imageRef.current
@@ -699,24 +728,32 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
   }, [imageSrc])
 
   function tryNextImageUrl(url?: string | null) {
-    const retrySource = url || imageSrc || resolvedSrc
+    const retrySource = url || imageSrc || imageCandidates[imageIndex] || resolvedSrc
     if (!retrySource || !canRetryImageUrl(retrySource)) {
       setFailed(true)
       return
     }
 
-    setRetryAttempt(currentAttempt => {
-      if (currentAttempt >= MAX_IMAGE_RETRY_ATTEMPTS) {
-        setFailed(true)
-        return currentAttempt
+    if (retryAttempt >= MAX_IMAGE_RETRY_ATTEMPTS) {
+      const nextIndex = imageIndex + 1
+      const nextSrc = imageCandidates[nextIndex]
+      if (nextSrc) {
+        setImageIndex(nextIndex)
+        setRetryAttempt(0)
+        setLoaded(false)
+        setFailed(false)
+        setImageSrc(nextSrc)
+        return
       }
 
-      const nextAttempt = currentAttempt + 1
-      setLoaded(false)
-      setFailed(false)
-      setImageSrc(imageRetryUrl(retrySource))
-      return nextAttempt
-    })
+      setFailed(true)
+      return
+    }
+
+    setRetryAttempt(retryAttempt + 1)
+    setLoaded(false)
+    setFailed(false)
+    setImageSrc(imageRetryUrl(retrySource))
   }
 
   useEffect(() => {
@@ -727,7 +764,7 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
     }, IMAGE_LOAD_TIMEOUT_MS)
 
     return () => window.clearTimeout(timeoutId)
-  }, [failed, imageSrc, loaded, resolvedSrc, retryAttempt])
+  }, [failed, imageCandidates, imageIndex, imageSrc, loaded, resolvedSrc, retryAttempt])
 
   return (
     <span className={`folio-image-frame ${loaded ? 'folio-image-loaded' : ''} ${failed ? 'folio-image-failed' : ''} ${className}`}>
