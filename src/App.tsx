@@ -4812,13 +4812,14 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   )
 }
 
-function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClick, onUpdateUser, onToggleFollow, onOpenProfileList, onLogout, onUploadAvatar }: {
+function ProfilePage({ currentUser, profileUser, shelf, posts, books, notificationPreferences, onBookClick, onUpdateUser, onToggleFollow, onOpenProfileList, onLogout, onUploadAvatar, onUpdateNotificationPreferences }: {
   currentUser: User
   profileUser: User
   users: User[]
   shelf: ShelfEntry[]
   posts: Post[]
   books: Book[]
+  notificationPreferences: NotificationPreferences
   onBookClick: (id: string) => void
   onUpdateUser: (changes: Partial<User>) => Promise<boolean | void> | boolean | void
   onUserClick: (userId: string) => void
@@ -4827,6 +4828,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
   onOpenProfileList: (kind: ProfileListKind) => void
   onLogout: () => void
   onUploadAvatar: (file: File) => Promise<string>
+  onUpdateNotificationPreferences: (changes: Partial<NotificationPreferences>) => Promise<boolean | void> | boolean | void
 }) {
   const isOwnProfile = currentUser.id === profileUser.id
   const followingThisUser = currentUser.following.includes(profileUser.id)
@@ -4995,6 +4997,11 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, onBookClic
                 Salvar perfil
               </button>
             </div>
+          </div>
+        )}
+        {isOwnProfile && (
+          <div className="mt-5">
+            <NotificationPreferencesPanel preferences={notificationPreferences} onUpdate={onUpdateNotificationPreferences} />
           </div>
         )}
         <div className="mt-5 grid grid-cols-3 gap-3 text-center">
@@ -5204,7 +5211,7 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   )
 }
 
-function NotificationsPage({ notifications, currentUser, users, books, shelf, posts, readingGoal, notificationPreferences, showDeviceNotificationControls, deviceNotificationStatus, onEnableDeviceNotifications, onUpdateNotificationPreferences, onNotificationClick, onUserClick, onBookClick, onCreatePost, onToggleReadingCheckIn }: {
+function NotificationsPage({ notifications, currentUser, users, books, shelf, posts, readingGoal, showDeviceNotificationControls, deviceNotificationStatus, onEnableDeviceNotifications, onNotificationClick, onUserClick, onBookClick, onCreatePost, onToggleReadingCheckIn }: {
   notifications: FolioNotification[]
   currentUser: User
   users: User[]
@@ -5212,11 +5219,9 @@ function NotificationsPage({ notifications, currentUser, users, books, shelf, po
   shelf: ShelfEntry[]
   posts: Post[]
   readingGoal: ReadingGoal
-  notificationPreferences: NotificationPreferences
   showDeviceNotificationControls: boolean
   deviceNotificationStatus: DeviceNotificationStatus
   onEnableDeviceNotifications: () => void
-  onUpdateNotificationPreferences: (changes: Partial<NotificationPreferences>) => Promise<boolean | void> | boolean | void
   onNotificationClick: (notification: FolioNotification) => void
   onUserClick: (id: string) => void
   onBookClick: (id: string) => void
@@ -5256,48 +5261,6 @@ function NotificationsPage({ notifications, currentUser, users, books, shelf, po
           )}
         </div>
       </Header>
-      <section className="border-b border-stone-800 p-4 md:p-5">
-        <div className="rounded-lg border border-stone-800 bg-stone-900 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="font-serif text-lg text-stone-50">Lembretes inteligentes</h2>
-              <p className="mt-1 text-sm text-stone-500">No máximo 1 lembrete por dia, enviados só em horário seguro.</p>
-            </div>
-            <select
-              value={notificationPreferences.reminderFrequency}
-              onChange={e => onUpdateNotificationPreferences({ reminderFrequency: e.target.value as ReminderFrequency })}
-              className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
-            >
-              <option value="off">Desligados</option>
-              <option value="low">Baixa</option>
-              <option value="normal">Normal</option>
-              <option value="intense">Intensa</option>
-            </select>
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            {([
-              ['checkInReminders', 'Check-in diário', 'Lembrar de marcar leitura do dia.'],
-              ['readingGoalReminders', 'Metas de leitura', 'Motivar semana e mês sem cobrança.'],
-              ['reactionReminders', 'Postar reação', 'Sugerir reação ao avançar no livro.'],
-              ['clubReminders', 'Clube da leitura', 'Avisar quando houver gente no mesmo trecho.'],
-              ['returnReminders', 'Voltar hoje', 'Convite suave para continuar lendo.'],
-            ] as const).map(([key, title, detail]) => (
-              <label key={key} className="flex items-start gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
-                <input
-                  type="checkbox"
-                  checked={notificationPreferences[key]}
-                  onChange={e => onUpdateNotificationPreferences({ [key]: e.target.checked } as Partial<NotificationPreferences>)}
-                  className="mt-1 h-4 w-4 accent-amber-300"
-                />
-                <span>
-                  <span className="block text-sm font-bold text-stone-100">{title}</span>
-                  <span className="mt-1 block text-xs text-stone-500">{detail}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
-      </section>
       <SmartNudgesPanel nudges={nudges} onBookClick={onBookClick} onCreatePost={onCreatePost} onToggleReadingCheckIn={onToggleReadingCheckIn} />
       {notifications.length ? (
         <div>
@@ -6329,11 +6292,13 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
   const [dashboard, setDashboard] = useState<SuperAdminDashboard | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [activeReport, setActiveReport] = useState<DashboardReportKey | null>(null)
 
   async function loadDashboard() {
     setLoading(true)
     setError('')
+    setNotice('')
     try {
       const data = await apiRequest<SuperAdminDashboard>('/folio/superadmin/dashboard', {}, token)
       setDashboard(data)
@@ -6348,6 +6313,7 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
     let active = true
     setLoading(true)
     setError('')
+    setNotice('')
     apiRequest<SuperAdminDashboard>('/folio/superadmin/dashboard', {}, token)
       .then(data => {
         if (active) setDashboard(data)
@@ -6428,6 +6394,22 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
     })
   }
 
+  async function handleSendAdminPushTest() {
+    setLoading(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await apiRequest<{ recipients: number; sent: number }>('/folio/superadmin/push-test', { method: 'POST' }, token)
+      setNotice(`${result.sent} de ${result.recipients} super admin(s) receberam o push de teste em ao menos um dispositivo.`)
+      return true
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel enviar o push de teste.'))
+      return false
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <section>
       <Header title="Painel técnico">
@@ -6438,11 +6420,15 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
           <button onClick={loadDashboard} disabled={loading} className="rounded-lg bg-amber-300 px-3 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">
             {loading ? 'Atualizando...' : 'Atualizar'}
           </button>
+          <button onClick={() => void handleSendAdminPushTest()} disabled={loading} className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-bold text-stone-300 hover:bg-stone-900 disabled:opacity-60">
+            Testar push
+          </button>
         </div>
       </Header>
 
       <div className="space-y-3 p-3 sm:space-y-4 sm:p-4">
         {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
+        {notice && <div className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-3 text-sm font-semibold text-emerald-100">{notice}</div>}
 
         <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
           <DashboardStat label="Usuários" value={dashboard.overview.totalUsers} detail="perfis Folio cadastrados" tone="cyan" active={activeReport === 'users'} onClick={() => openReport('users')} />
@@ -7196,6 +7182,54 @@ function ProgressBar({ value }: { value: number }) {
 
 function EmptyState({ text }: { text: string }) {
   return <div className="px-6 py-14 text-center text-sm text-stone-500">{text}</div>
+}
+
+function NotificationPreferencesPanel({ preferences, onUpdate }: {
+  preferences: NotificationPreferences
+  onUpdate: (changes: Partial<NotificationPreferences>) => Promise<boolean | void> | boolean | void
+}) {
+  return (
+    <section className="rounded-lg border border-stone-800 bg-stone-900 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-serif text-lg text-stone-50">Lembretes inteligentes</h2>
+          <p className="mt-1 text-sm text-stone-500">No máximo 1 lembrete por dia, enviados só em horário seguro.</p>
+        </div>
+        <select
+          value={preferences.reminderFrequency}
+          onChange={e => onUpdate({ reminderFrequency: e.target.value as ReminderFrequency })}
+          className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm font-bold text-stone-100 outline-none focus:border-amber-300"
+        >
+          <option value="off">Desligados</option>
+          <option value="low">Baixa</option>
+          <option value="normal">Normal</option>
+          <option value="intense">Intensa</option>
+        </select>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        {([
+          ['checkInReminders', 'Check-in diário', 'Lembrar de marcar leitura do dia.'],
+          ['readingGoalReminders', 'Metas de leitura', 'Motivar semana e mês sem cobrança.'],
+          ['reactionReminders', 'Postar reação', 'Sugerir reação ao avançar no livro.'],
+          ['clubReminders', 'Clube da leitura', 'Avisar quando houver gente no mesmo trecho.'],
+          ['returnReminders', 'Voltar hoje', 'Convite suave para continuar lendo.'],
+        ] as const).map(([key, title, detail]) => (
+          <label key={key} className="flex items-start gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
+            <input
+              type="checkbox"
+              checked={preferences[key]}
+              onChange={e => onUpdate({ [key]: e.target.checked } as Partial<NotificationPreferences>)}
+              className="mt-1 h-4 w-4 accent-amber-300"
+            />
+            <span>
+              <span className="block text-sm font-bold text-stone-100">{title}</span>
+              <span className="mt-1 block text-xs text-stone-500">{detail}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 function ToastStack({ toasts, onDismiss }: { toasts: ToastMessage[]; onDismiss: (id: number) => void }) {
@@ -8223,10 +8257,10 @@ export default function App() {
           {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSearchBooks={handleSearchBooks} />}
           {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
           {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
-          {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} />}
+          {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} notificationPreferences={notificationPreferences} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} onUpdateNotificationPreferences={handleUpdateNotificationPreferences} />}
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
-          {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} notificationPreferences={notificationPreferences} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onUpdateNotificationPreferences={handleUpdateNotificationPreferences} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
+          {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
           {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} />}
           {page === 'store' && isSuperAdminUser(currentUser) && <StorePage token={token} currentUser={currentUser} />}
         </main>
