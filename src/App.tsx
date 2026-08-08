@@ -5849,6 +5849,20 @@ function DashboardAvatar({ user }: { user: DashboardUser }) {
   )
 }
 
+function isDashboardMobilePushDevice(device: DashboardPushReportRow) {
+  return /android|iphone|ipad|ipod|mobile/i.test(device.userAgent || '')
+}
+
+function dashboardPushDeviceLabel(device: DashboardPushReportRow) {
+  const userAgent = device.userAgent || ''
+  if (/iphone|ipod/i.test(userAgent)) return 'iPhone'
+  if (/ipad/i.test(userAgent)) return 'iPad'
+  if (/android/i.test(userAgent)) return 'Android'
+  if (/windows/i.test(userAgent)) return 'Desktop Windows'
+  if (/macintosh|mac os x/i.test(userAgent)) return 'Desktop Mac'
+  return isDashboardMobilePushDevice(device) ? 'Mobile' : 'Desktop'
+}
+
 function DashboardStat({ label, value, detail, tone = 'amber', active = false, onClick }: {
   label: string
   value: number | string
@@ -6000,7 +6014,7 @@ const DASHBOARD_REPORT_TITLES: Record<DashboardReportKey, string> = {
   books: 'Relatório de livros',
   postsThisYear: 'Postagens do ano',
   loginsToday: 'Logins de hoje',
-  pushSubscriptions: 'Notificações ativas por usuário',
+  pushSubscriptions: 'Notificações mobile por usuário',
 }
 
 function dashboardPostTypeLabel(type: string) {
@@ -6185,7 +6199,7 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
     )
   }
 
-  const rows = dashboard.reports.pushSubscriptions
+  const rows = dashboard.reports.pushSubscriptions.filter(isDashboardMobilePushDevice)
   const pushUsers = Array.from(rows.reduce((map, row) => {
     const current = map.get(row.user.id)
     if (current) {
@@ -6213,13 +6227,17 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
             <div className="flex flex-wrap items-start justify-between gap-3">
               <DashboardUserLine user={row.user} />
               <div className="text-right">
-                <p className="text-xs font-black text-rose-200">{row.devices.length} {row.devices.length === 1 ? 'dispositivo' : 'dispositivos'}</p>
+                <p className="text-xs font-black text-rose-200">{row.devices.length} {row.devices.length === 1 ? 'mobile' : 'mobiles'}</p>
                 <p className="mt-1 text-xs font-bold text-stone-500">Atualizado {formatDateTime(row.lastUpdatedAt)}</p>
               </div>
             </div>
             <div className="space-y-2">
               {row.devices.map(device => (
                 <div key={device.id} className="rounded-lg border border-stone-800 bg-stone-900 p-2">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-rose-300/10 px-2 py-0.5 text-[11px] font-black text-rose-200">{dashboardPushDeviceLabel(device)}</span>
+                    <span className="text-[11px] font-bold text-stone-500">aparece na barra do celular</span>
+                  </div>
                   <p className="truncate text-xs text-stone-500">{device.userAgent || 'Dispositivo sem identificação'}</p>
                   <p className="mt-1 truncate text-xs text-stone-600">{device.endpoint}</p>
                   <p className="mt-1 text-[11px] font-bold text-stone-500">Atualizado {formatDateTime(device.updatedAt)}</p>
@@ -6227,7 +6245,7 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
               ))}
             </div>
           </button>
-        )) : <EmptyState text="Nenhum usuário com notificações ativas." />}
+        )) : <EmptyState text="Nenhum usuário com notificações mobile ativas." />}
       </div>
     </DashboardReportShell>
   )
@@ -6330,6 +6348,8 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
     label: row.label === 'comment' ? 'Comentários' : row.label === 'reaction' ? 'Reações' : row.label === 'theory' ? 'Teorias' : row.label,
     count: row.count,
   }))
+  const pushMobileUsers = new Set(dashboard.reports.pushSubscriptions.filter(isDashboardMobilePushDevice).map(row => row.user.id)).size
+  const pushTotalUsers = dashboard.overview.pushUsers ?? dashboard.overview.pushSubscriptions
 
   function openReport(report: DashboardReportKey) {
     setActiveReport(report)
@@ -6365,7 +6385,7 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
           <DashboardStat label="Livros" value={dashboard.overview.totalBooks} detail={`${dashboard.overview.totalShelfEntries} entradas em estantes`} active={activeReport === 'books'} onClick={() => openReport('books')} />
           <DashboardStat label="Posts no ano" value={dashboard.overview.postsThisYear} detail={`${dashboard.overview.totalPosts} no total`} tone="cyan" active={activeReport === 'postsThisYear'} onClick={() => openReport('postsThisYear')} />
           <DashboardStat label="Logins hoje" value={dashboard.overview.loginsToday} detail="entradas autenticadas" tone="emerald" active={activeReport === 'loginsToday'} onClick={() => openReport('loginsToday')} />
-          <DashboardStat label="Push ativo" value={dashboard.overview.pushUsers ?? dashboard.overview.pushSubscriptions} detail={`${dashboard.overview.pushSubscriptions} dispositivos registrados`} tone="rose" active={activeReport === 'pushSubscriptions'} onClick={() => openReport('pushSubscriptions')} />
+          <DashboardStat label="Push mobile" value={pushMobileUsers} detail={`${pushTotalUsers} usuários · ${dashboard.overview.pushSubscriptions} dispositivos`} tone="rose" active={activeReport === 'pushSubscriptions'} onClick={() => openReport('pushSubscriptions')} />
         </div>
 
         {activeReport && (
