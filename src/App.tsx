@@ -5091,11 +5091,6 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, notificati
             </div>
           </div>
         )}
-        {isOwnProfile && (
-          <div className="mt-5">
-            <NotificationPreferencesPanel preferences={notificationPreferences} onUpdate={onUpdateNotificationPreferences} />
-          </div>
-        )}
         <div className="mt-5 grid grid-cols-3 gap-3 text-center">
           {[
             ['Seguindo', profileUser.following.length, 'following'],
@@ -5199,6 +5194,11 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, notificati
         ) : (
           <div className="space-y-3">
             {filteredShelf.length ? filteredShelf.map(renderProfileShelfRow) : <EmptyState text={`Nenhum livro em ${STATUS_LABELS[shelfFilter]}.`} />}
+          </div>
+        )}
+        {isOwnProfile && (
+          <div className="mt-5">
+            <NotificationPreferencesPanel preferences={notificationPreferences} onUpdate={onUpdateNotificationPreferences} />
           </div>
         )}
       </div>
