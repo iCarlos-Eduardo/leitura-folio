@@ -453,6 +453,7 @@ const POST_IMAGE_COMPRESS_ABOVE_BYTES = 1400 * 1024
 const POST_IMAGE_JPEG_QUALITY = 0.82
 const DIRECT_UPLOAD_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const IMAGE_UPLOAD_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif'
+const BOOK_COVER_IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif)(?:[?#].*)?$/i
 // Personalize este comunicado quando o motivo da indisponibilidade mudar.
 const SERVICE_UNAVAILABLE_NOTICE: ServiceNotice = {
   eyebrow: 'Comunicado Oficial - Grupo Entrelinhas',
@@ -637,6 +638,53 @@ function resolveFolioPostMediaUploadUrl(url: string) {
   }
 }
 
+function mediaBaseUrl() {
+  return MEDIA_BASE_URL.replace(/\/$/, '')
+}
+
+function mediaFileNameFromUrl(value: string) {
+  try {
+    const parsedUrl = new URL(value, window.location.origin)
+    const fileName = decodeURIComponent(parsedUrl.pathname.split('/').filter(Boolean).pop() || '')
+    return BOOK_COVER_IMAGE_EXTENSIONS.test(fileName) ? fileName : ''
+  } catch {
+    const cleanValue = value.split(/[?#]/)[0].trim()
+    const fileName = cleanValue.split(/[\\/]/).filter(Boolean).pop() || ''
+    return BOOK_COVER_IMAGE_EXTENSIONS.test(fileName) ? fileName : ''
+  }
+}
+
+function normalizeUploadedBookCoverUrl(value?: string | null) {
+  const url = (value || '').trim()
+  if (!url) return ''
+  if (isMediaUrl(url) || /^(data:|blob:)/i.test(url)) return url
+
+  const fileName = mediaFileNameFromUrl(url)
+  return fileName ? `/folio/books/cover/${encodeURIComponent(fileName)}` : url
+}
+
+function resolveBookCoverUrlCandidates(value?: string | null) {
+  const url = (value || '').trim()
+  if (!url) return []
+
+  const fileName = mediaFileNameFromUrl(url)
+  if (!fileName) return []
+
+  const encodedFileName = encodeURIComponent(fileName)
+  const baseUrl = mediaBaseUrl()
+  const candidates = [
+    `${baseUrl}/folio/books/cover/${encodedFileName}`,
+    `${baseUrl}/uploads/folio-covers/${encodedFileName}`,
+    `${baseUrl}/uploads/folio-book-covers/${encodedFileName}`,
+    `${baseUrl}/uploads/folio-books/${encodedFileName}`,
+    `${baseUrl}/uploads/book-covers/${encodedFileName}`,
+    `${baseUrl}/uploads/books/${encodedFileName}`,
+    `${baseUrl}/uploads/${encodedFileName}`,
+  ]
+
+  return candidates
+}
+
 function resolveMediaUrl(value?: string | null) {
   const url = (value || '').trim()
   if (!url) return ''
@@ -660,8 +708,9 @@ function resolveMediaUrl(value?: string | null) {
   }
   if (/^https?:\/\//i.test(url)) return encodeURI(url)
   if (url.startsWith('/assets/') || url.startsWith('/icons/')) return url
-  if (url.startsWith('/')) return `${MEDIA_BASE_URL.replace(/\/$/, '')}${url}`
-  if (/^(uploads|media|files)\//i.test(url)) return `${MEDIA_BASE_URL.replace(/\/$/, '')}/${url}`
+  if (url.startsWith('/')) return `${mediaBaseUrl()}${url}`
+  if (/^(uploads|media|files)\//i.test(url)) return `${mediaBaseUrl()}/${url}`
+  if (BOOK_COVER_IMAGE_EXTENSIONS.test(url)) return `${mediaBaseUrl()}/folio/books/cover/${encodeURIComponent(url)}`
   return url
 }
 
@@ -670,8 +719,9 @@ function resolveMediaUrlCandidates(value?: string | null) {
   const candidates = [primary]
   const postMediaUrl = value ? resolveFolioPostUploadUrl(value) : ''
   const postUploadUrl = value ? resolveFolioPostMediaUploadUrl(value) : ''
+  const bookCoverUrls = resolveBookCoverUrlCandidates(value)
 
-  for (const candidate of [postMediaUrl, postUploadUrl]) {
+  for (const candidate of [postMediaUrl, postUploadUrl, ...bookCoverUrls]) {
     if (candidate && !candidates.includes(candidate)) candidates.push(candidate)
   }
 
@@ -3470,6 +3520,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
   includeShelfFields?: boolean
 }) {
   const [draft, setDraft] = useState<BookFormDraft>(() => draftFromBook(initialBook, defaultStatus, initialShelfEntry))
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
   const [error, setError] = useState('')
@@ -3487,6 +3538,29 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
   const totalPagesValue = Math.round(numberFromText(draft.totalPages))
   const totalChaptersValue = Math.round(numberFromText(draft.totalChapters, 1))
   const canSave = draft.title.trim().length > 0 && draft.author.trim().length > 0 && draft.cover.trim().length > 0 && totalPagesValue > 0 && totalChaptersValue > 0
+  const coverPreviewSrc = coverPreviewUrl || draft.cover
+
+  useEffect(() => {
+    return () => {
+      if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl)
+    }
+  }, [coverPreviewUrl])
+
+  function replaceCoverPreviewUrl(url: string) {
+    setCoverPreviewUrl(previous => {
+      if (previous) URL.revokeObjectURL(previous)
+      return url
+    })
+  }
+
+  function removeCover() {
+    replaceCoverPreviewUrl('')
+    setDraft(previous => ({
+      ...previous,
+      cover: '',
+      coverFileName: '',
+    }))
+  }
 
   async function save() {
     if (!canSave) {
@@ -3583,15 +3657,20 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
                   <input type="file" accept={IMAGE_UPLOAD_ACCEPT} className="hidden" onChange={async e => {
                     const file = e.target.files?.[0]
                     if (!file) return
+                    const localPreviewUrl = URL.createObjectURL(file)
+                    replaceCoverPreviewUrl(localPreviewUrl)
+                    update('coverFileName', file.name)
                     setUploadingCover(true)
                     setError('')
                     try {
-                      update('cover', await onUploadCover(file))
-                      update('coverFileName', file.name)
+                      update('cover', normalizeUploadedBookCoverUrl(await onUploadCover(file)))
                     } catch {
+                      replaceCoverPreviewUrl('')
+                      if (!draft.cover) update('coverFileName', '')
                       setError('Nao foi possivel enviar a capa agora.')
                     } finally {
                       setUploadingCover(false)
+                      e.currentTarget.value = ''
                     }
                   }} />
                 </label>
@@ -3599,8 +3678,8 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
               </div>
               <div>
                 <p className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Previa da capa</p>
-                {draft.cover ? <FolioImage src={draft.cover} alt="Previa da capa" className="h-40 w-28 rounded-lg object-cover" /> : <div className="flex h-40 w-28 items-center justify-center rounded-lg border border-stone-800 bg-stone-950 text-xs text-stone-600">Sem capa</div>}
-                <button onClick={() => update('cover', '')} className="mt-2 text-xs font-bold text-red-300 hover:text-red-200">Remover capa</button>
+                {coverPreviewSrc ? <FolioImage src={coverPreviewSrc} alt="Previa da capa" loading="eager" className="h-40 w-28 rounded-lg object-cover" /> : <div className="flex h-40 w-28 items-center justify-center rounded-lg border border-stone-800 bg-stone-950 text-xs text-stone-600">Sem capa</div>}
+                <button type="button" onClick={removeCover} className="mt-2 text-xs font-bold text-red-300 hover:text-red-200">Remover capa</button>
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -7885,20 +7964,33 @@ export default function App() {
   async function handleUploadBookCover(file: File) {
     beginActionLoading()
     try {
+      const activeToken = activeAuthToken()
       if (!isImageUpload(file)) throw new Error('Envie uma imagem em JPG, PNG, WEBP ou GIF.')
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', file, file.name)
       const response = await fetch(`${API_BASE_URL}/folio/books/cover`, {
         method: 'POST',
         credentials: 'include',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : undefined,
         body: formData,
       })
-      if (!response.ok) throw new Error(await response.text())
-      const data = await response.json() as { url: string }
+      if (!response.ok) throw new ApiRequestError(response.status, await response.text())
+      const data = await response.json() as {
+        url?: string
+        cover?: string
+        coverUrl?: string
+        imageUrl?: string
+        path?: string
+        fileName?: string
+        filename?: string
+      }
+      const uploadedUrl = data.url || data.coverUrl || data.cover || data.imageUrl || data.path || data.fileName || data.filename
+      const normalizedUrl = normalizeUploadedBookCoverUrl(uploadedUrl)
+      if (!normalizedUrl) throw new Error('O servidor nao retornou a URL da capa.')
       showToast('success', 'Capa enviada com sucesso.')
-      return data.url
+      return normalizedUrl
     } catch (error) {
+      if (isAuthExpiredError(error)) clearStoredLogin()
       showToast('error', errorMessage(error, 'Nao foi possivel enviar a capa.'))
       throw error
     } finally {
