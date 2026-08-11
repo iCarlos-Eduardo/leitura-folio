@@ -7542,9 +7542,24 @@ export default function App() {
 
   function handleMaintenanceModeChange(nextMode: MaintenanceMode) {
     const normalizedMode = normalizeMaintenanceMode(nextMode)
-    localStorage.setItem(MAINTENANCE_STORAGE_KEY, JSON.stringify(normalizedMode))
-    setMaintenanceMode(normalizedMode)
-    showToast('success', normalizedMode.enabled ? 'Modo manutenção ativado.' : 'Modo manutenção desativado.')
+    beginActionLoading()
+    void apiRequest<MaintenanceMode>('/folio/superadmin/maintenance', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        enabled: normalizedMode.enabled,
+        message: normalizedMode.message,
+      }),
+    }, token)
+      .then(savedMode => {
+        const saved = normalizeMaintenanceMode(savedMode)
+        localStorage.setItem(MAINTENANCE_STORAGE_KEY, JSON.stringify(saved))
+        setMaintenanceMode(saved)
+        showToast('success', saved.enabled ? 'Modo manutenção ativado.' : 'Modo manutenção desativado.')
+      })
+      .catch(error => {
+        showToast('error', errorMessage(error, 'Nao foi possivel atualizar o modo manutenção.'))
+      })
+      .finally(endActionLoading)
   }
 
   function currentViewState(): ViewState {
@@ -7687,6 +7702,7 @@ export default function App() {
       posts: Post[]
       replies: Reply[]
       timeline: TimelineEvent[]
+      maintenanceMode?: MaintenanceMode
       notifications?: FolioNotification[]
       notificationPreferences?: NotificationPreferences
       readingGoal?: ReadingGoal
@@ -7703,6 +7719,9 @@ export default function App() {
     setPosts(data.posts)
     setReplies(data.replies)
     setTimeline(data.timeline || [])
+    const remoteMaintenanceMode = normalizeMaintenanceMode(data.maintenanceMode)
+    localStorage.setItem(MAINTENANCE_STORAGE_KEY, JSON.stringify(remoteMaintenanceMode))
+    setMaintenanceMode(remoteMaintenanceMode)
     setNotifications(data.notifications || [])
     setNotificationPreferences({ ...DEFAULT_NOTIFICATION_PREFERENCES, ...(data.notificationPreferences || {}) })
     setReadingGoal(data.readingGoal || { targetBooks: 40, targetBooksMonth: 4, targetBooksWeek: 1, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
@@ -8476,7 +8495,7 @@ export default function App() {
     return (
       <ServiceUnavailableNotice
         notice={maintenanceNotice(maintenanceMode)}
-        onRetry={() => setMaintenanceMode(storedMaintenanceMode())}
+        onRetry={() => void loadBootstrap(token).catch(() => setMaintenanceMode(storedMaintenanceMode()))}
         onLogout={handleLogout}
       />
     )
