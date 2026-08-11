@@ -438,6 +438,12 @@ interface ServiceNotice {
   logoutLabel: string
 }
 
+interface MaintenanceMode {
+  enabled: boolean
+  message: string
+  updatedAt?: string | null
+}
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7198' : 'https://entrelinhas.sgpf.com.br')
@@ -454,6 +460,8 @@ const POST_IMAGE_JPEG_QUALITY = 0.82
 const DIRECT_UPLOAD_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const IMAGE_UPLOAD_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif'
 const BOOK_COVER_IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif)(?:[?#].*)?$/i
+const MAINTENANCE_STORAGE_KEY = 'folio_maintenance_mode'
+const DEFAULT_MAINTENANCE_MESSAGE = 'A plataforma está em manutenção para aplicação de melhorias. Estamos preparando ajustes importantes e voltaremos em breve com uma experiência melhor para todos.'
 // Personalize este comunicado quando o motivo da indisponibilidade mudar.
 const SERVICE_UNAVAILABLE_NOTICE: ServiceNotice = {
   eyebrow: 'Comunicado Oficial - Grupo Entrelinhas',
@@ -6376,10 +6384,83 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
   )
 }
 
-function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
+function MaintenanceModePanel({ mode, onChange }: {
+  mode: MaintenanceMode
+  onChange: (mode: MaintenanceMode) => void
+}) {
+  const [message, setMessage] = useState(mode.message)
+
+  useEffect(() => {
+    setMessage(mode.message)
+  }, [mode.message])
+
+  function saveMaintenanceMode(enabled = mode.enabled) {
+    onChange(normalizeMaintenanceMode({
+      enabled,
+      message,
+      updatedAt: new Date().toISOString(),
+    }))
+  }
+
+  return (
+    <section className={`rounded-lg border p-3 sm:p-4 ${mode.enabled ? 'border-amber-300/40 bg-amber-300/10' : 'border-stone-800 bg-stone-900'}`}>
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-serif text-lg text-stone-50 sm:text-xl">Modo manutenção</h2>
+            <span className={`rounded-full px-2 py-1 text-xs font-black uppercase ${mode.enabled ? 'bg-amber-300 text-stone-950' : 'border border-stone-700 text-stone-400'}`}>
+              {mode.enabled ? 'Ativo' : 'Inativo'}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-stone-400">
+            Quando ativo, leitores veem o comunicado de manutenção; superadmins continuam com acesso ao painel.
+          </p>
+          {mode.updatedAt && <p className="mt-2 text-xs font-semibold text-stone-500">Atualizado {formatDateTime(mode.updatedAt)}</p>}
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={mode.enabled}
+          onClick={() => saveMaintenanceMode(!mode.enabled)}
+          className={`flex min-h-11 items-center justify-between gap-3 rounded-full border px-2 py-1 transition ${mode.enabled ? 'border-amber-300 bg-amber-300 text-stone-950' : 'border-stone-700 bg-stone-950 text-stone-300 hover:border-stone-500'}`}
+        >
+          <span className="px-2 text-sm font-black">{mode.enabled ? 'Desativar' : 'Ativar'}</span>
+          <span className={`h-8 w-8 rounded-full transition ${mode.enabled ? 'bg-stone-950' : 'bg-stone-700'}`} />
+        </button>
+      </div>
+      <label className="mt-4 block text-xs font-bold uppercase text-stone-500">Mensagem para usuários</label>
+      <textarea
+        value={message}
+        onChange={event => setMessage(event.target.value)}
+        rows={3}
+        className="mt-2 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none transition placeholder:text-stone-600 focus:border-amber-300"
+      />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => saveMaintenanceMode()}
+          className="rounded-lg bg-stone-100 px-3 py-2 text-sm font-bold text-stone-950 transition hover:bg-stone-200"
+        >
+          Salvar mensagem
+        </button>
+        <button
+          type="button"
+          onClick={() => setMessage(DEFAULT_MAINTENANCE_MESSAGE)}
+          className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-bold text-stone-300 transition hover:bg-stone-800"
+        >
+          Restaurar texto padrão
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function SuperAdminDashboardPage({ token, onUserClick, onBookClick, maintenanceMode, onMaintenanceModeChange }: {
   token: string
   onUserClick: (id: string) => void
   onBookClick: (id: string) => void
+  maintenanceMode: MaintenanceMode
+  onMaintenanceModeChange: (mode: MaintenanceMode) => void
 }) {
   const [dashboard, setDashboard] = useState<SuperAdminDashboard | null>(null)
   const [loading, setLoading] = useState(true)
@@ -6522,6 +6603,8 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick }: {
       <div className="space-y-3 p-3 sm:space-y-4 sm:p-4">
         {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
         {notice && <div className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-3 text-sm font-semibold text-emerald-100">{notice}</div>}
+
+        <MaintenanceModePanel mode={maintenanceMode} onChange={onMaintenanceModeChange} />
 
         <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
           <DashboardStat label="Usuários" value={dashboard.overview.totalUsers} detail="perfis Folio cadastrados" tone="cyan" active={activeReport === 'users'} onClick={() => openReport('users')} />
@@ -7383,6 +7466,40 @@ function storedColorTheme(): ColorTheme {
   return theme
 }
 
+function normalizeMaintenanceMode(value?: Partial<MaintenanceMode> | null): MaintenanceMode {
+  return {
+    enabled: Boolean(value?.enabled),
+    message: (value?.message || DEFAULT_MAINTENANCE_MESSAGE).trim() || DEFAULT_MAINTENANCE_MESSAGE,
+    updatedAt: value?.updatedAt || null,
+  }
+}
+
+function storedMaintenanceMode() {
+  try {
+    const value = localStorage.getItem(MAINTENANCE_STORAGE_KEY)
+    return value ? normalizeMaintenanceMode(JSON.parse(value) as Partial<MaintenanceMode>) : normalizeMaintenanceMode()
+  } catch {
+    return normalizeMaintenanceMode()
+  }
+}
+
+function maintenanceNotice(mode: MaintenanceMode): ServiceNotice {
+  return {
+    eyebrow: 'Comunicado Oficial - Grupo Entrelinhas',
+    title: 'Plataforma em manutenção',
+    paragraphs: [
+      mode.message,
+      'Nossa equipe está aplicando melhorias neste momento. Assim que a manutenção terminar, o acesso será liberado normalmente.',
+      mode.updatedAt ? `Última atualização: ${formatDateTime(mode.updatedAt)}.` : 'Agradecemos a compreensão e a paciência.',
+    ],
+    deadlineLabel: '',
+    deadlineIso: '',
+    deadlineDisplay: '',
+    retryLabel: 'Tentar novamente',
+    logoutLabel: 'Sair',
+  }
+}
+
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('folio_token') || '')
   const [users, setUsers] = useState<User[]>([])
@@ -7405,6 +7522,7 @@ export default function App() {
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES)
   const [loadingApp, setLoadingApp] = useState(true)
   const [resumeError, setResumeError] = useState('')
+  const [maintenanceMode, setMaintenanceMode] = useState<MaintenanceMode>(() => storedMaintenanceMode())
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [actionLoadingCount, setActionLoadingCount] = useState(0)
   const [deviceNotifications, setDeviceNotifications] = useState<DeviceNotificationStatus>(() => deviceNotificationStatus())
@@ -7421,6 +7539,13 @@ export default function App() {
     if (!currentUser) return notifications
     return notifications.filter(notification => canDisplayNotification(notification, currentUser, shelf, books))
   }, [books, currentUser, notifications, shelf])
+
+  function handleMaintenanceModeChange(nextMode: MaintenanceMode) {
+    const normalizedMode = normalizeMaintenanceMode(nextMode)
+    localStorage.setItem(MAINTENANCE_STORAGE_KEY, JSON.stringify(normalizedMode))
+    setMaintenanceMode(normalizedMode)
+    showToast('success', normalizedMode.enabled ? 'Modo manutenção ativado.' : 'Modo manutenção desativado.')
+  }
 
   function currentViewState(): ViewState {
     return {
@@ -7616,6 +7741,17 @@ export default function App() {
 
   useEffect(() => {
     loadBootstrap().catch(handleStoredLoginFailure)
+  }, [])
+
+  useEffect(() => {
+    function syncMaintenanceMode(event: StorageEvent) {
+      if (event.key === MAINTENANCE_STORAGE_KEY) {
+        setMaintenanceMode(storedMaintenanceMode())
+      }
+    }
+
+    window.addEventListener('storage', syncMaintenanceMode)
+    return () => window.removeEventListener('storage', syncMaintenanceMode)
   }, [])
 
   useEffect(() => {
@@ -8336,6 +8472,16 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} />
   }
 
+  if (maintenanceMode.enabled && !isSuperAdminUser(currentUser)) {
+    return (
+      <ServiceUnavailableNotice
+        notice={maintenanceNotice(maintenanceMode)}
+        onRetry={() => setMaintenanceMode(storedMaintenanceMode())}
+        onLogout={handleLogout}
+      />
+    )
+  }
+
   const selectedBook = selectedBookId ? books.find(book => book.id === selectedBookId) : null
   const selectedProfileUser = users.find(user => user.id === (selectedProfileUserId || currentUser.id)) || currentUser
   const notificationCount = visibleNotifications.filter(notification => !notification.read).length
@@ -8367,7 +8513,7 @@ export default function App() {
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
           {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
-          {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} />}
+          {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} maintenanceMode={maintenanceMode} onMaintenanceModeChange={handleMaintenanceModeChange} />}
           {page === 'store' && isSuperAdminUser(currentUser) && <StorePage token={token} currentUser={currentUser} />}
         </main>
 
