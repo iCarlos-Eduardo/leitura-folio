@@ -4,7 +4,7 @@ import type { ImgHTMLAttributes } from 'react'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'favorite' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
-type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications' | 'superadmin' | 'store'
+type Page = 'timeline' | 'shelf' | 'library' | 'book' | 'profile' | 'profile-list' | 'goals' | 'notifications' | 'superadmin' | 'store' | 'ai-lab'
 type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 type ColorTheme = 'light' | 'dark'
@@ -21,6 +21,8 @@ type ViewState = {
 
 const BRAND_NAME = ''
 const BRAND_LOGO_URL = '/assets/image/logo/logo.jpeg'
+// IA Lab pausado no frontend. Mude para true quando quiser reativar a tela.
+const AI_LAB_FRONTEND_ENABLED = false
 
 interface User {
   id: string
@@ -248,6 +250,91 @@ interface StoreBootstrap {
 type StoreCartItem = {
   productId: string
   quantity: number
+}
+
+interface AiLabResponse {
+  generatedAt: string
+  access: string
+  characterProfileId?: string | null
+  character: string
+  conversationMode?: string
+  book?: {
+    id: string
+    title: string
+    author: string
+  } | null
+  spoilerBoundary: {
+    chapter: number
+    percent: number
+  }
+  promptPreview: string
+  reply: string
+  guardrails: string[]
+  learningTrace: {
+    label: string
+    title: string
+    detail: string
+  }[]
+}
+
+type AiChatMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+  response?: AiLabResponse
+}
+
+type AiConversationMode = 'chapter-guide' | 'character' | 'literary-analysis' | 'spoiler-free-theory'
+
+interface AiCharacterMemory {
+  id?: string | null
+  chapter: number
+  percent: number
+  kind: string
+  text: string
+}
+
+interface AiCharacterProfile {
+  id: string
+  bookId?: string | null
+  name: string
+  persona: string
+  traits: string[]
+  forbiddenFacts: string[]
+  memories: AiCharacterMemory[]
+  sourceChunks: AiCharacterSourceChunk[]
+  updatedAt: string
+}
+
+interface AiCharacterSourceChunk {
+  id?: string | null
+  chapter: number
+  percent: number
+  title?: string | null
+  text: string
+}
+
+interface AiSourceImportResponse {
+  sourceId: string
+  bookId?: string | null
+  fileName: string
+  storedFileName: string
+  size: number
+  chunkCount: number
+  importedAt: string
+  chunks: AiCharacterSourceChunk[]
+  skipped?: string | null
+}
+
+interface AiSourceSummary {
+  id: string
+  bookId?: string | null
+  fileName: string
+  storedFileName: string
+  size: number
+  chunkCount: number
+  importedAt: string
 }
 
 interface DashboardUser {
@@ -2372,7 +2459,7 @@ function LoginPage({ onLogin }: { onLogin: (name: string, email: string, passwor
   )
 }
 
-type NavIconName = 'home' | 'library' | 'goals' | 'notifications' | 'shelf' | 'profile' | 'dashboard' | 'store'
+type NavIconName = 'home' | 'library' | 'goals' | 'notifications' | 'shelf' | 'profile' | 'dashboard' | 'store' | 'ai'
 
 function NavIcon({ name }: { name: NavIconName }) {
   const common = {
@@ -2394,6 +2481,7 @@ function NavIcon({ name }: { name: NavIconName }) {
     profile: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" /></>,
     dashboard: <><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 16v-5" /><path d="M12 16V8" /><path d="M16 16v-7" /><path d="M19 7l-3-3-4 4-3-2-4 5" /></>,
     store: <><path d="M5 10h14l-1 10H6z" /><path d="M8 10a4 4 0 0 1 8 0" /><path d="M9 14h.01" /><path d="M15 14h.01" /></>,
+    ai: <><path d="M12 3v3" /><path d="M12 18v3" /><path d="M4.8 7.2 7 9.4" /><path d="m17 14.6 2.2 2.2" /><path d="M3 12h3" /><path d="M18 12h3" /><rect x="7" y="7" width="10" height="10" rx="2.5" /><path d="M10 11h.01" /><path d="M14 11h.01" /><path d="M10 14.5h4" /></>,
   }
 
   return <svg {...common}>{paths[name]}</svg>
@@ -2517,6 +2605,9 @@ function Navigation({ currentUser, page, theme, onToggleTheme, onNavigate, onCre
   if (isSuperAdminUser(currentUser)) {
     navItems.splice(3, 0, { id: 'superadmin', icon: 'dashboard', label: 'Painel' })
     navItems.splice(4, 0, { id: 'store', icon: 'store', label: 'Loja' })
+    if (AI_LAB_FRONTEND_ENABLED) {
+      navItems.splice(5, 0, { id: 'ai-lab', icon: 'ai', label: 'IA' })
+    }
   }
   const mobileNavItems = navItems.filter(item => item.id !== 'store')
 
@@ -6727,6 +6818,693 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick, maintenanceM
   )
 }
 
+function AiLabPage({ token, books }: { token: string; books: Book[] }) {
+  const emptyProfileLabel = 'Novo perfil'
+  const conversationModes: { value: AiConversationMode; label: string; description: string }[] = [
+    { value: 'chapter-guide', label: 'Guia do capítulo', description: 'Tira dúvidas objetivas sem spoiler.' },
+    { value: 'character', label: 'Personagem', description: 'Responde com uma voz/persona escolhida.' },
+    { value: 'literary-analysis', label: 'Análise literária', description: 'Comenta tom, atmosfera e construção.' },
+    { value: 'spoiler-free-theory', label: 'Teorias sem spoiler', description: 'Levanta hipóteses sem confirmar.' },
+  ]
+  const [bookId, setBookId] = useState(books[0]?.id || '')
+  const [profiles, setProfiles] = useState<AiCharacterProfile[]>([])
+  const [sources, setSources] = useState<AiSourceSummary[]>([])
+  const [selectedProfileId, setSelectedProfileId] = useState('')
+  const [conversationMode, setConversationMode] = useState<AiConversationMode>('chapter-guide')
+  const [characterName, setCharacterName] = useState('Personagem teste')
+  const [persona, setPersona] = useState('fala como alguem atento aos detalhes, emocionalmente contido e cuidadoso com spoilers')
+  const [traitsText, setTraitsText] = useState('observador, cauteloso, literario')
+  const [knownFactsText, setKnownFactsText] = useState('Sabe apenas os eventos ate o capitulo informado.\nPode comentar pistas, atmosfera e conflitos ja apresentados.')
+  const [forbiddenFactsText, setForbiddenFactsText] = useState('revelacao final\nidentidade do culpado\nmorte futura')
+  const [memoriesText, setMemoriesText] = useState('1|0|O personagem ainda deve falar apenas sobre o que apareceu no começo do livro.')
+  const [sourceChunksText, setSourceChunksText] = useState('')
+  const [chapter, setChapter] = useState(1)
+  const [percent, setPercent] = useState(5)
+  const [message, setMessage] = useState('O que voce acha que eu deveria observar nesse ponto da leitura?')
+  const [chatMessages, setChatMessages] = useState<AiChatMessage[]>([])
+  const [response, setResponse] = useState<AiLabResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [loadingSources, setLoadingSources] = useState(false)
+  const [deletingSourceId, setDeletingSourceId] = useState('')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const chatEndRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!bookId && books[0]?.id) setBookId(books[0].id)
+  }, [bookId, books])
+
+  useEffect(() => {
+    let active = true
+    apiRequest<AiCharacterProfile[]>('/folio/superadmin/ai/characters', {}, token)
+      .then(data => {
+        if (active) setProfiles(data)
+      })
+      .catch(err => {
+        if (active) setError(errorMessage(err, 'Nao foi possivel carregar os personagens.'))
+      })
+
+    return () => {
+      active = false
+    }
+  }, [token])
+
+  async function loadSources(nextBookId = bookId) {
+    setLoadingSources(true)
+    try {
+      const query = nextBookId ? `?bookId=${encodeURIComponent(nextBookId)}` : ''
+      const data = await apiRequest<AiSourceSummary[]>(`/folio/superadmin/ai/sources${query}`, {}, token)
+      setSources(data)
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel carregar as fontes privadas.'))
+    } finally {
+      setLoadingSources(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadSources(bookId)
+  }, [bookId, token])
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [chatMessages, loading])
+
+  const selectedBook = books.find(book => book.id === bookId)
+  const maxChapter = selectedBook?.totalChapters || 120
+  const selectedProfile = profiles.find(profile => profile.id === selectedProfileId)
+  const selectedConversationMode = conversationModes.find(mode => mode.value === conversationMode) || conversationModes[0]
+
+  function formatSourceSize(size: number) {
+    if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
+    if (size >= 1024) return `${Math.ceil(size / 1024)} KB`
+    return `${size} B`
+  }
+
+  function nextChatId(role: AiChatMessage['role']) {
+    return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  }
+
+  function chatHistoryPayload() {
+    return chatMessages.slice(-8).map(item => ({
+      role: item.role === 'assistant' ? 'assistant' : 'user',
+      content: item.content,
+    }))
+  }
+
+  function splitList(value: string) {
+    return value.split(/\r?\n|,/).map(item => item.trim()).filter(Boolean)
+  }
+
+  function splitMultiline(value: string) {
+    return value.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
+  }
+
+  function formatMemories(memories: AiCharacterMemory[]) {
+    return memories
+      .map(memory => `${memory.chapter}|${memory.percent}|${memory.text}`)
+      .join('\n')
+  }
+
+  function parseMemories(value: string): AiCharacterMemory[] {
+    return value
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const parts = line.split('|').map(part => part.trim())
+        if (parts.length >= 3) {
+          return {
+            chapter: Math.max(1, Number(parts[0]) || 1),
+            percent: clamp(Number(parts[1]) || 0, 0, 100),
+            kind: 'fact',
+            text: parts.slice(2).join('|').trim(),
+          }
+        }
+
+        return {
+          chapter,
+          percent,
+          kind: 'fact',
+          text: line,
+        }
+      })
+      .filter(memory => Boolean(memory.text))
+  }
+
+  function formatSourceChunks(chunks: AiCharacterSourceChunk[]) {
+    return chunks
+      .map(chunk => `${chunk.chapter}|${chunk.percent}|${chunk.title || 'Trecho'}|${chunk.text}`)
+      .join('\n')
+  }
+
+  function parseSourceChunks(value: string): AiCharacterSourceChunk[] {
+    return value
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const parts = line.split('|').map(part => part.trim())
+        if (parts.length >= 4) {
+          return {
+            chapter: Math.max(1, Number(parts[0]) || 1),
+            percent: clamp(Number(parts[1]) || 0, 0, 100),
+            title: parts[2],
+            text: parts.slice(3).join('|').trim(),
+          }
+        }
+
+        return {
+          chapter,
+          percent,
+          title: 'Trecho importado',
+          text: line,
+        }
+      })
+      .filter(chunk => Boolean(chunk.text))
+  }
+
+  async function handleImportContextFile(file: File) {
+    setError('')
+    setNotice('')
+    const extension = file.name.split('.').pop()?.toLowerCase()
+    if (!extension || !['txt', 'md'].includes(extension)) {
+      setError('Por enquanto a ingestao automatica aceita .txt ou .md. PDF/ePUB entram na proxima etapa.')
+      return
+    }
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('bookId', bookId)
+    formData.append('chapter', String(chapter))
+    formData.append('percent', String(percent))
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/folio/superadmin/ai/sources`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new ApiRequestError(response.status, await response.text())
+      }
+
+      const result = await response.json() as AiSourceImportResponse
+      const importedCount = result.chunkCount || result.chunks?.length || 0
+      if (!importedCount) {
+        setError(result.skipped || 'Nao encontrei texto util nesse arquivo.')
+        return
+      }
+
+      setSources(current => [
+        {
+          id: result.sourceId,
+          bookId: result.bookId,
+          fileName: result.fileName,
+          storedFileName: result.storedFileName,
+          size: result.size,
+          chunkCount: importedCount,
+          importedAt: result.importedAt,
+        },
+        ...current.filter(source => source.id !== result.sourceId),
+      ])
+      setNotice(`${importedCount} trecho(s) salvos na biblioteca privada de ${result.fileName}.`)
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel importar o arquivo fonte.'))
+    }
+  }
+
+  async function handleDeleteSource(source: AiSourceSummary) {
+    const confirmed = window.confirm(`Remover a fonte privada "${source.fileName}"?`)
+    if (!confirmed) return
+
+    setDeletingSourceId(source.id)
+    setError('')
+    setNotice('')
+    try {
+      await apiRequest(`/folio/superadmin/ai/sources/${source.id}`, { method: 'DELETE' }, token)
+      setSources(current => current.filter(item => item.id !== source.id))
+      setNotice(`Fonte removida: ${source.fileName}.`)
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel remover a fonte privada.'))
+    } finally {
+      setDeletingSourceId('')
+    }
+  }
+
+  function applyProfile(profile: AiCharacterProfile) {
+    setSelectedProfileId(profile.id)
+    setBookId(profile.bookId || '')
+    setCharacterName(profile.name)
+    setPersona(profile.persona)
+    setTraitsText(profile.traits.join(', '))
+    setForbiddenFactsText(profile.forbiddenFacts.join('\n'))
+    setMemoriesText(formatMemories(profile.memories))
+    setSourceChunksText(formatSourceChunks(profile.sourceChunks || []))
+    setNotice(`Perfil carregado: ${profile.name}.`)
+    setError('')
+  }
+
+  async function handleSaveProfile() {
+    setSavingProfile(true)
+    setError('')
+    setNotice('')
+    try {
+      const saved = await apiRequest<AiCharacterProfile>('/folio/superadmin/ai/characters', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: selectedProfileId || null,
+          bookId: bookId || null,
+          name: characterName,
+          persona,
+          traits: splitList(traitsText),
+          forbiddenFacts: splitMultiline(forbiddenFactsText),
+          memories: parseMemories(memoriesText),
+          sourceChunks: parseSourceChunks(sourceChunksText),
+        }),
+      }, token)
+      setProfiles(current => {
+        const next = current.filter(profile => profile.id !== saved.id)
+        return [...next, saved].sort((a, b) => a.name.localeCompare(b.name))
+      })
+      setSelectedProfileId(saved.id)
+      setNotice(`Perfil salvo: ${saved.name}.`)
+      return true
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel salvar o perfil.'))
+      return false
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const outgoingMessage = message.trim()
+    if (!outgoingMessage) {
+      setError('Informe uma mensagem para continuar a conversa.')
+      return
+    }
+
+    const userChatMessage: AiChatMessage = {
+      id: nextChatId('user'),
+      role: 'user',
+      content: outgoingMessage,
+      createdAt: new Date().toISOString(),
+    }
+    setChatMessages(current => [...current, userChatMessage])
+    setLoading(true)
+    setError('')
+    setNotice('')
+    try {
+      const data = await apiRequest<AiLabResponse>('/folio/superadmin/ai/character-reply', {
+        method: 'POST',
+        body: JSON.stringify({
+          characterProfileId: selectedProfileId || null,
+          bookId: bookId || null,
+          conversationMode,
+          chatHistory: chatHistoryPayload(),
+          characterName,
+          persona,
+          traits: splitList(traitsText),
+          knownFacts: splitMultiline(knownFactsText),
+          forbiddenFacts: splitMultiline(forbiddenFactsText),
+          sourceChunks: parseSourceChunks(sourceChunksText),
+          chapter,
+          percent,
+          userMessage: outgoingMessage,
+        }),
+      }, token)
+      setResponse(data)
+      setChatMessages(current => [
+        ...current,
+        {
+          id: nextChatId('assistant'),
+          role: 'assistant',
+          content: data.reply,
+          createdAt: data.generatedAt,
+          response: data,
+        },
+      ])
+      setMessage('')
+    } catch (err) {
+      setError(errorMessage(err, 'Nao foi possivel executar o laboratorio de IA.'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section>
+      <Header title="Laboratório de IA">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs font-bold text-amber-200">
+            Acesso superadmin
+          </span>
+          {response && (
+            <span className="rounded-lg border border-stone-800 bg-stone-900 px-3 py-2 text-xs font-semibold text-stone-400">
+              Atualizado {formatDateTime(response.generatedAt)}
+            </span>
+          )}
+        </div>
+      </Header>
+
+      <div className="grid gap-4 p-3 sm:p-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="space-y-4 rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <label className="block text-sm font-semibold text-stone-300">
+              Perfil
+              <select
+                value={selectedProfileId}
+                onChange={e => {
+                  const profile = profiles.find(item => item.id === e.target.value)
+                  if (profile) applyProfile(profile)
+                  else {
+                    setSelectedProfileId('')
+                    setNotice(emptyProfileLabel)
+                  }
+                }}
+                className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+              >
+                <option value="">{emptyProfileLabel}</option>
+                {profiles.map(profile => (
+                  <option key={profile.id} value={profile.id}>{profile.name}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => void handleSaveProfile()}
+              disabled={savingProfile}
+              className="self-end rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-sm font-bold text-amber-100 transition hover:bg-amber-300/20 disabled:opacity-60"
+            >
+              {savingProfile ? 'Salvando...' : 'Salvar perfil'}
+            </button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-semibold text-stone-300">
+              Livro
+              <select
+                value={bookId}
+                onChange={e => setBookId(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+              >
+                <option value="">Sem livro vinculado</option>
+                {books.map(book => (
+                  <option key={book.id} value={book.id}>{book.title}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-semibold text-stone-300">
+              Personagem
+              <input
+                value={characterName}
+                onChange={e => setCharacterName(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+              />
+            </label>
+          </div>
+
+          <label className="block text-sm font-semibold text-stone-300">
+            Modo de conversa
+            <select
+              value={conversationMode}
+              onChange={e => setConversationMode(e.target.value as AiConversationMode)}
+              className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+            >
+              {conversationModes.map(mode => (
+                <option key={mode.value} value={mode.value}>{mode.label}</option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs font-normal text-stone-500">{selectedConversationMode.description}</span>
+          </label>
+
+          <label className="block text-sm font-semibold text-stone-300">
+            Persona
+            <textarea
+              rows={3}
+              value={persona}
+              onChange={e => setPersona(e.target.value)}
+              className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm leading-relaxed text-stone-100 outline-none focus:border-amber-300"
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-semibold text-stone-300">
+              Traços
+              <textarea
+                rows={4}
+                value={traitsText}
+                onChange={e => setTraitsText(e.target.value)}
+                className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm leading-relaxed text-stone-100 outline-none focus:border-amber-300"
+              />
+            </label>
+            <label className="block text-sm font-semibold text-stone-300">
+              Fatos permitidos
+              <textarea
+                rows={4}
+                value={knownFactsText}
+                onChange={e => setKnownFactsText(e.target.value)}
+                className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm leading-relaxed text-stone-100 outline-none focus:border-amber-300"
+              />
+            </label>
+          </div>
+
+          <label className="block text-sm font-semibold text-stone-300">
+            Fatos bloqueados
+            <textarea
+              rows={3}
+              value={forbiddenFactsText}
+              onChange={e => setForbiddenFactsText(e.target.value)}
+              className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm leading-relaxed text-stone-100 outline-none focus:border-amber-300"
+            />
+          </label>
+
+          <label className="block text-sm font-semibold text-stone-300">
+            Memórias por progresso
+            <textarea
+              rows={5}
+              value={memoriesText}
+              onChange={e => setMemoriesText(e.target.value)}
+              placeholder="1|0|Texto da memória"
+              className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm leading-relaxed text-stone-100 outline-none focus:border-amber-300"
+            />
+          </label>
+
+          <div className="rounded-lg border border-stone-800 bg-stone-950 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-bold text-stone-200">Fontes privadas</p>
+                <p className="text-xs text-stone-500">Usadas automaticamente pelo livro, capítulo e porcentagem.</p>
+              </div>
+              <span className="rounded-lg border border-stone-700 px-2.5 py-1 text-xs font-bold text-stone-400">
+                {loadingSources ? 'Carregando...' : `${sources.length} arquivo(s)`}
+              </span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {sources.length ? sources.slice(0, 5).map(source => (
+                <div key={source.id} className="flex gap-3 rounded-lg border border-stone-800 bg-stone-900 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-stone-100">{source.fileName}</p>
+                    <p className="mt-1 text-xs text-stone-500">
+                      {source.chunkCount.toLocaleString('pt-BR')} trecho(s) · {formatSourceSize(source.size)} · {formatDateTime(source.importedAt)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteSource(source)}
+                    disabled={deletingSourceId === source.id}
+                    className="self-center rounded-lg border border-red-300/20 px-2.5 py-1 text-xs font-bold text-red-200 transition hover:bg-red-300/10 disabled:opacity-50"
+                  >
+                    {deletingSourceId === source.id ? 'Removendo...' : 'Remover'}
+                  </button>
+                </div>
+              )) : (
+                <p className="rounded-lg border border-dashed border-stone-800 px-3 py-3 text-xs text-stone-500">
+                  Nenhuma fonte privada para este livro ainda.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <label className="flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-stone-700 bg-stone-950 px-4 py-3 text-sm font-bold text-stone-300 transition hover:border-amber-300/50 hover:text-amber-200">
+            Adicionar fonte .txt/.md
+            <input
+              type="file"
+              accept=".txt,.md,text/plain,text/markdown"
+              className="sr-only"
+              onChange={e => {
+                const file = e.target.files?.[0]
+                e.currentTarget.value = ''
+                if (file) void handleImportContextFile(file)
+              }}
+            />
+          </label>
+
+          <label className="block text-sm font-semibold text-stone-300">
+            Contexto fonte manual
+            <textarea
+              rows={4}
+              value={sourceChunksText}
+              onChange={e => setSourceChunksText(e.target.value)}
+              placeholder="1|0|Cena inicial|Texto do trecho"
+              className="mt-1 w-full resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm leading-relaxed text-stone-100 outline-none focus:border-amber-300"
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-semibold text-stone-300">
+              Capítulo
+              <input
+                type="number"
+                min={1}
+                max={maxChapter}
+                value={chapter}
+                onChange={e => setChapter(Math.max(1, Math.min(maxChapter, Number(e.target.value) || 1)))}
+                className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+              />
+            </label>
+            <label className="block text-sm font-semibold text-stone-300">
+              Porcentagem
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={percent}
+                onChange={e => setPercent(clamp(Number(e.target.value) || 0, 0, 100))}
+                className="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300"
+              />
+            </label>
+          </div>
+
+          {error && <div className="rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
+          {notice && <div className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-3 text-sm text-emerald-100">{notice}</div>}
+        </div>
+
+        <div className="space-y-4">
+          <section className="overflow-hidden rounded-lg border border-stone-800 bg-stone-900">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-800 px-3 py-3 sm:px-4">
+              <div>
+                <h2 className="font-serif text-lg text-stone-50">{selectedConversationMode.label}</h2>
+                <p className="text-xs text-stone-500">Cap. {chapter} · {percent}% · {selectedBook?.title || 'sem livro'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setChatMessages([])
+                  setResponse(null)
+                }}
+                disabled={!chatMessages.length && !response}
+                className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs font-bold text-stone-300 transition hover:bg-stone-800 disabled:opacity-50"
+              >
+                Limpar conversa
+              </button>
+            </div>
+
+            <div className="flex h-[560px] flex-col bg-stone-950">
+              <div className="flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
+                {chatMessages.length ? chatMessages.map(item => (
+                  <div key={item.id} className={`flex ${item.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[84%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                      item.role === 'user'
+                        ? 'rounded-br-sm bg-amber-300 text-stone-950'
+                        : 'rounded-bl-sm border border-stone-800 bg-stone-900 text-stone-100'
+                    }`}>
+                      <p className="whitespace-pre-wrap">{item.content}</p>
+                      <p className={`mt-2 text-[11px] font-semibold ${item.role === 'user' ? 'text-stone-700' : 'text-stone-500'}`}>
+                        {item.role === 'user' ? 'Você' : item.response?.character || characterName} · {formatDateTime(item.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="flex h-full items-center justify-center">
+                    <EmptyState text="Comece uma conversa sobre este ponto da leitura." />
+                  </div>
+                )}
+                {loading && (
+                  <div className="flex justify-start">
+                    <div className="rounded-2xl rounded-bl-sm border border-stone-800 bg-stone-900 px-4 py-3 text-sm text-stone-400">
+                      {selectedConversationMode.label} está respondendo...
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              <form onSubmit={handleSubmit} className="border-t border-stone-800 bg-stone-900 p-3">
+                <div className="flex gap-2">
+                  <textarea
+                    rows={2}
+                    value={message}
+                    onChange={e => setMessage(e.target.value)}
+                    placeholder="Mensagem"
+                    className="min-h-[48px] flex-1 resize-none rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm leading-relaxed text-stone-100 outline-none focus:border-amber-300"
+                  />
+                  <button
+                    disabled={loading}
+                    className="self-end rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-bold text-stone-950 transition hover:bg-amber-200 disabled:bg-stone-700 disabled:text-stone-500"
+                  >
+                    {loading ? 'Enviando...' : 'Enviar'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {response && (
+              <div className="space-y-4 border-t border-stone-800 p-3 sm:p-4">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-lg border border-stone-800 bg-stone-950 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Modo</p>
+                    <p className="mt-1 text-sm font-bold text-stone-100">
+                      {conversationModes.find(mode => mode.value === response.conversationMode)?.label || selectedConversationMode.label}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-stone-800 bg-stone-950 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Limite</p>
+                    <p className="mt-1 text-sm font-bold text-stone-100">Cap. {response.spoilerBoundary.chapter} · {response.spoilerBoundary.percent}%</p>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-stone-800 bg-stone-950 p-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Referência</p>
+                  <p className="mt-1 text-sm font-bold text-stone-100">{response.characterProfileId && selectedProfile ? selectedProfile.name : response.character}</p>
+                </div>
+                <div className="rounded-lg border border-stone-800 bg-stone-950 p-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Prompt</p>
+                  <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-stone-400">{response.promptPreview}</p>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {response && (
+            <section className="rounded-lg border border-stone-800 bg-stone-900 p-3 sm:p-4">
+              <h2 className="font-serif text-lg text-stone-50">Etapas internas</h2>
+              <div className="mt-4 space-y-2">
+                {response.learningTrace.map(step => (
+                  <div key={step.label} className="rounded-lg border border-stone-800 bg-stone-950 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-amber-300">{step.label}</p>
+                    <p className="mt-1 text-sm font-bold text-stone-100">{step.title}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-stone-400">{step.detail}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {response.guardrails.map(rule => (
+                  <span key={rule} className="rounded-lg border border-stone-700 bg-stone-950 px-3 py-1.5 text-xs font-semibold text-stone-300">{rule}</span>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function money(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
@@ -7447,7 +8225,9 @@ function ActionLoadingIndicator({ active }: { active: boolean }) {
 function storedPage() {
   const params = new URLSearchParams(window.location.search)
   const value = params.get('page') || localStorage.getItem('folio_page')
-  return ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications', 'superadmin', 'store'].includes(value || '') ? value as Page : 'timeline'
+  const enabledPages = ['timeline', 'shelf', 'library', 'book', 'profile', 'profile-list', 'goals', 'notifications', 'superadmin', 'store']
+  if (AI_LAB_FRONTEND_ENABLED) enabledPages.push('ai-lab')
+  return enabledPages.includes(value || '') ? value as Page : 'timeline'
 }
 
 function storedBookId() {
@@ -7937,7 +8717,12 @@ export default function App() {
   }, [page])
 
   useEffect(() => {
-    if (currentUser && (page === 'superadmin' || page === 'store') && !isSuperAdminUser(currentUser)) {
+    if (page === 'ai-lab' && !AI_LAB_FRONTEND_ENABLED) {
+      setPage('timeline')
+      return
+    }
+
+    if (currentUser && (page === 'superadmin' || page === 'store' || page === 'ai-lab') && !isSuperAdminUser(currentUser)) {
       setPage('timeline')
     }
   }, [currentUser, page])
@@ -8534,6 +9319,7 @@ export default function App() {
           {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
           {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} maintenanceMode={maintenanceMode} onMaintenanceModeChange={handleMaintenanceModeChange} />}
           {page === 'store' && isSuperAdminUser(currentUser) && <StorePage token={token} currentUser={currentUser} />}
+          {AI_LAB_FRONTEND_ENABLED && page === 'ai-lab' && isSuperAdminUser(currentUser) && <AiLabPage token={token} books={books} />}
         </main>
 
         <div className="hidden w-88 shrink-0 p-3 xl:block 2xl:w-96">
