@@ -755,7 +755,7 @@ function normalizeUploadedBookCoverUrl(value?: string | null) {
   if (isMediaUrl(url) || /^(data:|blob:)/i.test(url)) return url
 
   const fileName = mediaFileNameFromUrl(url)
-  return fileName ? `/folio/books/cover/${encodeURIComponent(fileName)}` : url
+  return fileName ? `/uploads/folio-covers/${encodeURIComponent(fileName)}` : url
 }
 
 function resolveBookCoverUrlCandidates(value?: string | null) {
@@ -768,13 +768,13 @@ function resolveBookCoverUrlCandidates(value?: string | null) {
   const encodedFileName = encodeURIComponent(fileName)
   const baseUrl = mediaBaseUrl()
   const candidates = [
-    `${baseUrl}/folio/books/cover/${encodedFileName}`,
     `${baseUrl}/uploads/folio-covers/${encodedFileName}`,
     `${baseUrl}/uploads/folio-book-covers/${encodedFileName}`,
     `${baseUrl}/uploads/folio-books/${encodedFileName}`,
     `${baseUrl}/uploads/book-covers/${encodedFileName}`,
     `${baseUrl}/uploads/books/${encodedFileName}`,
     `${baseUrl}/uploads/${encodedFileName}`,
+    `${baseUrl}/folio/books/cover/${encodedFileName}`,
   ]
 
   return candidates
@@ -805,7 +805,7 @@ function resolveMediaUrl(value?: string | null) {
   if (url.startsWith('/assets/') || url.startsWith('/icons/')) return url
   if (url.startsWith('/')) return `${mediaBaseUrl()}${url}`
   if (/^(uploads|media|files)\//i.test(url)) return `${mediaBaseUrl()}/${url}`
-  if (BOOK_COVER_IMAGE_EXTENSIONS.test(url)) return `${mediaBaseUrl()}/folio/books/cover/${encodeURIComponent(url)}`
+  if (BOOK_COVER_IMAGE_EXTENSIONS.test(url)) return `${mediaBaseUrl()}/uploads/folio-covers/${encodeURIComponent(url)}`
   return url
 }
 
