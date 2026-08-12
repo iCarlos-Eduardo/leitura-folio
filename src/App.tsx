@@ -6340,7 +6340,7 @@ function DashboardReportShell({ title, count, onClose, children }: {
   children: React.ReactNode
 }) {
   return (
-    <section id="folio-dashboard-report" className="rounded-lg border border-amber-300/30 bg-stone-900 p-3 shadow-lg shadow-stone-800/10 sm:p-4">
+    <section id="folio-dashboard-report" className="min-w-0 max-w-full overflow-hidden rounded-lg border border-amber-300/30 bg-stone-900 p-3 shadow-lg shadow-stone-800/10 sm:p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="font-serif text-lg text-stone-50 sm:text-xl">{title}</h2>
@@ -6525,23 +6525,23 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
     <DashboardReportShell title={DASHBOARD_REPORT_TITLES[report]} count={pushUsers.length} onClose={onClose}>
       <div className="space-y-2">
         {pushUsers.length ? pushUsers.map(row => (
-          <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="grid w-full gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-rose-300/40">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <DashboardUserLine user={row.user} />
-              <div className="text-right">
+          <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="grid min-w-0 w-full max-w-full gap-3 overflow-hidden rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-rose-300/40">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-3">
+              <div className="min-w-0"><DashboardUserLine user={row.user} /></div>
+              <div className="min-w-0 text-left sm:text-right">
                 <p className="text-xs font-black text-rose-200">{row.devices.length} {row.devices.length === 1 ? 'mobile' : 'mobiles'}</p>
                 <p className="mt-1 text-xs font-bold text-stone-500">Atualizado {formatDateTime(row.lastUpdatedAt)}</p>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="min-w-0 max-w-full space-y-2 overflow-hidden">
               {row.devices.map(device => (
-                <div key={device.id} className="rounded-lg border border-stone-800 bg-stone-900 p-2">
+                <div key={device.id} className="min-w-0 max-w-full overflow-hidden rounded-lg border border-stone-800 bg-stone-900 p-2">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-rose-300/10 px-2 py-0.5 text-[11px] font-black text-rose-200">{dashboardPushDeviceLabel(device)}</span>
                     <span className="text-[11px] font-bold text-stone-500">aparece na barra do celular</span>
                   </div>
-                  <p className="truncate text-xs text-stone-500">{device.userAgent || 'Dispositivo sem identificação'}</p>
-                  <p className="mt-1 truncate text-xs text-stone-600">{device.endpoint}</p>
+                  <p className="max-w-full break-words text-xs leading-relaxed text-stone-500">{device.userAgent || 'Dispositivo sem identificação'}</p>
+                  <p className="mt-1 max-w-full break-all text-xs leading-relaxed text-stone-600">{device.endpoint}</p>
                   <p className="mt-1 text-[11px] font-bold text-stone-500">Atualizado {formatDateTime(device.updatedAt)}</p>
                 </div>
               ))}
