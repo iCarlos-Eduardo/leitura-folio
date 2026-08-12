@@ -2784,7 +2784,7 @@ function EngagementListDialog({ title, users, emptyText, onClose, onUserClick }:
   )
 }
 
-function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, imageLoading = 'lazy' }: {
+function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, allowChapterLimitWithoutShelf = false, imageLoading = 'lazy' }: {
   post: Post
   users: User[]
   books: Book[]
@@ -2802,6 +2802,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   compactBook?: boolean
   protectSpoilers?: boolean
   spoilerChapterLimit?: number
+  allowChapterLimitWithoutShelf?: boolean
   imageLoading?: 'eager' | 'lazy'
 }) {
   const articleRef = useRef<HTMLElement | null>(null)
@@ -2827,8 +2828,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const isOwnPost = post.userId === currentUser.id
   const spoilerState =
     !protectSpoilers || isOwnPost || spoilerAccepted ? 'visible' :
-      !myEntry ? 'not-reading' :
-        hasFullBookAccessStatus(myEntry.status) ? 'visible' :
+      !myEntry && !allowChapterLimitWithoutShelf ? 'not-reading' :
+        hasFullBookAccessStatus(myEntry?.status) ? 'visible' :
           post.chapter > safeChapterLimit ? 'blocked' :
             post.chapter === safeChapterLimit ? 'same-chapter' :
               'visible'
@@ -5030,7 +5031,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                 id={`folio-post-${post.id}`}
                 className={post.id === highlightedPostId ? 'scroll-mt-28 ring-2 ring-amber-300/70 ring-offset-2 ring-offset-stone-950' : 'scroll-mt-28'}
               >
-                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => { }} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onViewPost={onViewPost} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} />
+                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => { }} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onViewPost={onViewPost} compactBook protectSpoilers={feedVisibility === 'available'} spoilerChapterLimit={visibleChapterLimit} allowChapterLimitWithoutShelf />
               </div>
             )}
           />
