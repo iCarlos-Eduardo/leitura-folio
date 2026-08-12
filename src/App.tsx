@@ -832,6 +832,7 @@ const IMAGE_RETRY_PARAM = 'folio_img_retry'
 const MAX_IMAGE_RETRY_ATTEMPTS = 2
 const IMAGE_LOAD_TIMEOUT_MS = 18000
 const loadedMediaUrls = new Set<string>()
+const retainedMediaImages = new Map<string, HTMLImageElement>()
 
 function canRetryImageUrl(url: string) {
   return Boolean(url) && !/^(data:|blob:)/i.test(url)
@@ -869,6 +870,26 @@ function rememberLoadedMediaUrl(url?: string | null) {
   loadedMediaUrls.add(url)
 }
 
+function retainLoadedMediaImage(url?: string | null) {
+  if (!url || retainedMediaImages.has(url)) return
+  if (/^(data:|blob:)/i.test(url)) return
+
+  const image = new Image()
+  image.decoding = 'async'
+  image.src = url
+  retainedMediaImages.set(url, image)
+
+  if (retainedMediaImages.size > 120) {
+    const oldestUrl = retainedMediaImages.keys().next().value
+    if (oldestUrl) retainedMediaImages.delete(oldestUrl)
+  }
+}
+
+function rememberLoadedMedia(url?: string | null) {
+  rememberLoadedMediaUrl(url)
+  retainLoadedMediaImage(url)
+}
+
 type FolioImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
   src?: string | null
   skeletonClassName?: string
@@ -897,7 +918,7 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
     if (!image || !image.complete) return
 
     if (image.naturalWidth > 0) {
-      rememberLoadedMediaUrl(image.currentSrc || image.src || imageSrc)
+      rememberLoadedMedia(image.currentSrc || image.src || imageSrc)
       imageCandidates.forEach(rememberLoadedMediaUrl)
       setLoaded(true)
       setFailed(false)
@@ -960,7 +981,7 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
           data-folio-image-managed="true"
           className="folio-image-node"
           onLoad={event => {
-            rememberLoadedMediaUrl(event.currentTarget.currentSrc || event.currentTarget.src)
+            rememberLoadedMedia(event.currentTarget.currentSrc || event.currentTarget.src)
             imageCandidates.forEach(rememberLoadedMediaUrl)
             setLoaded(true)
             setFailed(false)
@@ -1089,7 +1110,8 @@ function warmMediaImages(values: (string | null | undefined)[], priorityCount = 
       const image = new Image()
       image.decoding = 'async'
         ; (image as HTMLImageElement & { fetchPriority?: 'high' | 'auto' }).fetchPriority = index < priorityCount ? 'high' : 'auto'
-      image.onload = () => rememberLoadedMediaUrl(image.currentSrc || image.src)
+      retainedMediaImages.set(url, image)
+      image.onload = () => rememberLoadedMedia(image.currentSrc || image.src)
       image.src = url
     })
 }
