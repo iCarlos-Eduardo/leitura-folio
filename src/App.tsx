@@ -544,6 +544,9 @@ const POST_IMAGE_MARKER = '__folio_post_image__:'
 const POST_IMAGE_MAX_DIMENSION = 1600
 const POST_IMAGE_COMPRESS_ABOVE_BYTES = 1400 * 1024
 const POST_IMAGE_JPEG_QUALITY = 0.82
+const BOOK_COVER_MAX_DIMENSION = 1200
+const BOOK_COVER_COMPRESS_ABOVE_BYTES = 450 * 1024
+const BOOK_COVER_JPEG_QUALITY = 0.84
 const DIRECT_UPLOAD_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const IMAGE_UPLOAD_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif'
 const BOOK_COVER_IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif)(?:[?#].*)?$/i
@@ -756,6 +759,44 @@ function normalizeUploadedBookCoverUrl(value?: string | null) {
 
   const fileName = mediaFileNameFromUrl(url)
   return fileName ? `/uploads/folio-covers/${encodeURIComponent(fileName)}` : url
+}
+
+async function prepareBookCoverImageFile(file: File) {
+  if (!isImageUpload(file)) throw new Error('Envie uma imagem em JPG, PNG, WEBP ou GIF.')
+
+  const fileType = file.type.toLowerCase()
+  if (fileType === 'image/gif') return file
+
+  const image = await loadImageFile(file)
+  const naturalWidth = image.naturalWidth || image.width
+  const naturalHeight = image.naturalHeight || image.height
+  const largestSide = Math.max(naturalWidth, naturalHeight)
+
+  if (file.size <= BOOK_COVER_COMPRESS_ABOVE_BYTES && largestSide <= BOOK_COVER_MAX_DIMENSION) {
+    return file
+  }
+
+  const scale = largestSide > BOOK_COVER_MAX_DIMENSION ? BOOK_COVER_MAX_DIMENSION / largestSide : 1
+  const width = Math.max(1, Math.round(naturalWidth * scale))
+  const height = Math.max(1, Math.round(naturalHeight * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Nao foi possivel preparar esta capa para envio.')
+
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, width, height)
+  context.drawImage(image, 0, 0, width, height)
+
+  const blob = await canvasToBlob(canvas, 'image/jpeg', BOOK_COVER_JPEG_QUALITY)
+  if (blob.size >= file.size && largestSide <= BOOK_COVER_MAX_DIMENSION) return file
+
+  return new File([blob], postImageFileName(file.name), {
+    type: 'image/jpeg',
+    lastModified: file.lastModified,
+  })
 }
 
 function resolveBookCoverUrlCandidates(value?: string | null) {
@@ -1128,9 +1169,12 @@ function warmBootstrapImages(data: { users: User[]; books: Book[]; shelf: ShelfE
     .sort(newestFirst)
     .slice(0, POST_PAGE_SIZE)
   const currentShelfBooks = data.shelf
-    .filter(entry => entry.userId === currentUser.id && isInProgressStatus(entry.status))
-    .slice(0, 6)
+    .filter(entry => entry.userId === currentUser.id)
+    .slice(0, 18)
     .map(entry => booksById.get(entry.bookId)?.cover)
+  const uploadedLibraryBooks = data.books
+    .filter(book => /\/uploads\/folio-covers\//i.test(book.cover))
+    .map(book => book.cover)
 
   warmMediaImages([
     BRAND_LOGO_URL,
@@ -1140,8 +1184,8 @@ function warmBootstrapImages(data: { users: User[]; books: Book[]; shelf: ShelfE
       booksById.get(post.bookId)?.cover,
       postTextParts(post.text).imageUrl,
     ]),
-    ...currentShelfBooks,
   ])
+  warmMediaImages([...uploadedLibraryBooks, ...currentShelfBooks], 12)
 }
 
 const STATUS_LABELS: Record<BookStatus, string> = {
@@ -3424,7 +3468,7 @@ function BookSearchRow({ book, actionLabel, onAction, secondaryLabel, onSecondar
   const summary = (
     <>
       {book.cover ? (
-        <FolioImage src={book.cover} alt={book.title} className="h-12 w-8 shrink-0 rounded object-cover" />
+        <FolioImage src={book.cover} alt={book.title} loading="eager" className="h-12 w-8 shrink-0 rounded object-cover" />
       ) : (
         <div className="flex h-12 w-8 shrink-0 items-center justify-center rounded bg-stone-800 text-[10px] text-stone-500">Sem capa</div>
       )}
@@ -8939,8 +8983,9 @@ export default function App() {
     try {
       const activeToken = activeAuthToken()
       if (!isImageUpload(file)) throw new Error('Envie uma imagem em JPG, PNG, WEBP ou GIF.')
+      const uploadFile = await prepareBookCoverImageFile(file)
       const formData = new FormData()
-      formData.append('file', file, file.name)
+      formData.append('file', uploadFile, uploadFile.name)
       const response = await fetch(`${API_BASE_URL}/folio/books/cover`, {
         method: 'POST',
         credentials: 'include',
