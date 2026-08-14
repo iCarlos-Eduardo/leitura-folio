@@ -3674,6 +3674,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
 }) {
   const [draft, setDraft] = useState<BookFormDraft>(() => draftFromBook(initialBook, defaultStatus, initialShelfEntry))
   const [coverPreviewUrl, setCoverPreviewUrl] = useState('')
+  const [coverFile, setCoverFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
   const [error, setError] = useState('')
@@ -3690,7 +3691,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
   }
   const totalPagesValue = Math.round(numberFromText(draft.totalPages))
   const totalChaptersValue = Math.round(numberFromText(draft.totalChapters, 1))
-  const canSave = draft.title.trim().length > 0 && draft.author.trim().length > 0 && draft.cover.trim().length > 0 && totalPagesValue > 0 && totalChaptersValue > 0
+  const canSave = draft.title.trim().length > 0 && draft.author.trim().length > 0 && Boolean(coverFile || draft.cover.trim()) && totalPagesValue > 0 && totalChaptersValue > 0
   const coverPreviewSrc = coverPreviewUrl || draft.cover
 
   useEffect(() => {
@@ -3708,6 +3709,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
 
   function removeCover() {
     replaceCoverPreviewUrl('')
+    setCoverFile(null)
     setDraft(previous => ({
       ...previous,
       cover: '',
@@ -3739,28 +3741,6 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
       return
     }
     const progress = isCompletedStatus(status) ? 100 : clamp(progressFromPage, 0, 100)
-    const book: Book = {
-      id: initialBook?.id || `custom-${Date.now()}`,
-      title: draft.title.trim(),
-      author: draft.author.trim(),
-      cover: draft.cover.trim(),
-      totalPages,
-      totalChapters,
-      chaptersEstimated: initialBook?.chaptersEstimated ?? true,
-      isActive: initialBook?.isActive ?? true,
-      source: initialBook?.source || 'manual',
-      genres: draft.genres,
-      rating: initialBook?.rating || 0,
-      synopsis: draft.synopsis.trim(),
-      series: draft.series.trim(),
-      volume: draft.volume.trim(),
-      language: draft.language.trim(),
-      releaseDate: undefined,
-      unreleased: false,
-      publicShared: true,
-      tropes: draft.tropes,
-      tags: initialBook?.tags || [],
-    }
     const shelfData: Partial<ShelfEntry> = {
       status,
       progress,
@@ -3771,12 +3751,43 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
     }
 
     try {
+      let cover = draft.cover.trim()
+      if (coverFile) {
+        setUploadingCover(true)
+        cover = normalizeUploadedBookCoverUrl(await onUploadCover(coverFile))
+        if (!cover) throw new Error('O servidor nao retornou a URL da capa.')
+      }
+
+      const book: Book = {
+        id: initialBook?.id || `custom-${Date.now()}`,
+        title: draft.title.trim(),
+        author: draft.author.trim(),
+        cover,
+        totalPages,
+        totalChapters,
+        chaptersEstimated: initialBook?.chaptersEstimated ?? true,
+        isActive: initialBook?.isActive ?? true,
+        source: initialBook?.source || 'manual',
+        genres: draft.genres,
+        rating: initialBook?.rating || 0,
+        synopsis: draft.synopsis.trim(),
+        series: draft.series.trim(),
+        volume: draft.volume.trim(),
+        language: draft.language.trim(),
+        releaseDate: undefined,
+        unreleased: false,
+        publicShared: true,
+        tropes: draft.tropes,
+        tags: initialBook?.tags || [],
+      }
+
       const saved = await onSave(book, shelfData)
       if (saved === false) return
       onClose()
     } catch {
       setError('Nao foi possivel salvar este livro agora.')
     } finally {
+      setUploadingCover(false)
       setSaving(false)
     }
   }
@@ -3810,21 +3821,17 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
                   <input type="file" accept={IMAGE_UPLOAD_ACCEPT} className="hidden" onChange={async e => {
                     const file = e.target.files?.[0]
                     if (!file) return
+                    if (!isImageUpload(file)) {
+                      setError('Envie uma imagem em JPG, PNG, WEBP ou GIF.')
+                      e.currentTarget.value = ''
+                      return
+                    }
                     const localPreviewUrl = URL.createObjectURL(file)
                     replaceCoverPreviewUrl(localPreviewUrl)
+                    setCoverFile(file)
                     update('coverFileName', file.name)
-                    setUploadingCover(true)
                     setError('')
-                    try {
-                      update('cover', normalizeUploadedBookCoverUrl(await onUploadCover(file)))
-                    } catch {
-                      replaceCoverPreviewUrl('')
-                      if (!draft.cover) update('coverFileName', '')
-                      setError('Nao foi possivel enviar a capa agora.')
-                    } finally {
-                      setUploadingCover(false)
-                      e.currentTarget.value = ''
-                    }
+                    e.currentTarget.value = ''
                   }} />
                 </label>
                 <p className="text-xs text-stone-500">{draft.coverFileName || 'Nenhum ficheiro selecionado'}</p>
@@ -3884,7 +3891,7 @@ function BookFormModal({ initialBook, initialShelfEntry, defaultStatus, mode, on
 
         <div className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-stone-800 bg-stone-900 px-4 py-3">
           <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800">Fechar</button>
-          <button onClick={() => save()} disabled={!canSave || saving} className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">{saving ? 'Salvando...' : 'Salvar livro'}</button>
+          <button onClick={() => save()} disabled={!canSave || saving || uploadingCover} className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-bold text-stone-950 disabled:bg-stone-700 disabled:text-stone-500">{uploadingCover ? 'Enviando capa...' : saving ? 'Salvando...' : 'Salvar livro'}</button>
         </div>
       </div>
     </div>
