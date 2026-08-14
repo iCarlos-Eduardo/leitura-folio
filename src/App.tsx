@@ -547,6 +547,7 @@ const POST_IMAGE_JPEG_QUALITY = 0.82
 const BOOK_COVER_MAX_DIMENSION = 1200
 const BOOK_COVER_COMPRESS_ABOVE_BYTES = 450 * 1024
 const BOOK_COVER_JPEG_QUALITY = 0.84
+const BOOK_COVER_CACHE_VERSION = import.meta.env.VITE_BOOK_COVER_CACHE_VERSION || '2026-08-14-cover-recovery-1'
 const DIRECT_UPLOAD_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const IMAGE_UPLOAD_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif'
 const BOOK_COVER_IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif)(?:[?#].*)?$/i
@@ -851,15 +852,29 @@ function resolveMediaUrl(value?: string | null) {
   return url
 }
 
+function versionUploadedBookCoverUrl(url: string) {
+  if (!url) return ''
+
+  try {
+    const parsedUrl = new URL(url, window.location.href)
+    if (!/^\/uploads\/folio-covers\//i.test(parsedUrl.pathname)) return url
+    parsedUrl.searchParams.set('folio_cover_v', BOOK_COVER_CACHE_VERSION)
+    return parsedUrl.href
+  } catch {
+    return url
+  }
+}
+
 function resolveMediaUrlCandidates(value?: string | null) {
-  const primary = resolveMediaUrl(value)
+  const primary = versionUploadedBookCoverUrl(resolveMediaUrl(value))
   const candidates = [primary]
   const postMediaUrl = value ? resolveFolioPostUploadUrl(value) : ''
   const postUploadUrl = value ? resolveFolioPostMediaUploadUrl(value) : ''
   const bookCoverUrls = resolveBookCoverUrlCandidates(value)
 
   for (const candidate of [postMediaUrl, postUploadUrl, ...bookCoverUrls]) {
-    if (candidate && !candidates.includes(candidate)) candidates.push(candidate)
+    const versionedCandidate = versionUploadedBookCoverUrl(candidate)
+    if (versionedCandidate && !candidates.includes(versionedCandidate)) candidates.push(versionedCandidate)
   }
 
   return candidates.filter(Boolean)
