@@ -109,9 +109,10 @@ body {
   display: block;
   height: 100%;
   object-fit: cover;
-  opacity: 1;
+  opacity: 0;
   position: relative;
   transition: opacity 180ms ease;
+  visibility: hidden;
   width: 100%;
   z-index: 2;
 }
@@ -127,6 +128,7 @@ body {
 
 .folio-image-loaded .folio-image-node {
   opacity: 1;
+  visibility: visible;
 }
 
 .folio-image-loaded .folio-image-placeholder {

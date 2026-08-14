@@ -806,19 +806,20 @@ function resolveBookCoverUrlCandidates(value?: string | null) {
   const fileName = mediaFileNameFromUrl(url)
   if (!fileName) return []
 
+  let pathname = ''
+  try {
+    pathname = new URL(url, window.location.origin).pathname
+  } catch {
+    pathname = url.split(/[?#]/)[0]
+  }
+
+  const isBareFileName = !/[\\/]/.test(url.split(/[?#]/)[0])
+  const isKnownBookCoverPath = /^\/?(?:uploads\/(?:folio-covers|folio-book-covers|folio-books|book-covers|books)|folio\/books\/cover)\//i.test(pathname)
+  if (!isBareFileName && !isKnownBookCoverPath) return []
+
   const encodedFileName = encodeURIComponent(fileName)
   const baseUrl = mediaBaseUrl()
-  const candidates = [
-    `${baseUrl}/uploads/folio-covers/${encodedFileName}`,
-    `${baseUrl}/uploads/folio-book-covers/${encodedFileName}`,
-    `${baseUrl}/uploads/folio-books/${encodedFileName}`,
-    `${baseUrl}/uploads/book-covers/${encodedFileName}`,
-    `${baseUrl}/uploads/books/${encodedFileName}`,
-    `${baseUrl}/uploads/${encodedFileName}`,
-    `${baseUrl}/folio/books/cover/${encodedFileName}`,
-  ]
-
-  return candidates
+  return [`${baseUrl}/uploads/folio-covers/${encodedFileName}`]
 }
 
 function resolveMediaUrl(value?: string | null) {
@@ -870,13 +871,21 @@ function isMediaUrl(value?: string | null) {
 }
 
 const IMAGE_RETRY_PARAM = 'folio_img_retry'
-const MAX_IMAGE_RETRY_ATTEMPTS = 2
-const IMAGE_LOAD_TIMEOUT_MS = 18000
-const loadedMediaUrls = new Set<string>()
-const retainedMediaImages = new Map<string, HTMLImageElement>()
+const MAX_IMAGE_RETRY_ATTEMPTS = 1
+const IMAGE_LOAD_TIMEOUT_MS = 8000
+const preloadedMediaImages = new Map<string, HTMLImageElement>()
 
 function canRetryImageUrl(url: string) {
-  return Boolean(url) && !/^(data:|blob:)/i.test(url)
+  if (!url || /^(data:|blob:)/i.test(url)) return false
+
+  try {
+    const parsedUrl = new URL(url, window.location.href)
+    const mediaHost = new URL(mediaBaseUrl(), window.location.href).host
+    const isOwnedMedia = parsedUrl.host === mediaHost || parsedUrl.host === window.location.host
+    return isOwnedMedia && /^\/(?:uploads\/|folio\/media\/)/i.test(parsedUrl.pathname)
+  } catch {
+    return false
+  }
 }
 
 function imageRetryUrl(url: string) {
@@ -906,31 +915,6 @@ function retryImageElement(image: HTMLImageElement, delayMs = 0) {
   }, delayMs)
 }
 
-function rememberLoadedMediaUrl(url?: string | null) {
-  if (!url) return
-  loadedMediaUrls.add(url)
-}
-
-function retainLoadedMediaImage(url?: string | null) {
-  if (!url || retainedMediaImages.has(url)) return
-  if (/^(data:|blob:)/i.test(url)) return
-
-  const image = new Image()
-  image.decoding = 'async'
-  image.src = url
-  retainedMediaImages.set(url, image)
-
-  if (retainedMediaImages.size > 120) {
-    const oldestUrl = retainedMediaImages.keys().next().value
-    if (oldestUrl) retainedMediaImages.delete(oldestUrl)
-  }
-}
-
-function rememberLoadedMedia(url?: string | null) {
-  rememberLoadedMediaUrl(url)
-  retainLoadedMediaImage(url)
-}
-
 type FolioImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
   src?: string | null
   skeletonClassName?: string
@@ -943,14 +927,14 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
   const [imageSrc, setImageSrc] = useState(resolvedSrc)
   const [imageIndex, setImageIndex] = useState(0)
   const [retryAttempt, setRetryAttempt] = useState(0)
-  const [loaded, setLoaded] = useState(() => Boolean(resolvedSrc && loadedMediaUrls.has(resolvedSrc)))
+  const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     setImageSrc(resolvedSrc)
     setImageIndex(0)
     setRetryAttempt(0)
-    setLoaded(Boolean(resolvedSrc && loadedMediaUrls.has(resolvedSrc)))
+    setLoaded(false)
     setFailed(!resolvedSrc)
   }, [imageCandidates, resolvedSrc])
 
@@ -959,8 +943,6 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
     if (!image || !image.complete) return
 
     if (image.naturalWidth > 0) {
-      rememberLoadedMedia(image.currentSrc || image.src || imageSrc)
-      imageCandidates.forEach(rememberLoadedMediaUrl)
       setLoaded(true)
       setFailed(false)
       return
@@ -1022,8 +1004,6 @@ function FolioImage({ src, alt = '', className = '', skeletonClassName = '', loa
           data-folio-image-managed="true"
           className="folio-image-node"
           onLoad={event => {
-            rememberLoadedMedia(event.currentTarget.currentSrc || event.currentTarget.src)
-            imageCandidates.forEach(rememberLoadedMediaUrl)
             setLoaded(true)
             setFailed(false)
             onLoad?.(event)
@@ -1138,12 +1118,12 @@ function textWithPostImage(text: string, imageUrl: string) {
 
 const warmedMediaUrls = new Set<string>()
 
-function warmMediaImages(values: (string | null | undefined)[], priorityCount = 6) {
+function warmMediaImages(values: (string | null | undefined)[], priorityCount = 2, maxCount = 6) {
   values
     .map(resolveMediaUrl)
     .filter(url => url && !/^(data:|blob:)/i.test(url))
     .filter((url, index, urls) => urls.indexOf(url) === index)
-    .slice(0, 24)
+    .slice(0, maxCount)
     .forEach((url, index) => {
       if (warmedMediaUrls.has(url)) return
       warmedMediaUrls.add(url)
@@ -1151,9 +1131,14 @@ function warmMediaImages(values: (string | null | undefined)[], priorityCount = 
       const image = new Image()
       image.decoding = 'async'
         ; (image as HTMLImageElement & { fetchPriority?: 'high' | 'auto' }).fetchPriority = index < priorityCount ? 'high' : 'auto'
-      retainedMediaImages.set(url, image)
-      image.onload = () => rememberLoadedMedia(image.currentSrc || image.src)
+      preloadedMediaImages.set(url, image)
+      image.onerror = () => preloadedMediaImages.delete(url)
       image.src = url
+
+      if (preloadedMediaImages.size > 12) {
+        const oldestUrl = preloadedMediaImages.keys().next().value
+        if (oldestUrl) preloadedMediaImages.delete(oldestUrl)
+      }
     })
 }
 
@@ -1168,14 +1153,6 @@ function warmBootstrapImages(data: { users: User[]; books: Book[]; shelf: ShelfE
     .filter(post => allowedUserIds.has(post.userId))
     .sort(newestFirst)
     .slice(0, POST_PAGE_SIZE)
-  const currentShelfBooks = data.shelf
-    .filter(entry => entry.userId === currentUser.id)
-    .slice(0, 18)
-    .map(entry => booksById.get(entry.bookId)?.cover)
-  const uploadedLibraryBooks = data.books
-    .filter(book => /\/uploads\/folio-covers\//i.test(book.cover))
-    .map(book => book.cover)
-
   warmMediaImages([
     BRAND_LOGO_URL,
     currentUser.avatar,
@@ -1184,8 +1161,7 @@ function warmBootstrapImages(data: { users: User[]; books: Book[]; shelf: ShelfE
       booksById.get(post.bookId)?.cover,
       postTextParts(post.text).imageUrl,
     ]),
-  ])
-  warmMediaImages([...uploadedLibraryBooks, ...currentShelfBooks], 12)
+  ], 2, 6)
 }
 
 const STATUS_LABELS: Record<BookStatus, string> = {
