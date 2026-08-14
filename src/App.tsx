@@ -756,7 +756,7 @@ function mediaFileNameFromUrl(value: string) {
 function normalizeUploadedBookCoverUrl(value?: string | null) {
   const url = (value || '').trim()
   if (!url) return ''
-  if (isMediaUrl(url) || /^(data:|blob:)/i.test(url)) return url
+  if (/^(data:|blob:)/i.test(url)) return url
 
   const fileName = mediaFileNameFromUrl(url)
   return fileName ? `/uploads/folio-covers/${encodeURIComponent(fileName)}` : url
