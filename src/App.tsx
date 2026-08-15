@@ -4866,7 +4866,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
         <div className="space-y-4 p-4 md:p-5">
           <div>
             <h3 className="mb-2 font-serif text-lg text-stone-100">Sinopse</h3>
-            <p className="text-sm leading-relaxed text-stone-300">{book.synopsis}</p>
+            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-stone-300">{book.synopsis}</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {detailRows.map(([label, value]) => (
