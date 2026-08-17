@@ -4585,9 +4585,6 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
     ? activeList.filter(post => post.chapter <= visibleChapterLimit)
     : activeList
   const hiddenFuturePostCount = Math.max(0, activeList.length - visibleActiveList.length)
-  const visibleUnlockedPosts = unlockedRange
-    ? activeList.filter(post => post.chapter >= unlockedRange.from && post.chapter <= unlockedRange.to).length
-    : 0
   const detailRows = [
     ['Série', book.series || 'Não informado'],
     ['Volume', book.volume || 'Não informado'],
@@ -4825,37 +4822,50 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                   </div>
                 )}
               </div>
-              {unlockedRange && (
-                <div className="mt-2 rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-3">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-300">Novo trecho liberado</p>
-                  <p className="mt-1 text-sm font-bold text-stone-100">
-                    {unlockedRange.count} {unlockedRange.count === 1 ? 'post foi liberado' : 'posts foram liberados'} entre os capítulos {unlockedRange.from} e {unlockedRange.to}.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFeedVisibility('available')
-                        setTab('feed')
-                      }}
-                      className="rounded-lg bg-emerald-300 px-3 py-2 text-xs font-bold text-stone-950"
-                    >
-                      Ver liberados
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onCreatePost(book.id)}
-                      className="rounded-lg border border-emerald-300/40 px-3 py-2 text-xs font-bold text-emerald-100 hover:bg-emerald-300/10"
-                    >
-                      Postar reação
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
       </div>
+
+      {unlockedRange && (
+        <div className="fixed inset-x-3 top-16 z-40 mx-auto w-auto max-w-md rounded-xl border border-emerald-300/40 bg-stone-900 p-4 shadow-xl shadow-black/35 sm:left-auto sm:right-5 sm:mx-0" role="status" aria-live="polite">
+          <div className="flex items-start gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-300 text-sm font-bold text-stone-950" aria-hidden="true">✓</div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-200">Novo trecho liberado</p>
+              <p className="mt-1 text-sm font-semibold leading-snug text-stone-50">
+                {unlockedRange.count} {unlockedRange.count === 1 ? 'post foi liberado' : 'posts foram liberados'} entre os capítulos {unlockedRange.from} e {unlockedRange.to}.
+              </p>
+            </div>
+            <button type="button" onClick={() => setUnlockedRange(null)} className="-mr-1 -mt-1 rounded-md p-1 text-stone-300 transition hover:bg-stone-800 hover:text-white" aria-label="Fechar aviso de trecho liberado">
+              ×
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 pl-11">
+            <button
+              type="button"
+              onClick={() => {
+                setFeedVisibility('available')
+                setTab('feed')
+                setUnlockedRange(null)
+              }}
+              className="rounded-lg bg-emerald-300 px-3 py-2 text-xs font-bold text-stone-950 transition hover:bg-emerald-200"
+            >
+              Ver posts
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setUnlockedRange(null)
+                onCreatePost(book.id)
+              }}
+              className="rounded-lg border border-stone-600 px-3 py-2 text-xs font-bold text-stone-100 transition hover:bg-stone-800"
+            >
+              Postar reação
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="sticky top-[53px] z-10 grid grid-cols-5 border-b border-stone-800 bg-stone-950">
         {([['feed', 'Feed'], ['theories', 'Teorias'], ['rooms', 'Salas'], ['replay', 'Replay'], ['about', 'Sobre']] as const).map(([id, label]) => (
@@ -5016,11 +5026,6 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
         </div>
       ) : (
         <div>
-          {unlockedRange && visibleUnlockedPosts > 0 && (
-            <div className="border-b border-stone-800 bg-emerald-300/10 px-4 py-3 md:px-5">
-              <p className="text-sm font-bold text-emerald-100">{visibleUnlockedPosts} posts do trecho recém-liberado estão neste feed.</p>
-            </div>
-          )}
           {!visibleActiveList.length && <EmptyState text={feedVisibility === 'available' && activeList.length ? (tab === 'theories' ? `Nenhuma teoria liberada até o capítulo ${visibleChapterLimit}.` : `Nenhum comentário liberado até o capítulo ${visibleChapterLimit}.`) : tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
           <PaginatedPostList
             posts={visibleActiveList}
