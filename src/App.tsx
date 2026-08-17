@@ -534,7 +534,7 @@ interface MaintenanceMode {
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7198' : 'https://entrelinhas.sgpf.com.br')
-const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || API_BASE_URL || 'https://entrelinhas.sgpf.com.br'
+const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || 'https://entrelinhas.sgpf.com.br'
 const BACKGROUND_REFRESH_INTERVAL_MS = 10000
 const DEVICE_NOTIFICATION_SW_URL = '/folio-service-worker.js'
 const DEVICE_NOTIFICATION_STORAGE_PREFIX = 'folio_device_notified_ids_'
@@ -831,10 +831,13 @@ function resolveMediaUrl(value?: string | null) {
     try {
       const parsedUrl = new URL(url)
       const isUploadUrl = parsedUrl.pathname.startsWith('/uploads/')
+      const isLegacyFolioPostUpload =
+        parsedUrl.hostname.toLowerCase() === 'api.sgpf.com.br' &&
+        parsedUrl.pathname.toLowerCase().startsWith('/uploads/folio-posts/')
       const isPrivateIpUploadHost = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(parsedUrl.hostname)
       const isLocalUploadHost = ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsedUrl.hostname)
       const isSameHostUpload = parsedUrl.hostname === window.location.hostname
-      if (isUploadUrl && (isLocalUploadHost || isPrivateIpUploadHost || isSameHostUpload)) {
+      if (isLegacyFolioPostUpload || (isUploadUrl && (isLocalUploadHost || isPrivateIpUploadHost || isSameHostUpload))) {
         return encodeURI(`${MEDIA_BASE_URL.replace(/\/$/, '')}${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`)
       }
     } catch {

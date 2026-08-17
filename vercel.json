@@ -2,15 +2,15 @@
   "rewrites": [
     {
       "source": "/auth/:path*",
-      "destination": "https://api.sgpf.com.br/auth/:path*"
+      "destination": "https://entrelinhas.sgpf.com.br/auth/:path*"
     },
     {
       "source": "/folio/:path*",
-      "destination": "https://api.sgpf.com.br/folio/:path*"
+      "destination": "https://entrelinhas.sgpf.com.br/folio/:path*"
     },
     {
       "source": "/uploads/:path*",
-      "destination": "https://api.sgpf.com.br/uploads/:path*"
+      "destination": "https://entrelinhas.sgpf.com.br/uploads/:path*"
     },
     {
       "source": "/:path*",
