@@ -100,6 +100,7 @@ interface Post {
   text?: string | null
   reactionEmoji?: string
   type: PostType
+  audience?: 'all' | 'tea'
   timestamp: string
   likes: string[]
   comments: number
@@ -529,6 +530,11 @@ interface MaintenanceMode {
   enabled: boolean
   message: string
   updatedAt?: string | null
+}
+
+interface CommunityFeature {
+  enabled: boolean
+  previewEnabled?: boolean
 }
 
 const API_BASE_URL =
@@ -2910,6 +2916,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
             <button onClick={() => onUserClick(author.id)} className="text-sm text-stone-500 hover:text-stone-300">@{author.handle}</button>
             <span className="text-xs text-stone-600">{formatTime(post.timestamp)}</span>
             {post.type === 'theory' && <span className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-xs font-semibold text-violet-300">teoria</span>}
+            {post.audience === 'tea' && <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs font-semibold text-amber-200">Comunidade do Chá</span>}
             {post.userId === currentUser.id && (
               <button onClick={() => onDeletePost(post.id)} className="ml-auto rounded px-2 py-0.5 text-xs font-bold text-red-300 hover:bg-red-400/10">
                 Apagar
@@ -3327,7 +3334,7 @@ function WeeklySpotlightsPanel({ rows, onBookClick, onUserClick }: {
   )
 }
 
-function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeline, onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, onToggleFollow }: {
+function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeline, communityFeatureEnabled, communityPreviewEnabled = false, onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, onToggleFollow }: {
   currentUser: User
   users: User[]
   books: Book[]
@@ -3335,6 +3342,8 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   posts: Post[]
   replies: Reply[]
   timeline: TimelineEvent[]
+  communityFeatureEnabled: boolean
+  communityPreviewEnabled?: boolean
   onBookClick: (id: string) => void
   onUserClick: (id: string) => void
   onAddReply: AddReplyHandler
@@ -3346,13 +3355,15 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   onToggleFollow: (userId: string) => Promise<boolean | void> | boolean | void
 }) {
   const [tab, setTab] = useState<'posts' | 'activity'>('posts')
+  const [audienceFilter, setAudienceFilter] = useState<'all' | 'tea'>('all')
   const [readerQuery, setReaderQuery] = useState('')
   const feedPosts = useMemo(() => {
     const allowed = [...currentUser.following, currentUser.id]
     return posts
       .filter(post => allowed.includes(post.userId))
+      .filter(post => !communityFeatureEnabled || audienceFilter === 'all' || post.audience === 'tea')
       .sort(newestFirst)
-  }, [posts, currentUser.following, currentUser.id])
+  }, [posts, currentUser.following, currentUser.id, audienceFilter, communityFeatureEnabled])
   const feedActivity = useMemo(() => {
     const allowed = [...currentUser.following, ...currentUser.followers, currentUser.id]
     return timeline.filter(e => allowed.includes(e.userId)).sort(newestFirst)
@@ -3365,12 +3376,18 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   return (
     <section>
       <Header title="Início">
-        <div className="grid w-full grid-cols-2 rounded-lg bg-stone-900 p-1">
-          {([['posts', 'Publicações'], ['activity', 'Atividade']] as const).map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)} className={`min-h-9 rounded-md px-3 py-1.5 text-sm font-bold transition ${tab === id ? 'bg-amber-300 text-stone-950' : 'text-stone-400'}`}>
-              {label}
+        <div className={`grid w-full ${communityFeatureEnabled ? 'grid-cols-3' : 'grid-cols-2'} rounded-lg bg-stone-900 p-1`}>
+          <button onClick={() => { setTab('posts'); setAudienceFilter('all') }} className={`min-h-9 rounded-md px-3 py-1.5 text-sm font-bold transition ${tab === 'posts' && audienceFilter === 'all' ? 'bg-amber-300 text-stone-950' : 'text-stone-400 hover:text-stone-200'}`}>
+            Publicações
+          </button>
+          {communityFeatureEnabled && (
+            <button onClick={() => { setTab('posts'); setAudienceFilter('tea') }} className={`min-h-9 rounded-md px-2 py-1.5 text-sm font-bold transition ${tab === 'posts' && audienceFilter === 'tea' ? 'bg-amber-300 text-stone-950 shadow-sm' : 'text-stone-400 hover:text-amber-200'}`}>
+              Comunidade do Chá
             </button>
-          ))}
+          )}
+          <button onClick={() => setTab('activity')} className={`min-h-9 rounded-md px-3 py-1.5 text-sm font-bold transition ${tab === 'activity' ? 'bg-amber-300 text-stone-950' : 'text-stone-400 hover:text-stone-200'}`}>
+            Atividade
+          </button>
         </div>
       </Header>
 
@@ -3406,12 +3423,41 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
       </div>
 
       {tab === 'posts' && (
-        <PaginatedPostList
-          posts={feedPosts}
-          emptyText="Nenhuma publicação de quem você segue ainda."
-          resetKey={`timeline-${currentUser.id}`}
-          renderPost={(post, index) => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onViewPost={onViewPost} protectSpoilers imageLoading={index < 2 ? 'eager' : 'lazy'} />}
-        />
+        <>
+          {communityPreviewEnabled && audienceFilter === 'tea' && (
+            <div className="space-y-3 px-4 pt-4">
+              {[
+                ['Marina', '@marinapagina', 'Acabei esse capítulo e preciso conversar sobre aquela pista!', 'A Hipótese do Amor', 12, 8, 7, 6, false],
+                ['Clube do Chá', '@clubedochá', 'Qual foi a frase que vocês sublinharam hoje? A minha ainda está na cabeça.', 'A Biblioteca da Meia-Noite', 5, 3, 7, 14, false],
+                ['Lia', '@liadeleituras', 'Leitura da noite garantida com chá de camomila e mais dois capítulos.', 'Os Sete Maridos de Evelyn Hugo', 19, 11, 3, 22, true],
+              ].map(([name, handle, text, bookName, chapter, likes, comments, views, spoilerBlocked]) => (
+                <article key={handle} className="border-b border-stone-800 px-4 py-4 transition hover:bg-stone-900/35">
+                  <div className="flex gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-300 font-serif font-bold text-stone-950">{name[0]}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1"><span className="text-sm font-bold text-stone-100">{name}</span><span className="text-sm text-stone-500">{handle}</span><span className="text-xs text-stone-600">agora</span><span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs font-semibold text-amber-200">Comunidade do Chá</span></div>
+                      <div className="mb-2 flex max-w-full items-center gap-2"><span className="h-8 w-6 shrink-0 rounded bg-stone-700" /><span className="truncate text-xs font-semibold text-amber-300">{bookName}</span><span className="rounded-full bg-stone-800 px-2 py-0.5 text-xs font-semibold text-stone-300">Cap. {chapter}</span></div>
+                      {spoilerBlocked ? (
+                        <div className="mb-3 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3">
+                          <p className="text-sm font-bold text-amber-200">Comentário pode conter spoiler deste livro.</p>
+                          <p className="mt-1 text-xs text-stone-400">Você ainda não adicionou este livro à estante, então o progresso não foi identificado.</p>
+                          <button type="button" className="mt-3 rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-bold text-stone-950">Ver mesmo assim</button>
+                        </div>
+                      ) : <p className="text-sm text-stone-300">“{text}”</p>}
+                      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs"><span className="font-semibold text-stone-500">♡ {likes}</span><span className="font-semibold text-stone-500">comentar {comments}</span><span className="font-semibold text-stone-500">visualizações {views}</span></div>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+          <PaginatedPostList
+            posts={feedPosts}
+            emptyText={audienceFilter === 'tea' ? 'Ainda não há publicações na Comunidade do Chá.' : 'Nenhuma publicação de quem você segue ainda.'}
+            resetKey={`timeline-${currentUser.id}-${audienceFilter}`}
+            renderPost={(post, index) => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onViewPost={onViewPost} protectSpoilers imageLoading={index < 2 ? 'eager' : 'lazy'} />}
+          />
+        </>
       )}
 
       {tab === 'activity' && (
@@ -5890,12 +5936,13 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   )
 }
 
-function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onClose, onPost, onUploadImage }: {
+function CreatePostModal({ currentUser, users, shelf, books, initialBookId, communityFeatureEnabled, onClose, onPost, onUploadImage }: {
   currentUser: User
   users: User[]
   shelf: ShelfEntry[]
   books: Book[]
   initialBookId?: string | null
+  communityFeatureEnabled: boolean
   onClose: () => void
   onPost: (post: Post) => Promise<boolean | void> | boolean | void
   onUploadImage: (file: File) => Promise<string>
@@ -5917,6 +5964,7 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
   const selectedEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === selectedBookId)
   const defaultPercent = isCompletedStatus(selectedEntry?.status) ? 100 : selectedEntry?.progress ?? 0
   const [postType, setPostType] = useState<PostType>('comment')
+  const [audience, setAudience] = useState<'all' | 'tea'>('all')
   const [text, setText] = useState('')
   const [reactionEmoji, setReactionEmoji] = useState('🤯')
   const [chapter, setChapter] = useState(selectedBook ? String(chapterFromPercent(selectedBook, defaultPercent)) : '1')
@@ -5968,6 +6016,7 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
         text: postText || undefined,
         reactionEmoji: postType === 'reaction' ? reactionEmoji : undefined,
         type: postType,
+        audience,
         timestamp: new Date().toISOString(),
         likes: [],
         comments: 0,
@@ -6043,6 +6092,16 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, onCl
                   </button>
                 ))}
               </div>
+
+              {communityFeatureEnabled && (
+                <div className="rounded-lg border border-amber-300/20 bg-amber-300/5 p-3">
+                  <p className="text-sm font-semibold text-stone-200">Onde você quer conversar?</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setAudience('all')} className={`rounded-md px-3 py-2 text-xs font-bold ${audience === 'all' ? 'bg-amber-300 text-stone-950' : 'bg-stone-800 text-stone-300'}`}>Todos</button>
+                    <button type="button" onClick={() => setAudience('tea')} className={`rounded-md px-3 py-2 text-xs font-bold ${audience === 'tea' ? 'bg-amber-300 text-stone-950' : 'bg-stone-800 text-stone-300'}`}>Comunidade do Chá</button>
+                  </div>
+                </div>
+              )}
 
               {postType === 'reaction' ? (
                 <div>
@@ -6630,12 +6689,42 @@ function MaintenanceModePanel({ mode, onChange }: {
   )
 }
 
-function SuperAdminDashboardPage({ token, onUserClick, onBookClick, maintenanceMode, onMaintenanceModeChange }: {
+function CommunityFeaturePanel({ feature, onChange }: {
+  feature: CommunityFeature
+  onChange: (changes: Partial<CommunityFeature>) => void
+}) {
+  const status = feature.enabled ? 'Disponível para todos' : feature.previewEnabled ? 'Prévia só para superadmins' : 'Desativada'
+  return (
+    <section className={`rounded-lg border p-3 sm:p-4 ${feature.enabled || feature.previewEnabled ? 'border-amber-300/40 bg-amber-300/10' : 'border-stone-800 bg-stone-900'}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-serif text-lg text-stone-50 sm:text-xl">Comunidade do Chá</h2>
+            <span className={`rounded-full px-2 py-1 text-xs font-black uppercase ${feature.enabled || feature.previewEnabled ? 'bg-amber-300 text-stone-950' : 'border border-stone-700 text-stone-400'}`}>{status}</span>
+          </div>
+          <p className="mt-1 max-w-2xl text-sm text-stone-400">A prévia libera somente a visualização demonstrativa para superadmins. Ela não cria, altera ou exibe posts reais para leitores.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => onChange({ enabled: false, previewEnabled: !feature.previewEnabled })} className={`rounded-lg px-3 py-2 text-sm font-bold transition ${feature.previewEnabled && !feature.enabled ? 'bg-amber-300 text-stone-950' : 'border border-stone-700 text-stone-300 hover:bg-stone-800'}`}>
+            {feature.previewEnabled && !feature.enabled ? 'Encerrar prévia' : 'Testar só comigo'}
+          </button>
+          <button type="button" onClick={() => onChange({ enabled: !feature.enabled, previewEnabled: false })} className={`rounded-lg px-3 py-2 text-sm font-bold transition ${feature.enabled ? 'bg-amber-300 text-stone-950' : 'border border-amber-300/50 text-amber-200 hover:bg-amber-300/10'}`}>
+            {feature.enabled ? 'Desabilitar para todos' : 'Habilitar para todos'}
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function SuperAdminDashboardPage({ token, onUserClick, onBookClick, maintenanceMode, onMaintenanceModeChange, communityFeature, onCommunityFeatureChange }: {
   token: string
   onUserClick: (id: string) => void
   onBookClick: (id: string) => void
   maintenanceMode: MaintenanceMode
   onMaintenanceModeChange: (mode: MaintenanceMode) => void
+  communityFeature: CommunityFeature
+  onCommunityFeatureChange: (changes: Partial<CommunityFeature>) => void
 }) {
   const [dashboard, setDashboard] = useState<SuperAdminDashboard | null>(null)
   const [loading, setLoading] = useState(true)
@@ -6780,6 +6869,7 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick, maintenanceM
         {notice && <div className="rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-3 text-sm font-semibold text-emerald-100">{notice}</div>}
 
         <MaintenanceModePanel mode={maintenanceMode} onChange={onMaintenanceModeChange} />
+        <CommunityFeaturePanel feature={communityFeature} onChange={onCommunityFeatureChange} />
 
         <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
           <DashboardStat label="Usuários" value={dashboard.overview.totalUsers} detail="perfis Folio cadastrados" tone="cyan" active={activeReport === 'users'} onClick={() => openReport('users')} />
@@ -8387,6 +8477,7 @@ export default function App() {
   const [loadingApp, setLoadingApp] = useState(true)
   const [resumeError, setResumeError] = useState('')
   const [maintenanceMode, setMaintenanceMode] = useState<MaintenanceMode>(() => storedMaintenanceMode())
+  const [communityFeature, setCommunityFeature] = useState<CommunityFeature>({ enabled: false })
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [actionLoadingCount, setActionLoadingCount] = useState(0)
   const [deviceNotifications, setDeviceNotifications] = useState<DeviceNotificationStatus>(() => deviceNotificationStatus())
@@ -8423,6 +8514,20 @@ export default function App() {
       .catch(error => {
         showToast('error', errorMessage(error, 'Nao foi possivel atualizar o modo manutenção.'))
       })
+      .finally(endActionLoading)
+  }
+
+  function handleCommunityFeatureChange(changes: Partial<CommunityFeature>) {
+    beginActionLoading()
+    void apiRequest<CommunityFeature>('/folio/superadmin/community', {
+      method: 'PATCH',
+      body: JSON.stringify(changes),
+    }, token)
+      .then(saved => {
+        setCommunityFeature({ enabled: Boolean(saved.enabled), previewEnabled: Boolean(saved.previewEnabled) })
+        showToast('success', saved.enabled ? 'Comunidade do Chá habilitada para todos.' : saved.previewEnabled ? 'Prévia privada da Comunidade do Chá ativada.' : 'Comunidade do Chá desativada.')
+      })
+      .catch(error => showToast('error', errorMessage(error, 'Nao foi possivel atualizar a Comunidade do Chá.')))
       .finally(endActionLoading)
   }
 
@@ -8567,6 +8672,7 @@ export default function App() {
       replies: Reply[]
       timeline: TimelineEvent[]
       maintenanceMode?: MaintenanceMode
+      communityFeature?: CommunityFeature
       notifications?: FolioNotification[]
       notificationPreferences?: NotificationPreferences
       readingGoal?: ReadingGoal
@@ -8586,6 +8692,7 @@ export default function App() {
     const remoteMaintenanceMode = normalizeMaintenanceMode(data.maintenanceMode)
     localStorage.setItem(MAINTENANCE_STORAGE_KEY, JSON.stringify(remoteMaintenanceMode))
     setMaintenanceMode(remoteMaintenanceMode)
+    setCommunityFeature({ enabled: Boolean(data.communityFeature?.enabled), previewEnabled: Boolean(data.communityFeature?.previewEnabled) })
     setNotifications(data.notifications || [])
     setNotificationPreferences({ ...DEFAULT_NOTIFICATION_PREFERENCES, ...(data.notificationPreferences || {}) })
     setReadingGoal(data.readingGoal || { targetBooks: 40, targetBooksMonth: 4, targetBooksWeek: 1, targetDays: 120, checkIns: [], currentStreak: 0, bestStreak: 0, checkedInToday: false })
@@ -9394,7 +9501,7 @@ export default function App() {
 
       <div className="flex md:ml-60">
         <main className="min-h-screen min-w-0 flex-1 border-x border-stone-800 pb-24 md:pb-0">
-          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} onToggleFollow={handleToggleFollow} />}
+          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} communityFeatureEnabled={communityFeature.enabled || (Boolean(communityFeature.previewEnabled) && isSuperAdminUser(currentUser))} communityPreviewEnabled={Boolean(communityFeature.previewEnabled) && !communityFeature.enabled && isSuperAdminUser(currentUser)} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} onToggleFollow={handleToggleFollow} />}
           {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSearchBooks={handleSearchBooks} />}
           {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
           {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
@@ -9402,7 +9509,7 @@ export default function App() {
           {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
           {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
-          {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} maintenanceMode={maintenanceMode} onMaintenanceModeChange={handleMaintenanceModeChange} />}
+          {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} maintenanceMode={maintenanceMode} onMaintenanceModeChange={handleMaintenanceModeChange} communityFeature={communityFeature} onCommunityFeatureChange={handleCommunityFeatureChange} />}
           {page === 'store' && isSuperAdminUser(currentUser) && <StorePage token={token} currentUser={currentUser} />}
           {AI_LAB_FRONTEND_ENABLED && page === 'ai-lab' && isSuperAdminUser(currentUser) && <AiLabPage token={token} books={books} />}
         </main>
@@ -9419,6 +9526,7 @@ export default function App() {
           shelf={shelf}
           books={books}
           initialBookId={postModalBookId || (page === 'book' ? selectedBookId : null)}
+          communityFeatureEnabled={communityFeature.enabled}
           onClose={() => {
             setShowPostModal(false)
             setPostModalBookId(null)
