@@ -102,6 +102,7 @@ interface Post {
   type: PostType
   audience?: 'all' | 'tea'
   timestamp: string
+  editedAt?: string | null
   likes: string[]
   comments: number
   views?: string[]
@@ -126,6 +127,7 @@ interface Reply {
   userId: string
   text: string
   timestamp: string
+  editedAt?: string | null
   likes: string[]
   comments: number
   mentionedUserIds?: string[]
@@ -2784,7 +2786,7 @@ function EngagementListDialog({ title, users, emptyText, onClose, onUserClick }:
   )
 }
 
-function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, allowChapterLimitWithoutShelf = false, imageLoading = 'lazy' }: {
+function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, allowChapterLimitWithoutShelf = false, imageLoading = 'lazy' }: {
   post: Post
   users: User[]
   books: Book[]
@@ -2798,6 +2800,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
+  onEditPost?: (post: Post) => void
+  onEditReply?: (reply: Reply, text: string) => Promise<boolean | void> | boolean | void
   onViewPost?: (postId: string) => void
   compactBook?: boolean
   protectSpoilers?: boolean
@@ -2819,6 +2823,9 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const submittingNestedReplyRef = useRef<string | null>(null)
   const [spoilerAccepted, setSpoilerAccepted] = useState(false)
   const [expandedPostImage, setExpandedPostImage] = useState<string | null>(null)
+  const [editingReplyId, setEditingReplyId] = useState<string | null>(null)
+  const [editingReplyText, setEditingReplyText] = useState('')
+  const [savingReplyId, setSavingReplyId] = useState<string | null>(null)
   const author = users.find(u => u.id === post.userId)!
   const book = books.find(b => b.id === post.bookId)
   const myEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === post.bookId)
@@ -2906,6 +2913,20 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
     }
   }
 
+  async function saveReplyEdit(reply: Reply) {
+    const text = editingReplyText.trim()
+    if (!text || !onEditReply) return
+    setSavingReplyId(reply.id)
+    try {
+      const saved = await onEditReply(reply, text)
+      if (saved === false) return
+      setEditingReplyId(null)
+      setEditingReplyText('')
+    } finally {
+      setSavingReplyId(null)
+    }
+  }
+
   return (
     <article ref={articleRef} className="border-b border-stone-800 px-4 py-4 transition hover:bg-stone-900/35 md:px-5">
       <div className="flex gap-3">
@@ -2915,12 +2936,14 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
             <button onClick={() => onUserClick(author.id)} className="text-sm font-bold text-stone-100 hover:text-amber-300">{author.name}</button>
             <button onClick={() => onUserClick(author.id)} className="text-sm text-stone-500 hover:text-stone-300">@{author.handle}</button>
             <span className="text-xs text-stone-600">{formatTime(post.timestamp)}</span>
+            {post.editedAt && <span className="rounded-full border border-stone-600 bg-stone-800 px-2 py-0.5 text-[11px] font-semibold text-stone-400">Editado</span>}
             {post.type === 'theory' && <span className="rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-xs font-semibold text-violet-300">teoria</span>}
             {post.audience === 'tea' && <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs font-semibold text-amber-200">Comunidade do Chá</span>}
             {post.userId === currentUser.id && (
-              <button onClick={() => onDeletePost(post.id)} className="ml-auto rounded px-2 py-0.5 text-xs font-bold text-red-300 hover:bg-red-400/10">
-                Apagar
-              </button>
+              <div className="ml-auto flex items-center gap-1">
+                {onEditPost && <button onClick={() => onEditPost(post)} className="rounded px-2 py-0.5 text-xs font-bold text-amber-300 hover:bg-amber-300/10">Editar</button>}
+                <button onClick={() => onDeletePost(post.id)} className="rounded px-2 py-0.5 text-xs font-bold text-red-300 hover:bg-red-400/10">Apagar</button>
+              </div>
             )}
           </div>
           {book && !compactBook && (
@@ -3027,11 +3050,12 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <button onClick={() => onUserClick(replyUser.id)} className="text-xs font-bold text-stone-200 hover:text-amber-300">@{replyUser.handle}</button>
+                          {reply.editedAt && <span className="text-[11px] font-semibold text-stone-500">Editado</span>}
                           {reply.userId === currentUser.id && (
-                            <button onClick={() => onDeleteReply(reply.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button>
+                            <div className="flex gap-2"><button onClick={() => { setEditingReplyId(reply.id); setEditingReplyText(reply.text) }} className="text-xs font-bold text-amber-300 hover:text-amber-200">editar</button><button onClick={() => onDeleteReply(reply.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button></div>
                           )}
                         </div>
-                        <PostTextWithMentions text={reply.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />
+                        {editingReplyId === reply.id ? <div className="mt-2"><MentionTextarea value={editingReplyText} onChange={setEditingReplyText} currentUser={currentUser} users={users} rows={3} disabled={savingReplyId === reply.id} className="w-full resize-none rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /><div className="mt-2 flex justify-end gap-2"><button onClick={() => setEditingReplyId(null)} className="rounded px-2 py-1 text-xs font-bold text-stone-400 hover:bg-stone-800">Cancelar</button><button onClick={() => saveReplyEdit(reply)} disabled={!editingReplyText.trim() || savingReplyId === reply.id} className="rounded bg-amber-300 px-2 py-1 text-xs font-bold text-stone-950 disabled:opacity-60">{savingReplyId === reply.id ? 'Salvando...' : 'Salvar'}</button></div></div> : <PostTextWithMentions text={reply.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />}
                         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                           <button onClick={() => onToggleReplyLike(reply.id)} className={`font-semibold ${replyLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
                             {replyLiked ? '♥' : '♡'} {replyLikes.length}
@@ -3085,11 +3109,12 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2">
                                       <button onClick={() => onUserClick(childUser.id)} className="text-xs font-bold text-stone-200 hover:text-amber-300">@{childUser.handle}</button>
+                                      {child.editedAt && <span className="text-[11px] font-semibold text-stone-500">Editado</span>}
                                       {child.userId === currentUser.id && (
-                                        <button onClick={() => onDeleteReply(child.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button>
+                                        <div className="flex gap-2"><button onClick={() => { setEditingReplyId(child.id); setEditingReplyText(child.text) }} className="text-xs font-bold text-amber-300 hover:text-amber-200">editar</button><button onClick={() => onDeleteReply(child.id)} className="text-xs font-bold text-red-300 hover:text-red-200">apagar</button></div>
                                       )}
                                     </div>
-                                    <PostTextWithMentions text={child.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />
+                                    {editingReplyId === child.id ? <div className="mt-2"><MentionTextarea value={editingReplyText} onChange={setEditingReplyText} currentUser={currentUser} users={users} rows={3} disabled={savingReplyId === child.id} className="w-full resize-none rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /><div className="mt-2 flex justify-end gap-2"><button onClick={() => setEditingReplyId(null)} className="rounded px-2 py-1 text-xs font-bold text-stone-400 hover:bg-stone-800">Cancelar</button><button onClick={() => saveReplyEdit(child)} disabled={!editingReplyText.trim() || savingReplyId === child.id} className="rounded bg-amber-300 px-2 py-1 text-xs font-bold text-stone-950 disabled:opacity-60">{savingReplyId === child.id ? 'Salvando...' : 'Salvar'}</button></div></div> : <PostTextWithMentions text={child.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />}
                                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                                       <button onClick={() => onToggleReplyLike(child.id)} className={`font-semibold ${childLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
                                         {childLiked ? '♥' : '♡'} {childLikes.length}
@@ -3334,7 +3359,7 @@ function WeeklySpotlightsPanel({ rows, onBookClick, onUserClick }: {
   )
 }
 
-function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeline, communityFeatureEnabled, communityPreviewEnabled = false, onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, onToggleFollow }: {
+function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeline, communityFeatureEnabled, communityPreviewEnabled = false, onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onToggleFollow }: {
   currentUser: User
   users: User[]
   books: Book[]
@@ -3351,6 +3376,8 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
+  onEditPost: (post: Post) => void
+  onEditReply: (reply: Reply, text: string) => Promise<boolean | void> | boolean | void
   onViewPost: (postId: string) => void
   onToggleFollow: (userId: string) => Promise<boolean | void> | boolean | void
 }) {
@@ -3455,7 +3482,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
             posts={feedPosts}
             emptyText={audienceFilter === 'tea' ? 'Ainda não há publicações na Comunidade do Chá.' : 'Nenhuma publicação de quem você segue ainda.'}
             resetKey={`timeline-${currentUser.id}-${audienceFilter}`}
-            renderPost={(post, index) => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onViewPost={onViewPost} protectSpoilers imageLoading={index < 2 ? 'eager' : 'lazy'} />}
+            renderPost={(post, index) => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} protectSpoilers imageLoading={index < 2 ? 'eager' : 'lazy'} />}
           />
         </>
       )}
@@ -4542,7 +4569,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
   )
 }
 
-function BookPage({ book, shelf, posts, replies, users, currentUser, highlightedPostId, onBack, onUserClick, onCreatePost, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost, onUpdateShelfEntry, onAddBook }: {
+function BookPage({ book, shelf, posts, replies, users, currentUser, highlightedPostId, onBack, onUserClick, onCreatePost, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onUpdateShelfEntry, onAddBook }: {
   book: Book
   shelf: ShelfEntry[]
   posts: Post[]
@@ -4558,6 +4585,8 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
+  onEditPost: (post: Post) => void
+  onEditReply: (reply: Reply, text: string) => Promise<boolean | void> | boolean | void
   onViewPost: (postId: string) => void
   onUpdateShelfEntry: (bookId: string, changes: Partial<ShelfEntry>, feedback?: ActionFeedback, options?: UpdateShelfOptions) => Promise<boolean | void> | boolean | void
   onAddBook: (bookId: string, status: BookStatus) => Promise<boolean | void> | boolean | void
@@ -5083,7 +5112,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                 id={`folio-post-${post.id}`}
                 className={post.id === highlightedPostId ? 'scroll-mt-28 ring-2 ring-amber-300/70 ring-offset-2 ring-offset-stone-950' : 'scroll-mt-28'}
               >
-                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => { }} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onViewPost={onViewPost} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} allowChapterLimitWithoutShelf />
+                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => { }} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} allowChapterLimitWithoutShelf />
               </div>
             )}
           />
@@ -5434,7 +5463,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, notificati
     </section>
   )
 }
-function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onViewPost }: {
+function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost }: {
   kind: ProfileListKind
   currentUser: User
   profileUser: User
@@ -5452,6 +5481,8 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
+  onEditPost: (post: Post) => void
+  onEditReply: (reply: Reply, text: string) => Promise<boolean | void> | boolean | void
   onViewPost: (postId: string) => void
 }) {
   const titleByKind: Record<ProfileListKind, string> = {
@@ -5494,6 +5525,8 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
                 onToggleReplyLike={onToggleReplyLike}
                 onDeletePost={onDeletePost}
                 onDeleteReply={onDeleteReply}
+                onEditPost={onEditPost}
+                onEditReply={onEditReply}
                 onViewPost={onViewPost}
                 protectSpoilers
               />
@@ -5936,12 +5969,13 @@ function GoalsPage({ currentUser, shelf, books, readingGoal, onUpdateReadingGoal
   )
 }
 
-function CreatePostModal({ currentUser, users, shelf, books, initialBookId, communityFeatureEnabled, onClose, onPost, onUploadImage }: {
+function CreatePostModal({ currentUser, users, shelf, books, initialBookId, editingPost, communityFeatureEnabled, onClose, onPost, onUploadImage }: {
   currentUser: User
   users: User[]
   shelf: ShelfEntry[]
   books: Book[]
   initialBookId?: string | null
+  editingPost?: Post | null
   communityFeatureEnabled: boolean
   onClose: () => void
   onPost: (post: Post) => Promise<boolean | void> | boolean | void
@@ -5958,16 +5992,16 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, comm
     .filter(item => item.book)
     .sort((a, b) => postBookSortPriority(a.entry, a.book) - postBookSortPriority(b.entry, b.book) || a.book.title.localeCompare(b.book.title, 'pt-BR'))
   const initialBook = myBooks.find(({ book }) => book.id === initialBookId)
-  const [selectedBookId, setSelectedBookId] = useState(initialBook?.book.id || myBooks[0]?.book.id || '')
+  const [selectedBookId, setSelectedBookId] = useState(editingPost?.bookId || initialBook?.book.id || myBooks[0]?.book.id || '')
   const [bookQuery, setBookQuery] = useState('')
   const selectedBook = books.find(book => book.id === selectedBookId) || myBooks[0]?.book
   const selectedEntry = shelf.find(entry => entry.userId === currentUser.id && entry.bookId === selectedBookId)
   const defaultPercent = isCompletedStatus(selectedEntry?.status) ? 100 : selectedEntry?.progress ?? 0
-  const [postType, setPostType] = useState<PostType>('comment')
-  const [audience, setAudience] = useState<'all' | 'tea'>('all')
-  const [text, setText] = useState('')
-  const [reactionEmoji, setReactionEmoji] = useState('🤯')
-  const [chapter, setChapter] = useState(selectedBook ? String(chapterFromPercent(selectedBook, defaultPercent)) : '1')
+  const [postType, setPostType] = useState<PostType>(editingPost?.type || 'comment')
+  const [audience, setAudience] = useState<'all' | 'tea'>(editingPost?.audience || 'all')
+  const [text, setText] = useState(editingPost?.text || '')
+  const [reactionEmoji, setReactionEmoji] = useState(editingPost?.reactionEmoji || '🤯')
+  const [chapter, setChapter] = useState(editingPost ? String(editingPost.chapter) : selectedBook ? String(chapterFromPercent(selectedBook, defaultPercent)) : '1')
   const [postImageUrl, setPostImageUrl] = useState('')
   const [postImageFileName, setPostImageFileName] = useState('')
   const [postImageError, setPostImageError] = useState('')
@@ -6008,7 +6042,7 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, comm
     const mentionedUserIds = postType === 'reaction' ? [] : mentionedUsersFromText(text, currentUser, users).map(user => user.id)
     try {
       const posted = await onPost({
-        id: `p${Date.now()}`,
+        id: editingPost?.id || `p${Date.now()}`,
         userId: currentUser.id,
         bookId: selectedBook.id,
         chapter: selectedChapter,
@@ -6017,11 +6051,11 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, comm
         reactionEmoji: postType === 'reaction' ? reactionEmoji : undefined,
         type: postType,
         audience,
-        timestamp: new Date().toISOString(),
-        likes: [],
-        comments: 0,
-        views: [],
-        viewCount: 0,
+        timestamp: editingPost?.timestamp || new Date().toISOString(),
+        likes: editingPost?.likes || [],
+        comments: editingPost?.comments || 0,
+        views: editingPost?.views || [],
+        viewCount: editingPost?.viewCount || 0,
         ...(mentionedUserIds.length ? { mentionedUserIds } : {}),
       })
       if (posted === false) return
@@ -6036,7 +6070,7 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, comm
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 p-3 backdrop-blur-md sm:items-center" onClick={e => e.currentTarget === e.target && onClose()}>
       <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-lg border border-stone-800 bg-stone-900">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-stone-800 bg-stone-900 px-4 py-3">
-          <h2 className="font-serif text-lg text-stone-100">Nova publicação</h2>
+          <h2 className="font-serif text-lg text-stone-100">{editingPost ? 'Editar publicação' : 'Nova publicação'}</h2>
           <button onClick={onClose} className="rounded-lg px-2 py-1 text-xl text-stone-500 hover:bg-stone-800 hover:text-stone-100">×</button>
         </div>
 
@@ -6187,7 +6221,7 @@ function CreatePostModal({ currentUser, users, shelf, books, initialBookId, comm
         <div className="flex justify-end gap-2 border-t border-stone-800 px-4 py-3">
           <button onClick={onClose} disabled={posting} className="rounded-lg px-4 py-2 text-sm font-bold text-stone-400 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-60">Cancelar</button>
           <button onClick={handlePost} disabled={!canPost} className="rounded-lg bg-amber-300 px-5 py-2 text-sm font-bold text-stone-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:bg-stone-700 disabled:text-stone-500">
-            {uploadingPostImage ? 'Enviando...' : posting ? 'Publicando...' : 'Publicar'}
+            {uploadingPostImage ? 'Enviando...' : posting ? 'Salvando...' : editingPost ? 'Salvar alterações' : 'Publicar'}
           </button>
         </div>
       </div>
@@ -8466,6 +8500,7 @@ export default function App() {
   const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(() => localStorage.getItem('folio_selected_profile_user_id'))
   const [profileListKind, setProfileListKind] = useState<ProfileListKind>('following')
   const [showPostModal, setShowPostModal] = useState(false)
+  const [editingPost, setEditingPost] = useState<Post | null>(null)
   const [postModalBookId, setPostModalBookId] = useState<string | null>(null)
   const [shelf, setShelf] = useState<ShelfEntry[]>([])
   const [posts, setPosts] = useState<Post[]>([])
@@ -9209,6 +9244,27 @@ export default function App() {
     })
   }
 
+  function handleEditPost(post: Post) {
+    setEditingPost(post)
+    setShowPostModal(true)
+  }
+
+  async function handleUpdatePost(post: Post) {
+    if (!currentUser) return false
+    return runAction(async () => {
+      await apiRequest(`/folio/posts/${encodeURIComponent(post.id)}`, { method: 'PATCH', body: JSON.stringify(post) }, activeAuthToken())
+      await loadBootstrap(activeAuthToken())
+    }, { success: 'Publicação editada.', error: 'Não foi possível editar a publicação.' })
+  }
+
+  async function handleEditReply(reply: Reply, text: string) {
+    if (!currentUser) return false
+    return runAction(async () => {
+      await apiRequest(`/folio/replies/${encodeURIComponent(reply.id)}`, { method: 'PATCH', body: JSON.stringify({ text: text.trim(), mentionedUserIds: mentionedUsersFromText(text, currentUser, users).map(user => user.id) }) }, activeAuthToken())
+      await loadBootstrap(activeAuthToken())
+    }, { success: 'Comentário editado.', error: 'Não foi possível editar o comentário.' })
+  }
+
   async function handleToggleLike(postId: string) {
     if (!currentUser) return false
     const post = posts.find(item => item.id === postId)
@@ -9501,12 +9557,12 @@ export default function App() {
 
       <div className="flex md:ml-60">
         <main className="min-h-screen min-w-0 flex-1 border-x border-stone-800 pb-24 md:pb-0">
-          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} communityFeatureEnabled={communityFeature.enabled || (Boolean(communityFeature.previewEnabled) && isSuperAdminUser(currentUser))} communityPreviewEnabled={Boolean(communityFeature.previewEnabled) && !communityFeature.enabled && isSuperAdminUser(currentUser)} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} onToggleFollow={handleToggleFollow} />}
+          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} communityFeatureEnabled={communityFeature.enabled || (Boolean(communityFeature.previewEnabled) && isSuperAdminUser(currentUser))} communityPreviewEnabled={Boolean(communityFeature.previewEnabled) && !communityFeature.enabled && isSuperAdminUser(currentUser)} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onToggleFollow={handleToggleFollow} />}
           {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSearchBooks={handleSearchBooks} />}
           {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
-          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
+          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} notificationPreferences={notificationPreferences} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} onUpdateNotificationPreferences={handleUpdateNotificationPreferences} />}
-          {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onViewPost={handleViewPost} />}
+          {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
           {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
           {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} maintenanceMode={maintenanceMode} onMaintenanceModeChange={handleMaintenanceModeChange} communityFeature={communityFeature} onCommunityFeatureChange={handleCommunityFeatureChange} />}
@@ -9525,13 +9581,15 @@ export default function App() {
           users={users}
           shelf={shelf}
           books={books}
-          initialBookId={postModalBookId || (page === 'book' ? selectedBookId : null)}
+          initialBookId={editingPost?.bookId || postModalBookId || (page === 'book' ? selectedBookId : null)}
+          editingPost={editingPost}
           communityFeatureEnabled={communityFeature.enabled}
           onClose={() => {
             setShowPostModal(false)
             setPostModalBookId(null)
+            setEditingPost(null)
           }}
-          onPost={handleCreatePost}
+          onPost={editingPost ? handleUpdatePost : handleCreatePost}
           onUploadImage={handleUploadPostImage}
         />
       )}
