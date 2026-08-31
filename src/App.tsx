@@ -8687,7 +8687,6 @@ export default function App() {
   }
 
   async function runAction(action: () => Promise<void>, feedback: ActionFeedback) {
-    beginActionLoading()
     try {
       await action()
       if (!feedback.silentSuccess && feedback.success) showToast('success', feedback.success)
@@ -8695,8 +8694,6 @@ export default function App() {
     } catch (error) {
       showToast('error', errorMessage(error, feedback.error))
       return false
-    } finally {
-      endActionLoading()
     }
   }
 
@@ -9197,27 +9194,24 @@ export default function App() {
 
   async function handleAddReply(postId: string, text: string, parentReplyId?: string, mentionedUserIds: string[] = []) {
     if (!currentUser) return false
-    return runAction(async () => {
-      const activeToken = activeAuthToken()
-      const path = parentReplyId
-        ? '/folio/replies/replies'
-        : `/folio/posts/${encodeURIComponent(postId)}/replies`
-      const payload = {
-        text,
-        ...(parentReplyId ? { parentReplyId } : {}),
-        ...(mentionedUserIds.length ? { mentionedUserIds } : {}),
-      }
-      await apiRequest(path, { method: 'POST', body: JSON.stringify(payload) }, activeToken)
+    const activeToken = activeAuthToken()
+    const temporaryId = `optimistic-reply-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const optimisticReply: Reply = { id: temporaryId, postId, parentReplyId, userId: currentUser.id, text, timestamp: new Date().toISOString(), likes: [], reactions: [], comments: 0, mentionedUserIds }
+    setReplies(current => [...current, optimisticReply])
+    syncInBackground(async () => {
+      const path = parentReplyId ? '/folio/replies/replies' : `/folio/posts/${encodeURIComponent(postId)}/replies`
+      const payload = { text, ...(parentReplyId ? { parentReplyId } : {}), ...(mentionedUserIds.length ? { mentionedUserIds } : {}) }
+      const saved = await apiRequest<Reply>(path, { method: 'POST', body: JSON.stringify(payload) }, activeToken)
+      setReplies(current => current.map(reply => reply.id === temporaryId ? saved : reply))
       await loadBootstrap(activeToken)
-    }, {
-      success: 'Resposta publicada com sucesso.',
-      error: 'Nao foi possivel publicar a resposta.',
-    })
+    }, 'Não foi possível publicar o comentário.', () => setReplies(current => current.filter(reply => reply.id !== temporaryId)))
+    return true
   }
 
   async function handleDeletePost(postId: string) {
     if (!currentUser) return false
     const post = posts.find(item => item.id === postId)
+    if (!post) return false
     const isTheory = post?.type === 'theory'
     const confirmed = await askConfirm({
       title: isTheory ? 'Excluir teoria?' : 'Excluir publicação?',
@@ -9228,24 +9222,28 @@ export default function App() {
     })
     if (!confirmed) return false
 
-    return runAction(async () => {
-      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }, token)
+    const removedReplies = replies.filter(reply => reply.postId === postId)
+    setPosts(current => current.filter(item => item.id !== postId))
+    setReplies(current => current.filter(reply => reply.postId !== postId))
+    syncInBackground(async () => {
+      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }, activeAuthToken())
       await loadBootstrap()
-    }, {
-      success: 'Publicação apagada.',
-      error: 'Nao foi possivel apagar a publicação.',
+    }, 'Não foi possível apagar a publicação.', () => {
+      setPosts(current => [...current, post].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()))
+      setReplies(current => [...current, ...removedReplies])
     })
+    return true
   }
 
   async function handleDeleteReply(replyId: string) {
     if (!currentUser) return false
-    return runAction(async () => {
-      await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}`, { method: 'DELETE' }, token)
+    const removedReplies = replies.filter(reply => reply.id === replyId || reply.parentReplyId === replyId)
+    setReplies(current => current.filter(reply => reply.id !== replyId && reply.parentReplyId !== replyId))
+    syncInBackground(async () => {
+      await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}`, { method: 'DELETE' }, activeAuthToken())
       await loadBootstrap()
-    }, {
-      success: 'Resposta apagada.',
-      error: 'Nao foi possivel apagar a resposta.',
-    })
+    }, 'Não foi possível apagar o comentário.', () => setReplies(current => [...current, ...removedReplies]))
+    return true
   }
 
   function handleEditPost(post: Post) {
@@ -9255,32 +9253,38 @@ export default function App() {
 
   async function handleUpdatePost(post: Post) {
     if (!currentUser) return false
-    return runAction(async () => {
+    const previous = posts.find(item => item.id === post.id)
+    setPosts(current => current.map(item => item.id === post.id ? { ...item, ...post, editedAt: new Date().toISOString() } : item))
+    syncInBackground(async () => {
       await apiRequest(`/folio/posts/${encodeURIComponent(post.id)}`, { method: 'PATCH', body: JSON.stringify(post) }, activeAuthToken())
       await loadBootstrap(activeAuthToken())
-    }, { success: 'Publicação editada.', error: 'Não foi possível editar a publicação.' })
+    }, 'Não foi possível editar a publicação.', () => previous && setPosts(current => current.map(item => item.id === post.id ? previous : item)))
+    return true
   }
 
   async function handleEditReply(reply: Reply, text: string) {
     if (!currentUser) return false
-    return runAction(async () => {
+    const previous = replies.find(item => item.id === reply.id)
+    setReplies(current => current.map(item => item.id === reply.id ? { ...item, text: text.trim(), editedAt: new Date().toISOString() } : item))
+    syncInBackground(async () => {
       await apiRequest(`/folio/replies/${encodeURIComponent(reply.id)}`, { method: 'PATCH', body: JSON.stringify({ text: text.trim(), mentionedUserIds: mentionedUsersFromText(text, currentUser, users).map(user => user.id) }) }, activeAuthToken())
       await loadBootstrap(activeAuthToken())
-    }, { success: 'Comentário editado.', error: 'Não foi possível editar o comentário.' })
+    }, 'Não foi possível editar o comentário.', () => previous && setReplies(current => current.map(item => item.id === reply.id ? previous : item)))
+    return true
   }
 
   async function handleToggleLike(postId: string) {
     if (!currentUser) return false
     const post = posts.find(item => item.id === postId)
     const liked = Boolean(post?.likes.includes(currentUser.id))
-    return runAction(async () => {
+    const nextLikes = liked ? (post?.likes || []).filter(id => id !== currentUser.id) : [...(post?.likes || []), currentUser.id]
+    setPosts(current => current.map(item => item.id === postId ? { ...item, likes: nextLikes } : item))
+    syncInBackground(async () => {
       const activeToken = activeAuthToken()
       await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/likes/toggle`, { method: 'POST' }, activeToken)
       await loadBootstrap(activeToken)
-    }, {
-      success: liked ? 'Curtida removida.' : 'Publicação curtida.',
-      error: liked ? 'Nao foi possivel remover a curtida.' : 'Nao foi possivel curtir a publicação.',
-    })
+    }, 'Não foi possível atualizar a curtida.')
+    return true
   }
 
   function handleViewPost(postId: string) {
@@ -9323,39 +9327,56 @@ export default function App() {
     if (!currentUser) return false
     const reply = replies.find(item => item.id === replyId)
     const liked = Boolean(reply?.likes?.includes(currentUser.id))
-    return runAction(async () => {
+    const nextLikes = liked ? (reply?.likes || []).filter(id => id !== currentUser.id) : [...(reply?.likes || []), currentUser.id]
+    setReplies(current => current.map(item => item.id === replyId ? { ...item, likes: nextLikes } : item))
+    syncInBackground(async () => {
       const activeToken = activeAuthToken()
       await apiRequest('/folio/replies/likes/toggle', { method: 'POST', body: JSON.stringify({ replyId }) }, activeToken)
       await loadBootstrap(activeToken)
-    }, {
-      success: liked ? 'Curtida removida.' : 'Comentário curtido.',
-      error: liked ? 'Nao foi possivel remover a curtida.' : 'Nao foi possivel curtir o comentário.',
+    }, 'Não foi possível atualizar a curtida.')
+    return true
+  }
+
+  function syncInBackground(work: () => Promise<void>, errorText: string, rollback?: () => void) {
+    void work().catch(async error => {
+      rollback?.()
+      showToast('error', errorMessage(error, errorText))
+      try {
+        await loadBootstrap(activeAuthToken())
+      } catch {
+        // A próxima atualização normal da tela tenta sincronizar novamente.
+      }
     })
   }
 
   async function handleToggleReplyReaction(replyId: string, type: ReplyReactionType) {
     if (!currentUser) return false
-    const selected = replies.find(reply => reply.id === replyId)?.reactions?.some(reaction => reaction.userId === currentUser.id && reaction.type === type)
-    return runAction(async () => {
+    const reply = replies.find(item => item.id === replyId)
+    const selected = reply?.reactions?.some(reaction => reaction.userId === currentUser.id && reaction.type === type)
+    setReplies(current => current.map(item => {
+      if (item.id !== replyId) return item
+      const others = (item.reactions || []).filter(reaction => reaction.userId !== currentUser.id)
+      return { ...item, reactions: selected ? others : [...others, { userId: currentUser.id, type }] }
+    }))
+    syncInBackground(async () => {
       const activeToken = activeAuthToken()
       await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}/reactions/toggle`, { method: 'POST', body: JSON.stringify({ type }) }, activeToken)
       await loadBootstrap(activeToken)
-    }, {
-      success: selected ? 'Reação removida.' : 'Reação adicionada.',
-      error: 'Não foi possível reagir ao comentário.',
-    })
+    }, 'Não foi possível reagir ao comentário.')
+    return true
   }
 
   async function handleToggleFollow(userId: string) {
     if (!currentUser || userId === currentUser.id) return false
     const following = currentUser.following.includes(userId)
-    return runAction(async () => {
-      await apiRequest(`/folio/follows/${userId}/toggle`, { method: 'POST' }, token)
+    const nextFollowing = following ? currentUser.following.filter(id => id !== userId) : [...currentUser.following, userId]
+    setCurrentUser(current => current ? { ...current, following: nextFollowing } : current)
+    setUsers(current => current.map(user => user.id === currentUser.id ? { ...user, following: nextFollowing } : user))
+    syncInBackground(async () => {
+      await apiRequest(`/folio/follows/${userId}/toggle`, { method: 'POST' }, activeAuthToken())
       await loadBootstrap()
-    }, {
-      success: following ? 'Você deixou de seguir este perfil.' : 'Perfil seguido com sucesso.',
-      error: following ? 'Nao foi possivel deixar de seguir este perfil.' : 'Nao foi possivel seguir este perfil.',
-    })
+    }, 'Não foi possível atualizar o seguimento.')
+    return true
   }
 
   async function handleUpdateUser(changes: Partial<User>) {
@@ -9405,10 +9426,12 @@ export default function App() {
     const shouldOfferShelfUpdate = Boolean(book && entry && !isCompletedStatus(entry.status) && currentChapter !== post.chapter)
     const activeToken = activeAuthToken()
 
-    beginActionLoading()
-    try {
-      await apiRequest('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, activeToken)
-      endActionLoading()
+    const temporaryId = `optimistic-post-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const optimisticPost: Post = { ...post, id: temporaryId, userId: currentUser.id, timestamp: new Date().toISOString(), likes: [], comments: 0, views: [], viewCount: 0 }
+    setPosts(current => [optimisticPost, ...current])
+    syncInBackground(async () => {
+      const saved = await apiRequest<Post>('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, activeToken)
+      setPosts(current => current.map(item => item.id === temporaryId ? saved : item))
       let shelfUpdated = false
       let shelfUpdateFailed = false
       const shouldUpdateShelf = shouldOfferShelfUpdate && await askConfirm({
@@ -9417,8 +9440,6 @@ export default function App() {
         confirmLabel: 'Atualizar estante',
         cancelLabel: 'Agora não',
       })
-
-      beginActionLoading()
 
       if (shouldUpdateShelf && book) {
         try {
@@ -9435,13 +9456,8 @@ export default function App() {
       await loadBootstrap(activeToken)
       showToast('success', shelfUpdated ? 'Publicação criada e estante atualizada.' : 'Publicação criada com sucesso.')
       if (shelfUpdateFailed) showToast('error', 'A publicação foi criada, mas nao foi possivel atualizar a estante.')
-      return true
-    } catch (error) {
-      showToast('error', errorMessage(error, 'Nao foi possivel criar a publicação.'))
-      return false
-    } finally {
-      endActionLoading()
-    }
+    }, 'Não foi possível criar a publicação.', () => setPosts(current => current.filter(item => item.id !== temporaryId)))
+    return true
   }
 
   async function handleUpdateReadingGoal(changes: { targetBooks?: number; targetBooksMonth?: number; targetBooksWeek?: number; targetDays?: number }) {
