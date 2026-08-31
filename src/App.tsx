@@ -129,9 +129,12 @@ interface Reply {
   timestamp: string
   editedAt?: string | null
   likes: string[]
+  reactions?: { userId: string; type: ReplyReactionType }[]
   comments: number
   mentionedUserIds?: string[]
 }
+
+type ReplyReactionType = 'love' | 'laugh' | 'wow' | 'sad' | 'angry'
 
 type AddReplyHandler = (postId: string, text: string, parentReplyId?: string, mentionedUserIds?: string[]) => Promise<boolean | void> | boolean | void
 
@@ -1421,7 +1424,14 @@ function mergeBooksById(...groups: Book[][]) {
   return Array.from(merged.values())
 }
 
-const RATING_OPTIONS = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+const RATING_OPTIONS = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+const REPLY_REACTIONS: { type: ReplyReactionType; emoji: string; label: string }[] = [
+  { type: 'love', emoji: '❤️', label: 'Amei' },
+  { type: 'laugh', emoji: '😂', label: 'Risada' },
+  { type: 'wow', emoji: '😮', label: 'Surpresa' },
+  { type: 'sad', emoji: '😢', label: 'Tristeza' },
+  { type: 'angry', emoji: '😡', label: 'Raiva' },
+]
 const GENRE_OPTIONS = [
   'Academia Mágica',
   'Adulto',
@@ -2786,7 +2796,24 @@ function EngagementListDialog({ title, users, emptyText, onClose, onUserClick }:
   )
 }
 
-function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, allowChapterLimitWithoutShelf = false, imageLoading = 'lazy' }: {
+function ReplyReactionPicker({ reply, currentUserId, onToggle }: { reply: Reply; currentUserId: string; onToggle: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void }) {
+  const reactions = reply.reactions || []
+  return (
+    <div className="flex flex-wrap items-center gap-1" aria-label="Reações ao comentário">
+      {REPLY_REACTIONS.map(reaction => {
+        const count = reactions.filter(item => item.type === reaction.type).length
+        const selected = reactions.some(item => item.userId === currentUserId && item.type === reaction.type)
+        return (
+          <button key={reaction.type} type="button" title={reaction.label} aria-label={reaction.label} onClick={() => onToggle(reply.id, reaction.type)} className={`rounded-full px-1.5 py-0.5 text-sm transition ${selected ? 'bg-amber-300/20 ring-1 ring-amber-300/60' : 'hover:bg-stone-800'}`}>
+            {reaction.emoji}{count > 0 && <span className="ml-0.5 text-[10px] font-bold text-stone-300">{count}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, allowChapterLimitWithoutShelf = false, imageLoading = 'lazy' }: {
   post: Post
   users: User[]
   books: Book[]
@@ -2798,6 +2825,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
+  onToggleReplyReaction: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
   onEditPost?: (post: Post) => void
@@ -2990,29 +3018,19 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
               </button>
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
-            <button
-              onClick={() => canInteractWithContent && onToggleLike(post.id)}
-              disabled={!canInteractWithContent}
-              className={`font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${liked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}
-            >
-              {liked ? '♥' : '♡'} {post.likes.length}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-semibold text-stone-400">
+            <div className="flex items-center gap-1">
+              <button onClick={() => canInteractWithContent && onToggleLike(post.id)} disabled={!canInteractWithContent} aria-label={liked ? 'Remover curtida' : 'Curtir'} className={`text-[29px] leading-none transition disabled:cursor-not-allowed disabled:opacity-50 ${liked ? 'text-red-300' : 'text-stone-300 hover:text-red-300'}`}>{liked ? '♥' : '♡'}</button>
+              {isOwnPost ? <button onClick={() => setEngagementDialog('likes')} aria-label="Ver quem curtiu" className="hover:text-amber-300">{post.likes.length}</button> : <span>{post.likes.length}</span>}
+            </div>
+            <button onClick={() => canInteractWithContent && setShowReplyBox(value => !value)} disabled={!canInteractWithContent} aria-label="Comentar" className="flex items-center gap-1 text-stone-300 transition hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-none stroke-current stroke-[2]"><path d="M20 11.5a8 8 0 0 1-8.5 8A8.7 8.7 0 0 1 7.8 18L4 19l1.1-3.2A7.5 7.5 0 0 1 4 11.5a8 8 0 0 1 8.5-8 8 8 0 0 1 7.5 8Z" /></svg>
+              <span>{displayedComments}</span>
             </button>
-            {isOwnPost && (
-              <button onClick={() => canInteractWithContent && setEngagementDialog('likes')} disabled={!canInteractWithContent} className="font-semibold text-stone-500 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
-                curtidas
-              </button>
-            )}
-            <button onClick={() => canInteractWithContent && setShowReplyBox(value => !value)} disabled={!canInteractWithContent} className="font-semibold text-stone-500 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
-              comentar {displayedComments}
-            </button>
-            {isOwnPost ? (
-              <button onClick={() => setEngagementDialog('views')} className="font-semibold text-stone-500 hover:text-amber-300">
-                visualizações {views}
-              </button>
-            ) : (
-              <span className="font-semibold text-stone-500">visualizações {views}</span>
-            )}
+            <div className="flex items-center gap-1">
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-none stroke-current stroke-[2]"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+              {isOwnPost ? <button onClick={() => setEngagementDialog('views')} aria-label="Ver visualizações" className="hover:text-amber-300">{views}</button> : <span>{views}</span>}
+            </div>
           </div>
           {showReplyBox && canInteractWithContent && (
             <div className="mt-3 rounded-lg border border-stone-800 bg-stone-950 p-3">
@@ -3057,17 +3075,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                         </div>
                         {editingReplyId === reply.id ? <div className="mt-2"><MentionTextarea value={editingReplyText} onChange={setEditingReplyText} currentUser={currentUser} users={users} rows={3} disabled={savingReplyId === reply.id} className="w-full resize-none rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /><div className="mt-2 flex justify-end gap-2"><button onClick={() => setEditingReplyId(null)} className="rounded px-2 py-1 text-xs font-bold text-stone-400 hover:bg-stone-800">Cancelar</button><button onClick={() => saveReplyEdit(reply)} disabled={!editingReplyText.trim() || savingReplyId === reply.id} className="rounded bg-amber-300 px-2 py-1 text-xs font-bold text-stone-950 disabled:opacity-60">{savingReplyId === reply.id ? 'Salvando...' : 'Salvar'}</button></div></div> : <PostTextWithMentions text={reply.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />}
                         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                          <button onClick={() => onToggleReplyLike(reply.id)} className={`font-semibold ${replyLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
-                            {replyLiked ? '♥' : '♡'} {replyLikes.length}
-                          </button>
-                          {reply.userId === currentUser.id && (
-                            <button
-                              onClick={() => setReplyEngagementDialog({ title: 'Curtidas no comentário', users: replyLikeUsers, emptyText: 'Ninguém curtiu este comentário ainda.' })}
-                              className="font-semibold text-stone-500 hover:text-amber-300"
-                            >
-                              curtidas
-                            </button>
-                          )}
+                          <div className="flex items-center gap-1"><button onClick={() => onToggleReplyLike(reply.id)} aria-label={replyLiked ? 'Remover curtida' : 'Curtir'} className={`text-lg leading-none ${replyLiked ? 'text-red-300' : 'text-stone-400 hover:text-red-300'}`}>{replyLiked ? '♥' : '♡'}</button>{reply.userId === currentUser.id ? <button onClick={() => setReplyEngagementDialog({ title: 'Curtidas no comentário', users: replyLikeUsers, emptyText: 'Ninguém curtiu este comentário ainda.' })} aria-label="Ver quem curtiu" className="font-semibold text-stone-400 hover:text-amber-300">{replyLikes.length}</button> : <span className="font-semibold text-stone-400">{replyLikes.length}</span>}</div>
+                          <ReplyReactionPicker reply={reply} currentUserId={currentUser.id} onToggle={onToggleReplyReaction} />
                           <button onClick={() => {
                             setReplyingToReplyId(value => value === reply.id ? null : reply.id)
                             setNestedReplyText('')
@@ -3116,17 +3125,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                                     </div>
                                     {editingReplyId === child.id ? <div className="mt-2"><MentionTextarea value={editingReplyText} onChange={setEditingReplyText} currentUser={currentUser} users={users} rows={3} disabled={savingReplyId === child.id} className="w-full resize-none rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /><div className="mt-2 flex justify-end gap-2"><button onClick={() => setEditingReplyId(null)} className="rounded px-2 py-1 text-xs font-bold text-stone-400 hover:bg-stone-800">Cancelar</button><button onClick={() => saveReplyEdit(child)} disabled={!editingReplyText.trim() || savingReplyId === child.id} className="rounded bg-amber-300 px-2 py-1 text-xs font-bold text-stone-950 disabled:opacity-60">{savingReplyId === child.id ? 'Salvando...' : 'Salvar'}</button></div></div> : <PostTextWithMentions text={child.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />}
                                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                                      <button onClick={() => onToggleReplyLike(child.id)} className={`font-semibold ${childLiked ? 'text-red-300' : 'text-stone-500 hover:text-red-300'}`}>
-                                        {childLiked ? '♥' : '♡'} {childLikes.length}
-                                      </button>
-                                      {child.userId === currentUser.id && (
-                                        <button
-                                          onClick={() => setReplyEngagementDialog({ title: 'Curtidas na resposta', users: childLikeUsers, emptyText: 'Ninguém curtiu esta resposta ainda.' })}
-                                          className="font-semibold text-stone-500 hover:text-amber-300"
-                                        >
-                                          curtidas
-                                        </button>
-                                      )}
+                                      <div className="flex items-center gap-1"><button onClick={() => onToggleReplyLike(child.id)} aria-label={childLiked ? 'Remover curtida' : 'Curtir'} className={`text-lg leading-none ${childLiked ? 'text-red-300' : 'text-stone-400 hover:text-red-300'}`}>{childLiked ? '♥' : '♡'}</button>{child.userId === currentUser.id ? <button onClick={() => setReplyEngagementDialog({ title: 'Curtidas na resposta', users: childLikeUsers, emptyText: 'Ninguém curtiu esta resposta ainda.' })} aria-label="Ver quem curtiu" className="font-semibold text-stone-400 hover:text-amber-300">{childLikes.length}</button> : <span className="font-semibold text-stone-400">{childLikes.length}</span>}</div>
+                                      <ReplyReactionPicker reply={child} currentUserId={currentUser.id} onToggle={onToggleReplyReaction} />
                                     </div>
                                   </div>
                                 </div>
@@ -3359,7 +3359,7 @@ function WeeklySpotlightsPanel({ rows, onBookClick, onUserClick }: {
   )
 }
 
-function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeline, communityFeatureEnabled, communityPreviewEnabled = false, onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onToggleFollow }: {
+function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeline, communityFeatureEnabled, communityPreviewEnabled = false, onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onToggleFollow }: {
   currentUser: User
   users: User[]
   books: Book[]
@@ -3374,6 +3374,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
+  onToggleReplyReaction: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
   onEditPost: (post: Post) => void
@@ -3482,7 +3483,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
             posts={feedPosts}
             emptyText={audienceFilter === 'tea' ? 'Ainda não há publicações na Comunidade do Chá.' : 'Nenhuma publicação de quem você segue ainda.'}
             resetKey={`timeline-${currentUser.id}-${audienceFilter}`}
-            renderPost={(post, index) => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} protectSpoilers imageLoading={index < 2 ? 'eager' : 'lazy'} />}
+            renderPost={(post, index) => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onToggleReplyReaction={onToggleReplyReaction} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} protectSpoilers imageLoading={index < 2 ? 'eager' : 'lazy'} />}
           />
         </>
       )}
@@ -3676,8 +3677,8 @@ function draftFromBook(book: Book | undefined, status: BookStatus, shelfEntry?: 
     format: shelfEntry?.format || '',
     startDate: shelfEntry?.startDate?.slice(0, 10) || '',
     endDate: shelfEntry?.endDate?.slice(0, 10) || '',
-    rating: shelfEntry?.rating ? String(shelfEntry.rating) : '',
-    spiceRating: shelfEntry?.spiceRating ? String(shelfEntry.spiceRating) : '',
+    rating: shelfEntry?.rating !== undefined ? String(shelfEntry.rating) : '',
+    spiceRating: shelfEntry?.spiceRating !== undefined ? String(shelfEntry.spiceRating) : '',
     price: shelfEntry?.price ? String(shelfEntry.price) : '',
     store: shelfEntry?.store || '',
     personalTags: shelfEntry?.personalTags?.join(', ') || '',
@@ -4191,8 +4192,8 @@ function ShelfPage({ currentUser, shelf, books, onBookClick, onUpdateShelfEntry,
             <div>
               <p className="mb-2 text-sm text-stone-400">{entry.status === 'abandoned' ? 'Leitura abandonada' : 'Leitura concluída'}</p>
               <div className="flex flex-wrap gap-2 text-sm font-bold">
-                {entry.rating && <span className="text-amber-300">{ratingText(entry.rating)}</span>}
-                {entry.spiceRating && <span className="text-red-300">{ratingText(entry.spiceRating, 'pimentas')}</span>}
+                {entry.rating !== undefined && <span className="text-amber-300">{ratingText(entry.rating)}</span>}
+                {entry.spiceRating !== undefined && <span className="text-red-300">{ratingText(entry.spiceRating, 'pimentas')}</span>}
               </div>
             </div>
           ) : (
@@ -4569,7 +4570,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
   )
 }
 
-function BookPage({ book, shelf, posts, replies, users, currentUser, highlightedPostId, onBack, onUserClick, onCreatePost, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onUpdateShelfEntry, onAddBook }: {
+function BookPage({ book, shelf, posts, replies, users, currentUser, highlightedPostId, onBack, onUserClick, onCreatePost, onAddReply, onToggleLike, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onUpdateShelfEntry, onAddBook }: {
   book: Book
   shelf: ShelfEntry[]
   posts: Post[]
@@ -4583,6 +4584,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
+  onToggleReplyReaction: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
   onEditPost: (post: Post) => void
@@ -5112,7 +5114,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                 id={`folio-post-${post.id}`}
                 className={post.id === highlightedPostId ? 'scroll-mt-28 ring-2 ring-amber-300/70 ring-offset-2 ring-offset-stone-950' : 'scroll-mt-28'}
               >
-                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => { }} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} allowChapterLimitWithoutShelf />
+                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => { }} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onToggleReplyReaction={onToggleReplyReaction} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} allowChapterLimitWithoutShelf />
               </div>
             )}
           />
@@ -5463,7 +5465,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, notificati
     </section>
   )
 }
-function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onToggleReplyLike, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost }: {
+function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost }: {
   kind: ProfileListKind
   currentUser: User
   profileUser: User
@@ -5479,6 +5481,7 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
+  onToggleReplyReaction: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
   onDeleteReply: (replyId: string) => Promise<boolean | void> | boolean | void
   onEditPost: (post: Post) => void
@@ -5523,6 +5526,7 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
                 onAddReply={onAddReply}
                 onToggleLike={onToggleLike}
                 onToggleReplyLike={onToggleReplyLike}
+                onToggleReplyReaction={onToggleReplyReaction}
                 onDeletePost={onDeletePost}
                 onDeleteReply={onDeleteReply}
                 onEditPost={onEditPost}
@@ -9329,6 +9333,19 @@ export default function App() {
     })
   }
 
+  async function handleToggleReplyReaction(replyId: string, type: ReplyReactionType) {
+    if (!currentUser) return false
+    const selected = replies.find(reply => reply.id === replyId)?.reactions?.some(reaction => reaction.userId === currentUser.id && reaction.type === type)
+    return runAction(async () => {
+      const activeToken = activeAuthToken()
+      await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}/reactions/toggle`, { method: 'POST', body: JSON.stringify({ type }) }, activeToken)
+      await loadBootstrap(activeToken)
+    }, {
+      success: selected ? 'Reação removida.' : 'Reação adicionada.',
+      error: 'Não foi possível reagir ao comentário.',
+    })
+  }
+
   async function handleToggleFollow(userId: string) {
     if (!currentUser || userId === currentUser.id) return false
     const following = currentUser.following.includes(userId)
@@ -9557,12 +9574,12 @@ export default function App() {
 
       <div className="flex md:ml-60">
         <main className="min-h-screen min-w-0 flex-1 border-x border-stone-800 pb-24 md:pb-0">
-          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} communityFeatureEnabled={communityFeature.enabled || (Boolean(communityFeature.previewEnabled) && isSuperAdminUser(currentUser))} communityPreviewEnabled={Boolean(communityFeature.previewEnabled) && !communityFeature.enabled && isSuperAdminUser(currentUser)} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onToggleFollow={handleToggleFollow} />}
+          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} communityFeatureEnabled={communityFeature.enabled || (Boolean(communityFeature.previewEnabled) && isSuperAdminUser(currentUser))} communityPreviewEnabled={Boolean(communityFeature.previewEnabled) && !communityFeature.enabled && isSuperAdminUser(currentUser)} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onToggleReplyReaction={handleToggleReplyReaction} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onToggleFollow={handleToggleFollow} />}
           {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSearchBooks={handleSearchBooks} />}
           {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
-          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
+          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onToggleReplyReaction={handleToggleReplyReaction} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} notificationPreferences={notificationPreferences} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} onUpdateNotificationPreferences={handleUpdateNotificationPreferences} />}
-          {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} />}
+          {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onToggleReplyReaction={handleToggleReplyReaction} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
           {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
           {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} maintenanceMode={maintenanceMode} onMaintenanceModeChange={handleMaintenanceModeChange} communityFeature={communityFeature} onCommunityFeatureChange={handleCommunityFeatureChange} />}
