@@ -2796,17 +2796,23 @@ function EngagementListDialog({ title, users, emptyText, onClose, onUserClick }:
   )
 }
 
-function ReplyReactionPicker({ reply, currentUserId, onToggle }: { reply: Reply; currentUserId: string; onToggle: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void }) {
+function ReplyReactionPicker({ reply, currentUserId, onToggle, onToggleLike, onShowLikes }: { reply: Reply; currentUserId: string; onToggle: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void; onToggleLike: (replyId: string) => Promise<boolean | void> | boolean | void; onShowLikes?: () => void }) {
   const reactions = reply.reactions || []
+  const legacyLikes = reply.likes || []
   return (
     <div className="flex flex-wrap items-center gap-1" aria-label="Reações ao comentário">
       {REPLY_REACTIONS.map(reaction => {
-        const count = reactions.filter(item => item.type === reaction.type).length
-        const selected = reactions.some(item => item.userId === currentUserId && item.type === reaction.type)
+        const reactionCount = reactions.filter(item => item.type === reaction.type).length
+        const isHeart = reaction.type === 'love'
+        const legacyLiked = legacyLikes.includes(currentUserId)
+        const count = reactionCount + (isHeart ? legacyLikes.length : 0)
+        const selected = reactions.some(item => item.userId === currentUserId && item.type === reaction.type) || (isHeart && legacyLiked)
+        const toggle = () => isHeart && legacyLiked ? onToggleLike(reply.id) : onToggle(reply.id, reaction.type)
         return (
-          <button key={reaction.type} type="button" title={reaction.label} aria-label={reaction.label} onClick={() => onToggle(reply.id, reaction.type)} className={`rounded-full px-1.5 py-0.5 text-sm transition ${selected ? 'bg-amber-300/20 ring-1 ring-amber-300/60' : 'hover:bg-stone-800'}`}>
-            {reaction.emoji}{count > 0 && <span className="ml-0.5 text-[10px] font-bold text-stone-300">{count}</span>}
-          </button>
+          <span key={reaction.type} className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-sm transition ${selected ? 'bg-amber-300/20 ring-1 ring-amber-300/60' : 'hover:bg-stone-800'}`}>
+            <button type="button" title={reaction.label} aria-label={reaction.label} onClick={toggle}>{reaction.emoji}</button>
+            {count > 0 && (isHeart && onShowLikes ? <button type="button" aria-label="Ver quem curtiu" onClick={onShowLikes} className="ml-0.5 text-[10px] font-bold text-stone-300 hover:text-amber-300">{count}</button> : <span className="ml-0.5 text-[10px] font-bold text-stone-300">{count}</span>)}
+          </span>
         )
       })}
     </div>
@@ -3055,8 +3061,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
               {visibleReplies.map(reply => {
                 const replyUser = users.find(user => user.id === reply.userId) || currentUser
                 const replyLikes = reply.likes || []
-                const replyLiked = replyLikes.includes(currentUser.id)
-                const replyLikeUsers = uniqueUsersById(replyLikes.map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
+                const replyHeartUserIds = [...replyLikes, ...(reply.reactions || []).filter(reaction => reaction.type === 'love').map(reaction => reaction.userId)]
+                const replyLikeUsers = uniqueUsersById(replyHeartUserIds.map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
                 const childReplies = relatedReplies
                   .filter(child => child.parentReplyId === reply.id)
                   .sort(oldestFirst)
@@ -3075,8 +3081,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                         </div>
                         {editingReplyId === reply.id ? <div className="mt-2"><MentionTextarea value={editingReplyText} onChange={setEditingReplyText} currentUser={currentUser} users={users} rows={3} disabled={savingReplyId === reply.id} className="w-full resize-none rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /><div className="mt-2 flex justify-end gap-2"><button onClick={() => setEditingReplyId(null)} className="rounded px-2 py-1 text-xs font-bold text-stone-400 hover:bg-stone-800">Cancelar</button><button onClick={() => saveReplyEdit(reply)} disabled={!editingReplyText.trim() || savingReplyId === reply.id} className="rounded bg-amber-300 px-2 py-1 text-xs font-bold text-stone-950 disabled:opacity-60">{savingReplyId === reply.id ? 'Salvando...' : 'Salvar'}</button></div></div> : <PostTextWithMentions text={reply.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />}
                         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                          <div className="flex items-center gap-1"><button onClick={() => onToggleReplyLike(reply.id)} aria-label={replyLiked ? 'Remover curtida' : 'Curtir'} className={`text-lg leading-none ${replyLiked ? 'text-red-300' : 'text-stone-400 hover:text-red-300'}`}>{replyLiked ? '♥' : '♡'}</button>{reply.userId === currentUser.id ? <button onClick={() => setReplyEngagementDialog({ title: 'Curtidas no comentário', users: replyLikeUsers, emptyText: 'Ninguém curtiu este comentário ainda.' })} aria-label="Ver quem curtiu" className="font-semibold text-stone-400 hover:text-amber-300">{replyLikes.length}</button> : <span className="font-semibold text-stone-400">{replyLikes.length}</span>}</div>
-                          <ReplyReactionPicker reply={reply} currentUserId={currentUser.id} onToggle={onToggleReplyReaction} />
+                          <ReplyReactionPicker reply={reply} currentUserId={currentUser.id} onToggle={onToggleReplyReaction} onToggleLike={onToggleReplyLike} onShowLikes={reply.userId === currentUser.id ? () => setReplyEngagementDialog({ title: 'Curtidas no comentário', users: replyLikeUsers, emptyText: 'Ninguém curtiu este comentário ainda.' }) : undefined} />
                           <button onClick={() => {
                             setReplyingToReplyId(value => value === reply.id ? null : reply.id)
                             setNestedReplyText('')
@@ -3110,8 +3115,8 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                             {visibleChildReplies.map(child => {
                               const childUser = users.find(user => user.id === child.userId) || currentUser
                               const childLikes = child.likes || []
-                              const childLiked = childLikes.includes(currentUser.id)
-                              const childLikeUsers = uniqueUsersById(childLikes.map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
+                              const childHeartUserIds = [...childLikes, ...(child.reactions || []).filter(reaction => reaction.type === 'love').map(reaction => reaction.userId)]
+                              const childLikeUsers = uniqueUsersById(childHeartUserIds.map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
                               return (
                                 <div key={child.id} className="flex gap-2">
                                   <button onClick={() => onUserClick(childUser.id)}><Avatar user={childUser} size="sm" /></button>
@@ -3125,8 +3130,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
                                     </div>
                                     {editingReplyId === child.id ? <div className="mt-2"><MentionTextarea value={editingReplyText} onChange={setEditingReplyText} currentUser={currentUser} users={users} rows={3} disabled={savingReplyId === child.id} className="w-full resize-none rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100 outline-none focus:border-amber-300" /><div className="mt-2 flex justify-end gap-2"><button onClick={() => setEditingReplyId(null)} className="rounded px-2 py-1 text-xs font-bold text-stone-400 hover:bg-stone-800">Cancelar</button><button onClick={() => saveReplyEdit(child)} disabled={!editingReplyText.trim() || savingReplyId === child.id} className="rounded bg-amber-300 px-2 py-1 text-xs font-bold text-stone-950 disabled:opacity-60">{savingReplyId === child.id ? 'Salvando...' : 'Salvar'}</button></div></div> : <PostTextWithMentions text={child.text} users={users} onUserClick={onUserClick} className="whitespace-pre-line text-sm leading-relaxed text-stone-400" />}
                                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                                      <div className="flex items-center gap-1"><button onClick={() => onToggleReplyLike(child.id)} aria-label={childLiked ? 'Remover curtida' : 'Curtir'} className={`text-lg leading-none ${childLiked ? 'text-red-300' : 'text-stone-400 hover:text-red-300'}`}>{childLiked ? '♥' : '♡'}</button>{child.userId === currentUser.id ? <button onClick={() => setReplyEngagementDialog({ title: 'Curtidas na resposta', users: childLikeUsers, emptyText: 'Ninguém curtiu esta resposta ainda.' })} aria-label="Ver quem curtiu" className="font-semibold text-stone-400 hover:text-amber-300">{childLikes.length}</button> : <span className="font-semibold text-stone-400">{childLikes.length}</span>}</div>
-                                      <ReplyReactionPicker reply={child} currentUserId={currentUser.id} onToggle={onToggleReplyReaction} />
+                                      <ReplyReactionPicker reply={child} currentUserId={currentUser.id} onToggle={onToggleReplyReaction} onToggleLike={onToggleReplyLike} onShowLikes={child.userId === currentUser.id ? () => setReplyEngagementDialog({ title: 'Curtidas na resposta', users: childLikeUsers, emptyText: 'Ninguém curtiu esta resposta ainda.' }) : undefined} />
                                     </div>
                                   </div>
                                 </div>
@@ -8526,6 +8530,8 @@ export default function App() {
   const notifiedDeviceNotificationUserId = useRef<string | null>(null)
   const viewedPostIdsRef = useRef<Set<string>>(new Set())
   const postViewsEndpointUnavailableRef = useRef(false)
+  const pendingDeletedPostIdsRef = useRef<Set<string>>(new Set())
+  const pendingDeletedReplyIdsRef = useRef<Set<string>>(new Set())
   const { askDate, datePromptDialog } = useDatePrompt()
   const { askConfirm, confirmPromptDialog } = useConfirmPrompt()
   const canUseDeviceNotifications = Boolean(currentUser)
@@ -8722,8 +8728,12 @@ export default function App() {
     setUsers(data.users)
     setBooks(data.books)
     setShelf(data.shelf)
-    setPosts(data.posts)
-    setReplies(data.replies)
+    setPosts(data.posts.filter(post => !pendingDeletedPostIdsRef.current.has(post.id)))
+    setReplies(data.replies.filter(reply =>
+      !pendingDeletedPostIdsRef.current.has(reply.postId)
+      && !pendingDeletedReplyIdsRef.current.has(reply.id)
+      && (!reply.parentReplyId || !pendingDeletedReplyIdsRef.current.has(reply.parentReplyId))
+    ))
     setTimeline(data.timeline || [])
     const remoteMaintenanceMode = normalizeMaintenanceMode(data.maintenanceMode)
     localStorage.setItem(MAINTENANCE_STORAGE_KEY, JSON.stringify(remoteMaintenanceMode))
@@ -9203,7 +9213,6 @@ export default function App() {
       const payload = { text, ...(parentReplyId ? { parentReplyId } : {}), ...(mentionedUserIds.length ? { mentionedUserIds } : {}) }
       const saved = await apiRequest<Reply>(path, { method: 'POST', body: JSON.stringify(payload) }, activeToken)
       setReplies(current => current.map(reply => reply.id === temporaryId ? saved : reply))
-      await loadBootstrap(activeToken)
     }, 'Não foi possível publicar o comentário.', () => setReplies(current => current.filter(reply => reply.id !== temporaryId)))
     return true
   }
@@ -9223,12 +9232,15 @@ export default function App() {
     if (!confirmed) return false
 
     const removedReplies = replies.filter(reply => reply.postId === postId)
+    pendingDeletedPostIdsRef.current.add(postId)
     setPosts(current => current.filter(item => item.id !== postId))
     setReplies(current => current.filter(reply => reply.postId !== postId))
     syncInBackground(async () => {
       await apiRequest(`/folio/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' }, activeAuthToken())
       await loadBootstrap()
+      pendingDeletedPostIdsRef.current.delete(postId)
     }, 'Não foi possível apagar a publicação.', () => {
+      pendingDeletedPostIdsRef.current.delete(postId)
       setPosts(current => [...current, post].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()))
       setReplies(current => [...current, ...removedReplies])
     })
@@ -9238,11 +9250,16 @@ export default function App() {
   async function handleDeleteReply(replyId: string) {
     if (!currentUser) return false
     const removedReplies = replies.filter(reply => reply.id === replyId || reply.parentReplyId === replyId)
+    removedReplies.forEach(reply => pendingDeletedReplyIdsRef.current.add(reply.id))
     setReplies(current => current.filter(reply => reply.id !== replyId && reply.parentReplyId !== replyId))
     syncInBackground(async () => {
       await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}`, { method: 'DELETE' }, activeAuthToken())
       await loadBootstrap()
-    }, 'Não foi possível apagar o comentário.', () => setReplies(current => [...current, ...removedReplies]))
+      removedReplies.forEach(reply => pendingDeletedReplyIdsRef.current.delete(reply.id))
+    }, 'Não foi possível apagar o comentário.', () => {
+      removedReplies.forEach(reply => pendingDeletedReplyIdsRef.current.delete(reply.id))
+      setReplies(current => [...current, ...removedReplies])
+    })
     return true
   }
 
@@ -9282,7 +9299,6 @@ export default function App() {
     syncInBackground(async () => {
       const activeToken = activeAuthToken()
       await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/likes/toggle`, { method: 'POST' }, activeToken)
-      await loadBootstrap(activeToken)
     }, 'Não foi possível atualizar a curtida.')
     return true
   }
@@ -9332,7 +9348,6 @@ export default function App() {
     syncInBackground(async () => {
       const activeToken = activeAuthToken()
       await apiRequest('/folio/replies/likes/toggle', { method: 'POST', body: JSON.stringify({ replyId }) }, activeToken)
-      await loadBootstrap(activeToken)
     }, 'Não foi possível atualizar a curtida.')
     return true
   }
@@ -9361,7 +9376,6 @@ export default function App() {
     syncInBackground(async () => {
       const activeToken = activeAuthToken()
       await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}/reactions/toggle`, { method: 'POST', body: JSON.stringify({ type }) }, activeToken)
-      await loadBootstrap(activeToken)
     }, 'Não foi possível reagir ao comentário.')
     return true
   }
@@ -9374,7 +9388,6 @@ export default function App() {
     setUsers(current => current.map(user => user.id === currentUser.id ? { ...user, following: nextFollowing } : user))
     syncInBackground(async () => {
       await apiRequest(`/folio/follows/${userId}/toggle`, { method: 'POST' }, activeAuthToken())
-      await loadBootstrap()
     }, 'Não foi possível atualizar o seguimento.')
     return true
   }
