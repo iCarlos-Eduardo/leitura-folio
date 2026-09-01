@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr'
 import type { ImgHTMLAttributes } from 'react'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'favorite' | 'rereading' | 'abandoned'
@@ -546,7 +547,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
   (['localhost', '127.0.0.1'].includes(window.location.hostname) ? 'https://localhost:7198' : 'https://entrelinhas.sgpf.com.br')
 const MEDIA_BASE_URL = import.meta.env.VITE_MEDIA_BASE_URL || 'https://entrelinhas.sgpf.com.br'
-const BACKGROUND_REFRESH_INTERVAL_MS = 10000
+const FOLIO_HUB_URL = `${API_BASE_URL}/hubs/folio`
 const DEVICE_NOTIFICATION_SW_URL = '/folio-service-worker.js'
 const DEVICE_NOTIFICATION_STORAGE_PREFIX = 'folio_device_notified_ids_'
 const POST_PAGE_SIZE = 5
@@ -8912,37 +8913,74 @@ export default function App() {
     let active = true
     let refreshing = false
 
-    const refreshInBackground = async () => {
-      const canRefreshWhileHidden = deviceNotificationStatus() === 'granted'
-      if (!active || refreshing || (document.hidden && !canRefreshWhileHidden)) return
+    // A tela se reconcilia quando o usuário volta ao app. Atualizações em tempo real
+    // devem chegar por eventos do servidor; evitar recarregar todo o bootstrap em intervalo.
+    const refreshAfterResume = async () => {
+      if (!active || refreshing || document.hidden) return
       refreshing = true
       try {
         await loadBootstrap(token)
       } catch {
-        // Background sync is best-effort; explicit user actions still show errors.
+        // A sincronização ao retomar é best-effort; ações explícitas continuam mostrando erro.
       } finally {
         refreshing = false
       }
     }
 
-    const intervalId = window.setInterval(refreshInBackground, BACKGROUND_REFRESH_INTERVAL_MS)
-    const handleFocus = () => {
-      void refreshInBackground()
-    }
+    const handleFocus = () => void refreshAfterResume()
     const handleVisibilityChange = () => {
-      if (!document.hidden) void refreshInBackground()
+      if (!document.hidden) void refreshAfterResume()
     }
+    const handleOnline = () => void refreshAfterResume()
 
     window.addEventListener('focus', handleFocus)
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
 
     return () => {
       active = false
-      window.clearInterval(intervalId)
       window.removeEventListener('focus', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
     }
-  }, [token, currentUser?.id, deviceNotifications])
+  }, [token, currentUser?.id])
+
+  useEffect(() => {
+    if (!token || !currentUser) return
+
+    let active = true
+    let refreshTimer: number | undefined
+    const connection = new HubConnectionBuilder()
+      .withUrl(FOLIO_HUB_URL, { accessTokenFactory: () => activeAuthToken() })
+      .withAutomaticReconnect([0, 2_000, 5_000, 10_000])
+      .configureLogging(LogLevel.Warning)
+      .build()
+
+    // Uma sequência de ações pode gerar vários eventos. Recarregamos uma única vez,
+    // depois que a sequência termina, em vez de repetir o bootstrap para cada evento.
+    const scheduleRefresh = () => {
+      if (!active) return
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = undefined
+        if (!document.hidden) void loadBootstrap(token).catch(() => {
+          // A conexão tenta se recuperar sozinha; a tela permanece com o último estado válido.
+        })
+      }, 500)
+    }
+
+    connection.on('dataChanged', scheduleRefresh)
+    void connection.start().catch(() => {
+      // Atualização em tempo real é progressiva; a reconciliação ao retomar a aba continua ativa.
+    })
+
+    return () => {
+      active = false
+      if (refreshTimer) window.clearTimeout(refreshTimer)
+      connection.off('dataChanged', scheduleRefresh)
+      if (connection.state !== HubConnectionState.Disconnected) void connection.stop()
+    }
+  }, [token, currentUser?.id])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
