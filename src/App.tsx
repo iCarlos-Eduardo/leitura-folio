@@ -421,6 +421,19 @@ interface DashboardActiveNowRow {
   lastSeenAt: string
   actions: number
   source: string
+  devices?: { deviceId: string; userAgent?: string | null; lastSeenAt: string }[]
+}
+
+interface DashboardReminderReportRow {
+  id: string
+  user: DashboardUser
+  type: string
+  status: string
+  subscriptions: number
+  sent: number
+  failed: number
+  expired: number
+  createdAt: string
 }
 
 interface DashboardPushReportRow {
@@ -432,7 +445,7 @@ interface DashboardPushReportRow {
   updatedAt: string
 }
 
-type DashboardReportKey = 'users' | 'postsToday' | 'activeNow' | 'interactionsToday' | 'books' | 'postsThisYear' | 'loginsToday' | 'pushSubscriptions'
+type DashboardReportKey = 'users' | 'postsToday' | 'activeNow' | 'interactionsToday' | 'books' | 'postsThisYear' | 'loginsToday' | 'remindersToday' | 'pushSubscriptions'
 
 interface SuperAdminDashboard {
   generatedAt: string
@@ -503,6 +516,7 @@ interface SuperAdminDashboard {
     interactionsToday: DashboardInteractionReportRow[]
     books: DashboardBookReportRow[]
     loginsToday: DashboardLoginReportRow[]
+    remindersToday: DashboardReminderReportRow[]
     pushSubscriptions: DashboardPushReportRow[]
   }
 }
@@ -6522,6 +6536,7 @@ const DASHBOARD_REPORT_TITLES: Record<DashboardReportKey, string> = {
   books: 'Relatório de livros',
   postsThisYear: 'Postagens do ano',
   loginsToday: 'Logins de hoje',
+  remindersToday: 'Lembretes enviados hoje',
   pushSubscriptions: 'Notificações mobile por usuário',
 }
 
@@ -6639,9 +6654,10 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
           {rows.length ? rows.map(row => (
             <button key={row.user.id} onClick={() => onUserClick(row.user.id)} className="flex items-center gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-emerald-300/40">
               <DashboardUserLine user={row.user} />
-              <div className="ml-auto text-right text-xs font-bold text-stone-500">
+              <div className="ml-auto max-w-[58%] text-right text-xs font-bold text-stone-500">
                 <p>{row.actions} ações</p>
-                <p>{formatTime(row.lastSeenAt)}</p>
+                <p>{formatTime(row.lastSeenAt)} · {row.devices?.length || 1} dispositivo(s)</p>
+                {row.devices?.map((device, index) => <p key={device.deviceId} className="mt-1 truncate text-[10px] font-medium" title={device.userAgent || ''}>Dispositivo {index + 1} · {formatTime(device.lastSeenAt)}</p>)}
               </div>
             </button>
           )) : <EmptyState text="Ninguém ativo nos últimos 15 minutos." />}
@@ -6702,6 +6718,27 @@ function SuperAdminReportPanel({ dashboard, report, onClose, onUserClick, onBook
               <p className="ml-auto shrink-0 text-xs font-bold text-stone-500">{formatDateTime(row.loggedAt)}</p>
             </button>
           )) : <EmptyState text="Nenhum login registrado hoje." />}
+        </div>
+      </DashboardReportShell>
+    )
+  }
+
+  if (report === 'remindersToday') {
+    const rows = dashboard.reports.remindersToday
+    const statusLabel: Record<string, string> = { sent: 'Enviado', failed: 'Falhou', expired: 'Dispositivo expirado', no_subscription: 'Sem dispositivo', not_configured: 'Push não configurado', pending: 'Pendente' }
+    return (
+      <DashboardReportShell title={DASHBOARD_REPORT_TITLES[report]} count={rows.length} onClose={onClose}>
+        <div className="space-y-2">
+          {rows.length ? rows.map(row => (
+            <button key={row.id} onClick={() => onUserClick(row.user.id)} className="grid w-full grid-cols-[auto_1fr] gap-3 rounded-lg border border-stone-800 bg-stone-950 p-3 text-left transition hover:border-amber-300/40 sm:grid-cols-[auto_1fr_auto]">
+              <DashboardUserLine user={row.user} />
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-stone-100">{statusLabel[row.status] || row.status}</p>
+                <p className="mt-1 text-xs text-stone-500">{row.type} · {formatDateTime(row.createdAt)}</p>
+              </div>
+              <p className="col-span-2 text-xs font-bold text-stone-500 sm:col-span-1 sm:text-right">{row.sent} enviado(s) · {row.failed} falha(s) · {row.expired} expirado(s)</p>
+            </button>
+          )) : <EmptyState text="Nenhum lembrete foi processado hoje." />}
         </div>
       </DashboardReportShell>
     )
@@ -7023,7 +7060,7 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick, maintenanceM
           <DashboardStat label="Livros" value={dashboard.overview.totalBooks} detail={`${dashboard.overview.totalShelfEntries} entradas em estantes`} active={activeReport === 'books'} onClick={() => openReport('books')} />
           <DashboardStat label="Posts no ano" value={dashboard.overview.postsThisYear} detail={`${dashboard.overview.totalPosts} no total`} tone="cyan" active={activeReport === 'postsThisYear'} onClick={() => openReport('postsThisYear')} />
           <DashboardStat label="Logins hoje" value={dashboard.overview.loginsToday} detail="entradas autenticadas" tone="emerald" active={activeReport === 'loginsToday'} onClick={() => openReport('loginsToday')} />
-          <DashboardStat label="Lembretes hoje" value={dashboard.overview.remindersToday || 0} detail={`${dashboard.overview.reminderUsersToday || 0} usuários alcançados`} tone="amber" />
+          <DashboardStat label="Lembretes hoje" value={dashboard.overview.remindersToday || 0} detail={`${dashboard.overview.reminderUsersToday || 0} usuários alcançados`} tone="amber" active={activeReport === 'remindersToday'} onClick={() => openReport('remindersToday')} />
           <DashboardStat label="Push mobile" value={pushMobileUsers} detail={`${pushTotalUsers} usuários · ${dashboard.overview.pushSubscriptions} dispositivos`} tone="rose" active={activeReport === 'pushSubscriptions'} onClick={() => openReport('pushSubscriptions')} />
         </div>
 
@@ -7071,7 +7108,7 @@ function SuperAdminDashboardPage({ token, onUserClick, onBookClick, maintenanceM
                     <DashboardAvatar user={row.user} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-bold text-stone-100">{row.user.name}</p>
-                      <p className="truncate text-xs text-stone-500">{formatTime(row.lastSeenAt)} · {row.actions} ações</p>
+                      <p className="truncate text-xs text-stone-500">{formatTime(row.lastSeenAt)} · {row.devices?.length || 1} dispositivo(s) online</p>
                     </div>
                     <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
                   </button>
@@ -8555,6 +8592,15 @@ function storedPostId() {
   return params.get('postId')
 }
 
+function presenceDeviceId() {
+  const key = 'folio_presence_device_id'
+  const existing = localStorage.getItem(key)
+  if (existing) return existing
+  const created = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  localStorage.setItem(key, created)
+  return created
+}
+
 function storedColorTheme(): ColorTheme {
   const theme = localStorage.getItem('folio_theme') === 'dark' ? 'dark' : 'light'
   document.documentElement.dataset.theme = theme
@@ -8877,6 +8923,25 @@ export default function App() {
   useEffect(() => {
     loadBootstrap().catch(handleStoredLoginFailure)
   }, [])
+
+  useEffect(() => {
+    if (!currentUser || !token) return
+    const sendHeartbeat = () => {
+      if (document.hidden) return
+      apiRequest('/folio/presence', { method: 'POST', body: JSON.stringify({ deviceId: presenceDeviceId() }) }, token).catch(() => {
+        // Presença é uma métrica auxiliar e não deve interromper o uso do app.
+      })
+    }
+    sendHeartbeat()
+    const timer = window.setInterval(sendHeartbeat, 60000)
+    window.addEventListener('focus', sendHeartbeat)
+    document.addEventListener('visibilitychange', sendHeartbeat)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', sendHeartbeat)
+      document.removeEventListener('visibilitychange', sendHeartbeat)
+    }
+  }, [currentUser?.id, token])
 
   useEffect(() => {
     function syncMaintenanceMode(event: StorageEvent) {
