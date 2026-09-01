@@ -2836,6 +2836,7 @@ function ReactionTrigger({ selectedType, total, disabled = false, label, onDefau
         onPointerUp={clearPress}
         onPointerLeave={clearPress}
         onPointerCancel={clearPress}
+        onSelectStart={event => event.preventDefault()}
         onContextMenu={event => event.preventDefault()}
         onClick={() => {
           if (longPressRef.current) {
@@ -2846,9 +2847,14 @@ function ReactionTrigger({ selectedType, total, disabled = false, label, onDefau
         }}
         aria-label={selectedType ? `Remover reação ${REPLY_REACTIONS.find(reaction => reaction.type === selectedType)?.label || ''}` : `Reagir. Mantenha pressionado para mais opções`}
         title="Toque para curtir · mantenha pressionado para reagir"
-        className={`relative z-10 text-[27px] leading-none transition active:scale-90 disabled:cursor-not-allowed disabled:opacity-50 ${selectedType ? 'drop-shadow-[0_0_7px_rgba(252,211,77,0.45)]' : 'text-stone-300 hover:text-red-300'}`}
+        className={`relative z-10 select-none leading-none transition active:scale-90 disabled:cursor-not-allowed disabled:opacity-50 ${selectedType ? 'text-[27px] drop-shadow-[0_0_7px_rgba(252,211,77,0.45)]' : 'text-stone-300 hover:text-red-300'}`}
+        style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}
       >
-        {selectedType ? REPLY_REACTIONS.find(reaction => reaction.type === selectedType)?.emoji : '♡'}
+        {selectedType ? REPLY_REACTIONS.find(reaction => reaction.type === selectedType)?.emoji : (
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-none stroke-current stroke-[1.8]" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20.8 8.6c0 5.4-8.8 10.1-8.8 10.1S3.2 14 3.2 8.6A4.6 4.6 0 0 1 12 6.7a4.6 4.6 0 0 1 8.8 1.9Z" />
+          </svg>
+        )}
       </button>
       {total > 0 && <span className="text-xs font-semibold text-stone-400">{total}</span>}
       {open && (
@@ -3109,12 +3115,12 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
               />
               {isOwnPost && post.likes.length > 0 && <button onClick={() => setEngagementDialog('likes')} aria-label="Ver quem curtiu" className="sr-only">Ver quem curtiu</button>}
             </div>
-            <button onClick={() => canInteractWithContent && setShowReplyBox(value => !value)} disabled={!canInteractWithContent} aria-label="Comentar" className="flex items-center gap-1 text-stone-300 transition hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
-              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-none stroke-current stroke-[2]"><path d="M20 11.5a8 8 0 0 1-8.5 8A8.7 8.7 0 0 1 7.8 18L4 19l1.1-3.2A7.5 7.5 0 0 1 4 11.5a8 8 0 0 1 8.5-8 8 8 0 0 1 7.5 8Z" /></svg>
+            <button onClick={() => canInteractWithContent && setShowReplyBox(value => !value)} disabled={!canInteractWithContent} aria-label="Comentar" className="flex items-center gap-1 rounded-full p-1 text-stone-300 transition hover:bg-stone-800 hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-none stroke-current stroke-[1.8]" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.3 8.3 0 0 1-8.8 8.2 9 9 0 0 1-4.1-1L3 20l1.5-4.1A7.8 7.8 0 0 1 3 11.5 8.3 8.3 0 0 1 11.8 3 8.3 8.3 0 0 1 21 11.5Z" /></svg>
               <span>{displayedComments}</span>
             </button>
-            <div className="flex items-center gap-1">
-              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-none stroke-current stroke-[2]"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+            <div className="flex items-center gap-1 rounded-full p-1">
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-none stroke-current stroke-[1.8]" strokeLinecap="round" strokeLinejoin="round"><path d="M2.8 12s3.3-6.2 9.2-6.2 9.2 6.2 9.2 6.2-3.3 6.2-9.2 6.2S2.8 12 2.8 12Z" /><circle cx="12" cy="12" r="2.7" /></svg>
               {isOwnPost ? <button onClick={() => setEngagementDialog('views')} aria-label="Ver visualizações" className="hover:text-amber-300">{views}</button> : <span>{views}</span>}
             </div>
           </div>
