@@ -2,7 +2,7 @@
 
 import { HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr'
 import type { ImgHTMLAttributes } from 'react'
-import ImmersiveLibrary from './ImmersiveLibrary'
+import ImmersiveLibrary, { type ImmersiveOnlineUser } from './ImmersiveLibrary'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'favorite' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
@@ -8668,6 +8668,7 @@ export default function App() {
   const [theme, setTheme] = useState<ColorTheme>(() => storedColorTheme())
   const [immersiveMode, setImmersiveMode] = useState(false)
   const [immersiveSession, setImmersiveSession] = useState(false)
+  const [immersiveOnlineUsers, setImmersiveOnlineUsers] = useState<ImmersiveOnlineUser[]>([])
   const [page, setPage] = useState<Page>(() => storedPage())
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => storedBookId())
   const [selectedPostId, setSelectedPostId] = useState<string | null>(() => storedPostId())
@@ -9170,6 +9171,40 @@ export default function App() {
     document.documentElement.dataset.theme = theme
     localStorage.setItem('folio_theme', theme)
   }, [theme])
+
+  useEffect(() => {
+    if (!immersiveSession || !token || !currentUser || !isSuperAdminUser(currentUser)) {
+      setImmersiveOnlineUsers([])
+      return
+    }
+
+    let active = true
+    const currentUserId = currentUser.id
+    const loadOnlineUsers = () => {
+      apiRequest<SuperAdminDashboard>('/folio/superadmin/dashboard', {}, token)
+        .then(data => {
+          if (!active) return
+          setImmersiveOnlineUsers(data.activeNow
+            .filter(row => row.user.id !== currentUserId)
+            .map(row => ({
+              id: row.user.id,
+              name: row.user.name,
+              handle: row.user.handle,
+              avatar: resolveMediaUrl(row.user.avatar),
+            })))
+        })
+        .catch(() => {
+          // A biblioteca mantém os últimos personagens conhecidos se a presença falhar.
+        })
+    }
+
+    loadOnlineUsers()
+    const timer = window.setInterval(loadOnlineUsers, 60_000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [currentUser?.id, immersiveSession, token])
 
   useEffect(() => {
     localStorage.setItem('folio_page', page)
@@ -9832,7 +9867,8 @@ export default function App() {
   if (immersiveMode && isSuperAdminUser(currentUser)) {
     return (
       <ImmersiveLibrary
-        currentUser={currentUser}
+        currentUser={{ ...currentUser, avatar: resolveMediaUrl(currentUser.avatar) }}
+        onlineUsers={immersiveOnlineUsers}
         onExit={() => {
           setImmersiveMode(false)
           setImmersiveSession(false)

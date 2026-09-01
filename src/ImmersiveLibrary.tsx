@@ -8,8 +8,13 @@ type LibraryUser = {
   avatar?: string
 }
 
+export type ImmersiveOnlineUser = LibraryUser & {
+  id: string
+}
+
 type Props = {
   currentUser: LibraryUser
+  onlineUsers: ImmersiveOnlineUser[]
   onExit: () => void
   onNavigate: (page: ImmersiveDestination) => void
   onCreatePost: () => void
@@ -38,6 +43,11 @@ type Interaction = {
 }
 
 type Solid = { x: number; y: number; width: number; height: number }
+
+type LibraryNpc = ImmersiveOnlineUser & Player & {
+  decisionTimer: number
+  speed: number
+}
 
 const WORLD_WIDTH = 960
 const WORLD_HEIGHT = 600
@@ -244,15 +254,16 @@ function drawRoom(ctx: CanvasRenderingContext2D) {
 
 function drawPlayer(ctx: CanvasRenderingContext2D, player: Player) {
   const { x, y, direction, moving, step } = player
+  const animationFrame = Math.floor(step)
   ctx.save()
   ctx.translate(Math.round(x), Math.round(y))
 
   ctx.fillStyle = 'rgba(42, 26, 16, .3)'
   ctx.beginPath(); ctx.ellipse(14, 40, 13, 5, 0, 0, Math.PI * 2); ctx.fill()
-  const bob = moving ? (step % 2 === 0 ? -1 : 0) : 0
+  const bob = moving ? (animationFrame % 2 === 0 ? -1 : 0) : 0
   ctx.translate(0, bob)
 
-  const legOffset = moving ? (step % 2 === 0 ? 3 : -3) : 0
+  const legOffset = moving ? (animationFrame % 2 === 0 ? 3 : -3) : 0
   ctx.fillStyle = '#3b322d'
   ctx.fillRect(7 + legOffset, 31, 6, 10)
   ctx.fillRect(16 - legOffset, 31, 6, 10)
@@ -288,6 +299,43 @@ function drawPlayer(ctx: CanvasRenderingContext2D, player: Player) {
   ctx.restore()
 }
 
+function drawAvatarFace(ctx: CanvasRenderingContext2D, x: number, y: number, avatar: HTMLImageElement | null, fallback: string) {
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(x + 14, y + 13, 8, 0, Math.PI * 2)
+  ctx.clip()
+  if (avatar?.complete && avatar.naturalWidth) {
+    ctx.drawImage(avatar, x + 6, y + 5, 16, 16)
+  } else {
+    ctx.fillStyle = '#d6a16d'
+    ctx.fillRect(x + 6, y + 5, 16, 16)
+    ctx.fillStyle = '#3b2418'
+    ctx.font = '700 9px "Plus Jakarta Sans", sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText((fallback || 'L').charAt(0).toUpperCase(), x + 14, y + 16)
+  }
+  ctx.restore()
+  ctx.strokeStyle = 'rgba(255, 236, 188, .75)'
+  ctx.lineWidth = 1.5
+  ctx.beginPath(); ctx.arc(x + 14, y + 13, 8.5, 0, Math.PI * 2); ctx.stroke()
+}
+
+function drawNpc(ctx: CanvasRenderingContext2D, npc: LibraryNpc, avatar: HTMLImageElement | null) {
+  drawPlayer(ctx, npc)
+  drawAvatarFace(ctx, npc.x, npc.y, avatar, npc.name)
+  const firstName = npc.name.split(' ')[0] || npc.handle || 'Leitor'
+  ctx.font = '700 10px "Plus Jakarta Sans", sans-serif'
+  const labelWidth = Math.max(42, Math.min(92, ctx.measureText(firstName).width + 16))
+  ctx.fillStyle = 'rgba(31, 20, 14, .86)'
+  roundedRect(ctx, npc.x + 14 - labelWidth / 2, npc.y - 16, labelWidth, 14, 6)
+  ctx.fill()
+  ctx.fillStyle = '#fff0c9'
+  ctx.textAlign = 'center'
+  ctx.fillText(firstName, npc.x + 14, npc.y - 6)
+  ctx.fillStyle = '#62c98c'
+  ctx.beginPath(); ctx.arc(npc.x + 14 + labelWidth / 2 - 5, npc.y - 11, 2.5, 0, Math.PI * 2); ctx.fill()
+}
+
 function overlapsSolid(x: number, y: number) {
   const foot = { x: x + 5, y: y + 31, width: PLAYER_WIDTH - 10, height: 11 }
   if (foot.x < 20 || foot.y < 74 || foot.x + foot.width > WORLD_WIDTH - 20 || foot.y + foot.height > WORLD_HEIGHT - 18) return true
@@ -309,12 +357,14 @@ function nearestInteraction(player: Player) {
   return nearest
 }
 
-export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCreatePost }: Props) {
+export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onNavigate, onCreatePost }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const frameRef = useRef<number | null>(null)
   const interactionPromptRef = useRef<HTMLDivElement | null>(null)
   const keysRef = useRef<Record<string, boolean>>({})
   const playerRef = useRef<Player>(storedPlayer())
+  const npcsRef = useRef<LibraryNpc[]>([])
+  const avatarImagesRef = useRef<Map<string, HTMLImageElement>>(new Map())
   const lastTimeRef = useRef(0)
   const walkTimeRef = useRef(0)
   const [nearby, setNearby] = useState<Interaction | null>(null)
@@ -325,6 +375,39 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
     sessionStorage.setItem(GUIDE_SEEN_KEY, '1')
     setShowGuide(false)
   }
+
+  useEffect(() => {
+    const previous = new Map(npcsRef.current.map(npc => [npc.id, npc]))
+    const spawnPoints = [
+      { x: 285, y: 285 }, { x: 665, y: 285 }, { x: 270, y: 530 }, { x: 650, y: 530 },
+      { x: 335, y: 350 }, { x: 595, y: 350 }, { x: 310, y: 210 }, { x: 625, y: 215 },
+      { x: 470, y: 300 }, { x: 520, y: 540 }, { x: 205, y: 340 }, { x: 740, y: 345 },
+    ]
+    npcsRef.current = onlineUsers.slice(0, 20).map((user, index) => {
+      const existing = previous.get(user.id)
+      if (existing) return { ...existing, ...user }
+      const spawn = spawnPoints[index % spawnPoints.length]
+      return {
+        ...user,
+        x: spawn.x + (index >= spawnPoints.length ? (index % 3) * 18 : 0),
+        y: spawn.y + (index >= spawnPoints.length ? (index % 2) * 18 : 0),
+        direction: 'down' as Direction,
+        moving: false,
+        step: index % 4,
+        decisionTimer: 0.5 + (index % 5) * 0.4,
+        speed: 42 + (index % 4) * 5,
+      }
+    })
+
+    for (const user of [currentUser, ...onlineUsers]) {
+      const url = user.avatar || ''
+      if (!/^(https?:|\/\/|\/|uploads\/|media\/|files\/)/i.test(url) || avatarImagesRef.current.has(url)) continue
+      const image = new Image()
+      image.decoding = 'async'
+      image.src = url
+      avatarImagesRef.current.set(url, image)
+    }
+  }, [currentUser, onlineUsers])
 
   const useInteraction = useCallback(() => {
     const interaction = nearbyRef.current
@@ -402,7 +485,11 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
       context.scale(scale, scale)
       context.translate(-cameraX, -cameraY)
       drawRoom(context)
+      for (const npc of npcsRef.current) {
+        drawNpc(context, npc, avatarImagesRef.current.get(npc.avatar || '') || null)
+      }
       drawPlayer(context, player)
+      drawAvatarFace(context, player.x, player.y, avatarImagesRef.current.get(currentUser.avatar || '') || null, currentUser.name)
       context.restore()
     }
 
@@ -443,6 +530,33 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
         }
       } else {
         player.step = 0
+      }
+
+      for (const npc of npcsRef.current) {
+        npc.decisionTimer -= delta
+        if (npc.decisionTimer <= 0) {
+          const choice = Math.floor(Math.random() * 6)
+          npc.moving = choice < 4
+          if (choice === 0) npc.direction = 'up'
+          if (choice === 1) npc.direction = 'down'
+          if (choice === 2) npc.direction = 'left'
+          if (choice === 3) npc.direction = 'right'
+          npc.decisionTimer = npc.moving ? 1.2 + Math.random() * 2.4 : 0.7 + Math.random() * 1.6
+        }
+        if (!npc.moving) continue
+        const distance = npc.speed * delta
+        const dx = npc.direction === 'left' ? -distance : npc.direction === 'right' ? distance : 0
+        const dy = npc.direction === 'up' ? -distance : npc.direction === 'down' ? distance : 0
+        const nextX = npc.x + dx
+        const nextY = npc.y + dy
+        if (!overlapsSolid(nextX, nextY)) {
+          npc.x = nextX
+          npc.y = nextY
+          npc.step = (npc.step + delta * 7) % 4
+        } else {
+          npc.moving = false
+          npc.decisionTimer = 0.1
+        }
       }
 
       const nextNearby = nearestInteraction(player)
@@ -498,7 +612,7 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
           </div>
           <div className="min-w-0">
             <p className="truncate font-serif text-base font-bold text-amber-50 sm:text-lg">Biblioteca de {currentUser.name.split(' ')[0]}</p>
-            <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200/70">Modo imersão · Superadmin</p>
+            <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200/70">Modo imersão · {onlineUsers.length + 1} online</p>
           </div>
         </div>
         <button type="button" onClick={onExit} className="shrink-0 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-xs font-bold text-white/85 backdrop-blur transition hover:bg-black/65 hover:text-white">
