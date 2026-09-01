@@ -2,6 +2,7 @@
 
 import { HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr'
 import type { ImgHTMLAttributes } from 'react'
+import ImmersiveLibrary from './ImmersiveLibrary'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'favorite' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
@@ -2631,11 +2632,12 @@ function ThemeToggle({ theme, onToggle, compact = false }: { theme: ColorTheme; 
   )
 }
 
-function MobileQuickActions({ theme, onToggleTheme, onCreatePost, onOpenStore }: {
+function MobileQuickActions({ theme, onToggleTheme, onCreatePost, onOpenStore, onOpenImmersion }: {
   theme: ColorTheme
   onToggleTheme: () => void
   onCreatePost: () => void
   onOpenStore?: () => void
+  onOpenImmersion?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const dark = theme === 'dark'
@@ -2669,6 +2671,16 @@ function MobileQuickActions({ theme, onToggleTheme, onCreatePost, onOpenStore }:
               Loja
             </button>
           )}
+          {onOpenImmersion && (
+            <button
+              type="button"
+              onClick={() => runAction(onOpenImmersion)}
+              className="flex items-center gap-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-3 py-2 text-left text-sm font-bold text-amber-300 transition hover:bg-amber-300/20"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-300/15 text-base">♟</span>
+              Modo imersão
+            </button>
+          )}
           <button
             type="button"
             onClick={() => runAction(onToggleTheme)}
@@ -2692,13 +2704,14 @@ function MobileQuickActions({ theme, onToggleTheme, onCreatePost, onOpenStore }:
   )
 }
 
-function Navigation({ currentUser, page, theme, onToggleTheme, onNavigate, onCreatePost, onLogout }: {
+function Navigation({ currentUser, page, theme, onToggleTheme, onNavigate, onCreatePost, onOpenImmersion, onLogout }: {
   currentUser: User
   page: Page
   theme: ColorTheme
   onToggleTheme: () => void
   onNavigate: (p: Page) => void
   onCreatePost: () => void
+  onOpenImmersion: () => void
   onLogout: () => void
 }) {
   const navItems: { id: Page; icon: NavIconName; label: string }[] = [
@@ -2739,6 +2752,12 @@ function Navigation({ currentUser, page, theme, onToggleTheme, onNavigate, onCre
         <button onClick={onCreatePost} className="mb-4 rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-bold text-stone-950 transition hover:bg-amber-200">
           Nova publicação
         </button>
+        {isSuperAdminUser(currentUser) && (
+          <button onClick={onOpenImmersion} className="mb-3 flex items-center justify-center gap-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-4 py-2.5 text-sm font-bold text-amber-300 transition hover:bg-amber-300/20">
+            <span aria-hidden="true">♟</span>
+            Modo imersão
+          </button>
+        )}
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <div className="flex items-center gap-3 border-t border-stone-800 pt-4">
           <Avatar user={currentUser} size="sm" />
@@ -2752,7 +2771,7 @@ function Navigation({ currentUser, page, theme, onToggleTheme, onNavigate, onCre
         </div>
       </aside>
 
-      <MobileQuickActions theme={theme} onToggleTheme={onToggleTheme} onCreatePost={onCreatePost} onOpenStore={isSuperAdminUser(currentUser) ? () => onNavigate('store') : undefined} />
+      <MobileQuickActions theme={theme} onToggleTheme={onToggleTheme} onCreatePost={onCreatePost} onOpenStore={isSuperAdminUser(currentUser) ? () => onNavigate('store') : undefined} onOpenImmersion={isSuperAdminUser(currentUser) ? onOpenImmersion : undefined} />
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-800 bg-stone-950/95 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-2 backdrop-blur-xl md:hidden">
         <div className="mx-auto grid max-w-md items-center gap-1" style={{ gridTemplateColumns: `repeat(${mobileNavItems.length}, minmax(0, 1fr))` }}>
@@ -8647,6 +8666,7 @@ export default function App() {
   const [books, setBooks] = useState<Book[]>([])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [theme, setTheme] = useState<ColorTheme>(() => storedColorTheme())
+  const [immersiveMode, setImmersiveMode] = useState(false)
   const [page, setPage] = useState<Page>(() => storedPage())
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => storedBookId())
   const [selectedPostId, setSelectedPostId] = useState<string | null>(() => storedPostId())
@@ -9418,6 +9438,11 @@ export default function App() {
     return true
   }
 
+  function handleImmersiveNavigate(nextPage: 'timeline' | 'shelf' | 'library' | 'profile' | 'goals' | 'notifications' | 'superadmin' | 'store') {
+    setImmersiveMode(false)
+    void handleNavigate(nextPage)
+  }
+
   async function handleDeletePost(postId: string) {
     if (!currentUser) return false
     const post = posts.find(item => item.id === postId)
@@ -9801,6 +9826,20 @@ export default function App() {
   const selectedProfileUser = users.find(user => user.id === (selectedProfileUserId || currentUser.id)) || currentUser
   const notificationCount = visibleNotifications.filter(notification => !notification.read).length
 
+  if (immersiveMode && isSuperAdminUser(currentUser)) {
+    return (
+      <ImmersiveLibrary
+        currentUser={currentUser}
+        onExit={() => setImmersiveMode(false)}
+        onNavigate={handleImmersiveNavigate}
+        onCreatePost={() => {
+          setImmersiveMode(false)
+          handleOpenCreatePost()
+        }}
+      />
+    )
+  }
+
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100">
       <Navigation
@@ -9810,6 +9849,7 @@ export default function App() {
         onToggleTheme={handleToggleTheme}
         onNavigate={handleNavigate}
         onCreatePost={() => handleOpenCreatePost()}
+        onOpenImmersion={() => setImmersiveMode(true)}
         onLogout={handleLogout}
       />
       <ActionLoadingIndicator active={actionLoadingCount > 0} />
