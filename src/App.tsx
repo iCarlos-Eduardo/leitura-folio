@@ -105,6 +105,7 @@ interface Post {
   timestamp: string
   editedAt?: string | null
   likes: string[]
+  reactions?: { userId: string; type: ReactionType }[]
   comments: number
   views?: string[]
   viewCount?: number
@@ -130,12 +131,13 @@ interface Reply {
   timestamp: string
   editedAt?: string | null
   likes: string[]
-  reactions?: { userId: string; type: ReplyReactionType }[]
+  reactions?: { userId: string; type: ReactionType }[]
   comments: number
   mentionedUserIds?: string[]
 }
 
-type ReplyReactionType = 'love' | 'laugh' | 'wow' | 'sad' | 'angry'
+type ReactionType = 'love' | 'laugh' | 'wow' | 'sad' | 'angry'
+type ReplyReactionType = ReactionType
 
 type AddReplyHandler = (postId: string, text: string, parentReplyId?: string, mentionedUserIds?: string[]) => Promise<boolean | void> | boolean | void
 
@@ -2797,30 +2799,92 @@ function EngagementListDialog({ title, users, emptyText, onClose, onUserClick }:
   )
 }
 
-function ReplyReactionPicker({ reply, currentUserId, onToggle, onToggleLike, onShowLikes }: { reply: Reply; currentUserId: string; onToggle: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void; onToggleLike: (replyId: string) => Promise<boolean | void> | boolean | void; onShowLikes?: () => void }) {
-  const reactions = reply.reactions || []
-  const legacyLikes = reply.likes || []
+function ReactionTrigger({ selectedType, total, disabled = false, label, onDefault, onSelect }: { selectedType?: ReactionType; total: number; disabled?: boolean; label: string; onDefault: () => void; onSelect: (type: ReactionType) => void }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const pressTimerRef = useRef<number | null>(null)
+  const longPressRef = useRef(false)
+
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [])
+
+  const clearPress = () => {
+    if (pressTimerRef.current !== null) window.clearTimeout(pressTimerRef.current)
+    pressTimerRef.current = null
+  }
+  const startPress = () => {
+    if (disabled) return
+    longPressRef.current = false
+    clearPress()
+    pressTimerRef.current = window.setTimeout(() => {
+      longPressRef.current = true
+      setOpen(true)
+    }, 420)
+  }
+
   return (
-    <div className="flex flex-wrap items-center gap-1" aria-label="Reações ao comentário">
-      {REPLY_REACTIONS.map(reaction => {
-        const reactionCount = reactions.filter(item => item.type === reaction.type).length
-        const isHeart = reaction.type === 'love'
-        const legacyLiked = legacyLikes.includes(currentUserId)
-        const count = reactionCount + (isHeart ? legacyLikes.length : 0)
-        const selected = reactions.some(item => item.userId === currentUserId && item.type === reaction.type) || (isHeart && legacyLiked)
-        const toggle = () => isHeart && legacyLiked ? onToggleLike(reply.id) : onToggle(reply.id, reaction.type)
-        return (
-          <span key={reaction.type} className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-sm transition ${selected ? 'bg-amber-300/20 ring-1 ring-amber-300/60' : 'hover:bg-stone-800'}`}>
-            <button type="button" title={reaction.label} aria-label={reaction.label} onClick={toggle}>{reaction.emoji}</button>
-            {count > 0 && (isHeart && onShowLikes ? <button type="button" aria-label="Ver quem curtiu" onClick={onShowLikes} className="ml-0.5 text-[10px] font-bold text-stone-300 hover:text-amber-300">{count}</button> : <span className="ml-0.5 text-[10px] font-bold text-stone-300">{count}</span>)}
-          </span>
-        )
-      })}
+    <div ref={rootRef} className="relative flex items-center gap-1" aria-label={label}>
+      <button
+        type="button"
+        disabled={disabled}
+        onPointerDown={startPress}
+        onPointerUp={clearPress}
+        onPointerLeave={clearPress}
+        onPointerCancel={clearPress}
+        onContextMenu={event => event.preventDefault()}
+        onClick={() => {
+          if (longPressRef.current) {
+            longPressRef.current = false
+            return
+          }
+          onDefault()
+        }}
+        aria-label={selectedType ? `Remover reação ${REPLY_REACTIONS.find(reaction => reaction.type === selectedType)?.label || ''}` : `Reagir. Mantenha pressionado para mais opções`}
+        title="Toque para curtir · mantenha pressionado para reagir"
+        className={`relative z-10 text-[27px] leading-none transition active:scale-90 disabled:cursor-not-allowed disabled:opacity-50 ${selectedType ? 'drop-shadow-[0_0_7px_rgba(252,211,77,0.45)]' : 'text-stone-300 hover:text-red-300'}`}
+      >
+        {selectedType ? REPLY_REACTIONS.find(reaction => reaction.type === selectedType)?.emoji : '♡'}
+      </button>
+      {total > 0 && <span className="text-xs font-semibold text-stone-400">{total}</span>}
+      {open && (
+        <div role="menu" aria-label="Escolher reação" className="absolute bottom-[calc(100%+10px)] left-0 z-30 flex items-center gap-1 rounded-full border border-stone-700 bg-stone-900 px-2 py-1.5 shadow-xl shadow-black/50">
+          {REPLY_REACTIONS.map(reaction => (
+            <button
+              key={reaction.type}
+              type="button"
+              role="menuitem"
+              title={reaction.label}
+              aria-label={reaction.label}
+              onClick={() => {
+                onSelect(reaction.type)
+                setOpen(false)
+              }}
+              className={`rounded-full px-1 text-2xl transition hover:-translate-y-1 hover:scale-125 ${selectedType === reaction.type ? 'bg-amber-300/20' : ''}`}
+            >
+              {reaction.emoji}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, allowChapterLimitWithoutShelf = false, imageLoading = 'lazy' }: {
+function ReplyReactionPicker({ reply, currentUserId, onToggle, onToggleLike, onShowLikes }: { reply: Reply; currentUserId: string; onToggle: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void; onToggleLike: (replyId: string) => Promise<boolean | void> | boolean | void; onShowLikes?: () => void }) {
+  const reactions = reply.reactions || []
+  const legacyLiked = (reply.likes || []).includes(currentUserId)
+  const selectedType = reactions.find(reaction => reaction.userId === currentUserId)?.type || (legacyLiked ? 'love' : undefined)
+  const total = reactions.length + (reply.likes || []).length
+  const select = (type: ReactionType) => type === 'love' && legacyLiked ? onToggleLike(reply.id) : onToggle(reply.id, type)
+  return <ReactionTrigger selectedType={selectedType} total={total} label="Reações ao comentário" onDefault={() => selectedType ? (legacyLiked ? onToggleLike(reply.id) : onToggle(reply.id, selectedType)) : select('love')} onSelect={select} />
+}
+
+function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReaction, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, allowChapterLimitWithoutShelf = false, imageLoading = 'lazy' }: {
   post: Post
   users: User[]
   books: Book[]
@@ -2831,6 +2895,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   onUserClick: (id: string) => void
   onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
+  onToggleReaction: (postId: string, type: ReactionType) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyReaction: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
@@ -2884,6 +2949,9 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const hiddenConversationCount = hiddenReplyCount + (showAllReplies ? 0 : visibleReplies.reduce((total, reply) => total + relatedReplies.filter(child => child.parentReplyId === reply.id).length, 0))
   const displayedComments = relatedReplies.length
   const liked = post.likes.includes(currentUser.id)
+  const postReactions = post.reactions || []
+  const selectedPostReaction = postReactions.find(reaction => reaction.userId === currentUser.id)?.type || (liked ? 'love' : undefined)
+  const postReactionTotal = postReactions.length + post.likes.length
   const postContent = postTextParts(post.text)
   const likeUsers = uniqueUsersById(post.likes.map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
   const viewUsers = uniqueUsersById((post.views || []).map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
@@ -3027,8 +3095,19 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
           )}
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-semibold text-stone-400">
             <div className="flex items-center gap-1">
-              <button onClick={() => canInteractWithContent && onToggleLike(post.id)} disabled={!canInteractWithContent} aria-label={liked ? 'Remover curtida' : 'Curtir'} className={`text-[29px] leading-none transition disabled:cursor-not-allowed disabled:opacity-50 ${liked ? 'text-red-300' : 'text-stone-300 hover:text-red-300'}`}>{liked ? '♥' : '♡'}</button>
-              {isOwnPost ? <button onClick={() => setEngagementDialog('likes')} aria-label="Ver quem curtiu" className="hover:text-amber-300">{post.likes.length}</button> : <span>{post.likes.length}</span>}
+              <ReactionTrigger
+                selectedType={selectedPostReaction}
+                total={postReactionTotal}
+                disabled={!canInteractWithContent}
+                label="Reações à publicação"
+                onDefault={() => selectedPostReaction && !liked ? onToggleReaction(post.id, selectedPostReaction) : onToggleLike(post.id)}
+                onSelect={type => {
+                  if (type === 'love' && liked) return onToggleLike(post.id)
+                  if (liked) void onToggleLike(post.id)
+                  return onToggleReaction(post.id, type)
+                }}
+              />
+              {isOwnPost && post.likes.length > 0 && <button onClick={() => setEngagementDialog('likes')} aria-label="Ver quem curtiu" className="sr-only">Ver quem curtiu</button>}
             </div>
             <button onClick={() => canInteractWithContent && setShowReplyBox(value => !value)} disabled={!canInteractWithContent} aria-label="Comentar" className="flex items-center gap-1 text-stone-300 transition hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-50">
               <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-none stroke-current stroke-[2]"><path d="M20 11.5a8 8 0 0 1-8.5 8A8.7 8.7 0 0 1 7.8 18L4 19l1.1-3.2A7.5 7.5 0 0 1 4 11.5a8 8 0 0 1 8.5-8 8 8 0 0 1 7.5 8Z" /></svg>
@@ -3364,7 +3443,7 @@ function WeeklySpotlightsPanel({ rows, onBookClick, onUserClick }: {
   )
 }
 
-function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeline, communityFeatureEnabled, communityPreviewEnabled = false, onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onToggleFollow }: {
+function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeline, communityFeatureEnabled, communityPreviewEnabled = false, onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReaction, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onToggleFollow }: {
   currentUser: User
   users: User[]
   books: Book[]
@@ -3378,6 +3457,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
   onUserClick: (id: string) => void
   onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
+  onToggleReaction: (postId: string, type: ReactionType) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyReaction: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
@@ -3488,7 +3568,7 @@ function TimelinePage({ currentUser, users, books, shelf, posts, replies, timeli
             posts={feedPosts}
             emptyText={audienceFilter === 'tea' ? 'Ainda não há publicações na Comunidade do Chá.' : 'Nenhuma publicação de quem você segue ainda.'}
             resetKey={`timeline-${currentUser.id}-${audienceFilter}`}
-            renderPost={(post, index) => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onToggleReplyReaction={onToggleReplyReaction} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} protectSpoilers imageLoading={index < 2 ? 'eager' : 'lazy'} />}
+            renderPost={(post, index) => <PostCard key={post.id} post={post} users={users} books={books} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={onBookClick} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReaction={onToggleReaction} onToggleReplyLike={onToggleReplyLike} onToggleReplyReaction={onToggleReplyReaction} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} protectSpoilers imageLoading={index < 2 ? 'eager' : 'lazy'} />}
           />
         </>
       )}
@@ -4575,7 +4655,7 @@ function LibraryPage({ currentUser, shelf, books, onBookClick, onAddBook, onSave
   )
 }
 
-function BookPage({ book, shelf, posts, replies, users, currentUser, highlightedPostId, onBack, onUserClick, onCreatePost, onAddReply, onToggleLike, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onUpdateShelfEntry, onAddBook }: {
+function BookPage({ book, shelf, posts, replies, users, currentUser, highlightedPostId, onBack, onUserClick, onCreatePost, onAddReply, onToggleLike, onToggleReaction, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, onUpdateShelfEntry, onAddBook }: {
   book: Book
   shelf: ShelfEntry[]
   posts: Post[]
@@ -4588,6 +4668,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   onCreatePost: (bookId?: string) => void
   onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
+  onToggleReaction: (postId: string, type: ReactionType) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyReaction: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
@@ -5119,7 +5200,7 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
                 id={`folio-post-${post.id}`}
                 className={post.id === highlightedPostId ? 'scroll-mt-28 ring-2 ring-amber-300/70 ring-offset-2 ring-offset-stone-950' : 'scroll-mt-28'}
               >
-                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => { }} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReplyLike={onToggleReplyLike} onToggleReplyReaction={onToggleReplyReaction} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} allowChapterLimitWithoutShelf />
+                <PostCard post={post} users={users} books={[book]} shelf={shelf} currentUser={currentUser} replies={replies} onBookClick={() => { }} onUserClick={onUserClick} onAddReply={onAddReply} onToggleLike={onToggleLike} onToggleReaction={onToggleReaction} onToggleReplyLike={onToggleReplyLike} onToggleReplyReaction={onToggleReplyReaction} onDeletePost={onDeletePost} onDeleteReply={onDeleteReply} onEditPost={onEditPost} onEditReply={onEditReply} onViewPost={onViewPost} compactBook protectSpoilers spoilerChapterLimit={visibleChapterLimit} allowChapterLimitWithoutShelf />
               </div>
             )}
           />
@@ -5470,7 +5551,7 @@ function ProfilePage({ currentUser, profileUser, shelf, posts, books, notificati
     </section>
   )
 }
-function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost }: {
+function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, posts, replies, onBack, onBookClick, onUserClick, onToggleFollow, onAddReply, onToggleLike, onToggleReaction, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost }: {
   kind: ProfileListKind
   currentUser: User
   profileUser: User
@@ -5485,6 +5566,7 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
   onToggleFollow: (userId: string) => Promise<boolean | void> | boolean | void
   onAddReply: AddReplyHandler
   onToggleLike: (postId: string) => Promise<boolean | void> | boolean | void
+  onToggleReaction: (postId: string, type: ReactionType) => Promise<boolean | void> | boolean | void
   onToggleReplyLike: (replyId: string) => Promise<boolean | void> | boolean | void
   onToggleReplyReaction: (replyId: string, type: ReplyReactionType) => Promise<boolean | void> | boolean | void
   onDeletePost: (postId: string) => Promise<boolean | void> | boolean | void
@@ -5530,6 +5612,7 @@ function ProfileListPage({ kind, currentUser, profileUser, users, books, shelf, 
                 onUserClick={onUserClick}
                 onAddReply={onAddReply}
                 onToggleLike={onToggleLike}
+                onToggleReaction={onToggleReaction}
                 onToggleReplyLike={onToggleReplyLike}
                 onToggleReplyReaction={onToggleReplyReaction}
                 onDeletePost={onDeletePost}
@@ -9390,6 +9473,22 @@ export default function App() {
     return true
   }
 
+  async function handleTogglePostReaction(postId: string, type: ReactionType) {
+    if (!currentUser) return false
+    const post = posts.find(item => item.id === postId)
+    const selected = post?.reactions?.some(reaction => reaction.userId === currentUser.id && reaction.type === type)
+    setPosts(current => current.map(item => {
+      if (item.id !== postId) return item
+      const others = (item.reactions || []).filter(reaction => reaction.userId !== currentUser.id)
+      return { ...item, reactions: selected ? others : [...others, { userId: currentUser.id, type }] }
+    }))
+    syncInBackground(async () => {
+      const activeToken = activeAuthToken()
+      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/reactions/toggle`, { method: 'POST', body: JSON.stringify({ type }) }, activeToken)
+    }, 'Não foi possível reagir à publicação.')
+    return true
+  }
+
   function syncInBackground(work: () => Promise<void>, errorText: string, rollback?: () => void) {
     void work().catch(async error => {
       rollback?.()
@@ -9478,7 +9577,7 @@ export default function App() {
     const activeToken = activeAuthToken()
 
     const temporaryId = `optimistic-post-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const optimisticPost: Post = { ...post, id: temporaryId, userId: currentUser.id, timestamp: new Date().toISOString(), likes: [], comments: 0, views: [], viewCount: 0 }
+    const optimisticPost: Post = { ...post, id: temporaryId, userId: currentUser.id, timestamp: new Date().toISOString(), likes: [], reactions: [], comments: 0, views: [], viewCount: 0 }
     setPosts(current => [optimisticPost, ...current])
     syncInBackground(async () => {
       const saved = await apiRequest<Post>('/folio/posts', { method: 'POST', body: JSON.stringify(post) }, activeToken)
@@ -9641,12 +9740,12 @@ export default function App() {
 
       <div className="flex md:ml-60">
         <main className="min-h-screen min-w-0 flex-1 border-x border-stone-800 pb-24 md:pb-0">
-          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} communityFeatureEnabled={communityFeature.enabled || (Boolean(communityFeature.previewEnabled) && isSuperAdminUser(currentUser))} communityPreviewEnabled={Boolean(communityFeature.previewEnabled) && !communityFeature.enabled && isSuperAdminUser(currentUser)} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onToggleReplyReaction={handleToggleReplyReaction} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onToggleFollow={handleToggleFollow} />}
+          {page === 'timeline' && <TimelinePage currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} timeline={timeline} communityFeatureEnabled={communityFeature.enabled || (Boolean(communityFeature.previewEnabled) && isSuperAdminUser(currentUser))} communityPreviewEnabled={Boolean(communityFeature.previewEnabled) && !communityFeature.enabled && isSuperAdminUser(currentUser)} onBookClick={handleBookClick} onUserClick={handleUserClick} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReaction={handleTogglePostReaction} onToggleReplyLike={handleToggleReplyLike} onToggleReplyReaction={handleToggleReplyReaction} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onToggleFollow={handleToggleFollow} />}
           {page === 'shelf' && <ShelfPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onUpdateShelfEntry={handleUpdateShelfEntry} onRemoveShelfEntry={handleRemoveShelfEntry} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSearchBooks={handleSearchBooks} />}
           {page === 'library' && <LibraryPage currentUser={currentUser} shelf={shelf} books={books} onBookClick={handleBookClick} onAddBook={handleAddBook} onSaveBook={handleSaveBook} onSetBookActive={handleSetBookActive} onDeleteBook={handleDeleteBook} onSearchBooks={handleSearchBooks} onUploadCover={handleUploadBookCover} />}
-          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onToggleReplyReaction={handleToggleReplyReaction} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
+          {page === 'book' && selectedBook && <BookPage book={selectedBook} shelf={shelf} posts={posts} replies={replies} users={users} currentUser={currentUser} highlightedPostId={selectedPostId} onBack={handleBack} onUserClick={handleUserClick} onCreatePost={handleOpenCreatePost} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReaction={handleTogglePostReaction} onToggleReplyLike={handleToggleReplyLike} onToggleReplyReaction={handleToggleReplyReaction} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} onUpdateShelfEntry={handleUpdateShelfEntry} onAddBook={handleAddBook} />}
           {page === 'profile' && <ProfilePage currentUser={currentUser} profileUser={selectedProfileUser} users={users} shelf={shelf} posts={posts} books={books} notificationPreferences={notificationPreferences} onBookClick={handleBookClick} onUpdateUser={handleUpdateUser} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onDeletePost={handleDeletePost} onOpenProfileList={handleOpenProfileList} onLogout={handleLogout} onUploadAvatar={handleUploadAvatar} onUpdateNotificationPreferences={handleUpdateNotificationPreferences} />}
-          {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReplyLike={handleToggleReplyLike} onToggleReplyReaction={handleToggleReplyReaction} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} />}
+          {page === 'profile-list' && <ProfileListPage kind={profileListKind} currentUser={currentUser} profileUser={selectedProfileUser} users={users} books={books} shelf={shelf} posts={posts} replies={replies} onBack={() => setPage('profile')} onBookClick={handleBookClick} onUserClick={handleUserClick} onToggleFollow={handleToggleFollow} onAddReply={handleAddReply} onToggleLike={handleToggleLike} onToggleReaction={handleTogglePostReaction} onToggleReplyLike={handleToggleReplyLike} onToggleReplyReaction={handleToggleReplyReaction} onDeletePost={handleDeletePost} onDeleteReply={handleDeleteReply} onEditPost={handleEditPost} onEditReply={handleEditReply} onViewPost={handleViewPost} />}
           {page === 'goals' && <GoalsPage currentUser={currentUser} shelf={shelf} books={books} readingGoal={readingGoal} onUpdateReadingGoal={handleUpdateReadingGoal} onToggleReadingCheckIn={handleToggleReadingCheckIn} onResetReadingCheckIns={handleResetReadingCheckIns} />}
           {page === 'notifications' && <NotificationsPage notifications={visibleNotifications} currentUser={currentUser} users={users} books={books} shelf={shelf} posts={posts} readingGoal={readingGoal} showDeviceNotificationControls={canUseDeviceNotifications} deviceNotificationStatus={deviceNotifications} onEnableDeviceNotifications={handleEnableDeviceNotifications} onNotificationClick={handleNotificationClick} onUserClick={handleUserClick} onBookClick={handleBookClick} onCreatePost={handleOpenCreatePost} onToggleReadingCheckIn={handleToggleReadingCheckIn} />}
           {page === 'superadmin' && isSuperAdminUser(currentUser) && <SuperAdminDashboardPage token={token} onUserClick={handleUserClick} onBookClick={handleBookClick} maintenanceMode={maintenanceMode} onMaintenanceModeChange={handleMaintenanceModeChange} communityFeature={communityFeature} onCommunityFeatureChange={handleCommunityFeatureChange} />}
