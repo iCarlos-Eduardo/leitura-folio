@@ -44,6 +44,7 @@ const WORLD_HEIGHT = 600
 const PLAYER_WIDTH = 28
 const PLAYER_HEIGHT = 42
 const PLAYER_POSITION_KEY = 'folio_immersive_player_position'
+const GUIDE_SEEN_KEY = 'folio_immersive_guide_seen'
 
 function storedPlayer(): Player {
   try {
@@ -318,7 +319,12 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
   const walkTimeRef = useRef(0)
   const [nearby, setNearby] = useState<Interaction | null>(null)
   const nearbyRef = useRef<Interaction | null>(null)
-  const [showGuide, setShowGuide] = useState(true)
+  const [showGuide, setShowGuide] = useState(() => sessionStorage.getItem(GUIDE_SEEN_KEY) !== '1')
+
+  function dismissGuide() {
+    sessionStorage.setItem(GUIDE_SEEN_KEY, '1')
+    setShowGuide(false)
+  }
 
   const useInteraction = useCallback(() => {
     const interaction = nearbyRef.current
@@ -508,7 +514,7 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
             <div className="absolute left-1/2 top-[18%] w-[min(88%,420px)] -translate-x-1/2 rounded-xl border border-amber-100/20 bg-[#21150f]/90 p-4 text-center shadow-2xl backdrop-blur-sm">
               <p className="font-serif text-lg font-bold text-amber-50">Caminhe entre suas histórias</p>
               <p className="mt-1 text-xs leading-relaxed text-amber-100/75">Use <strong>WASD</strong> ou as <strong>setas</strong>. Aproxime-se dos móveis e pressione <strong>E</strong> ou <strong>Enter</strong> para abrir.</p>
-              <button type="button" onClick={() => setShowGuide(false)} className="mt-3 rounded-lg bg-amber-200 px-4 py-2 text-xs font-extrabold text-[#2b1a10] transition hover:bg-amber-100">Começar a explorar</button>
+              <button type="button" onClick={dismissGuide} className="mt-3 rounded-lg bg-amber-200 px-4 py-2 text-xs font-extrabold text-[#2b1a10] transition hover:bg-amber-100">Começar a explorar</button>
             </div>
           )}
 
