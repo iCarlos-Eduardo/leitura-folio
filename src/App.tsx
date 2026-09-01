@@ -2801,6 +2801,7 @@ function EngagementListDialog({ title, users, emptyText, onClose, onUserClick }:
 
 function ReactionTrigger({ selectedType, total, disabled = false, label, onDefault, onSelect }: { selectedType?: ReactionType; total: number; disabled?: boolean; label: string; onDefault: () => void; onSelect: (type: ReactionType) => void }) {
   const [open, setOpen] = useState(false)
+  const [burst, setBurst] = useState<{ key: number; type: ReactionType } | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const pressTimerRef = useRef<number | null>(null)
   const longPressRef = useRef(false)
@@ -2826,6 +2827,7 @@ function ReactionTrigger({ selectedType, total, disabled = false, label, onDefau
       setOpen(true)
     }, 420)
   }
+  const triggerBurst = (type: ReactionType) => setBurst({ key: Date.now(), type })
 
   return (
     <div ref={rootRef} className="relative flex items-center gap-1" aria-label={label}>
@@ -2843,6 +2845,7 @@ function ReactionTrigger({ selectedType, total, disabled = false, label, onDefau
             longPressRef.current = false
             return
           }
+          if (!selectedType) triggerBurst('love')
           onDefault()
         }}
         aria-label={selectedType ? `Remover reação ${REPLY_REACTIONS.find(reaction => reaction.type === selectedType)?.label || ''}` : `Reagir. Mantenha pressionado para mais opções`}
@@ -2854,6 +2857,11 @@ function ReactionTrigger({ selectedType, total, disabled = false, label, onDefau
           <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6 fill-none stroke-current stroke-[1.8]" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20.8 8.6c0 5.4-8.8 10.1-8.8 10.1S3.2 14 3.2 8.6A4.6 4.6 0 0 1 12 6.7a4.6 4.6 0 0 1 8.8 1.9Z" />
           </svg>
+        )}
+        {burst && (
+          <span key={burst.key} aria-hidden="true" className="folio-reaction-burst">
+            {Array.from({ length: 5 }, (_, index) => <span key={index}>{REPLY_REACTIONS.find(reaction => reaction.type === burst.type)?.emoji}</span>)}
+          </span>
         )}
       </button>
       {total > 0 && <span className="text-xs font-semibold text-stone-400">{total}</span>}
@@ -2867,6 +2875,7 @@ function ReactionTrigger({ selectedType, total, disabled = false, label, onDefau
               title={reaction.label}
               aria-label={reaction.label}
               onClick={() => {
+                triggerBurst(reaction.type)
                 onSelect(reaction.type)
                 setOpen(false)
               }}

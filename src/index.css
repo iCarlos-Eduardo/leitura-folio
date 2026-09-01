@@ -155,9 +155,43 @@ body {
   }
 }
 
+.folio-reaction-burst {
+  inset: 50%;
+  pointer-events: none;
+  position: absolute;
+  z-index: 20;
+}
+
+.folio-reaction-burst > span {
+  animation: folio-reaction-pop 1s cubic-bezier(.18, .8, .28, 1) forwards;
+  font-size: 1rem;
+  left: 0;
+  line-height: 1;
+  position: absolute;
+  top: 0;
+  will-change: opacity, transform;
+}
+
+.folio-reaction-burst > span:nth-child(1) { --burst-x: -18px; --burst-y: -24px; }
+.folio-reaction-burst > span:nth-child(2) { --burst-x: 20px; --burst-y: -19px; animation-delay: 70ms; }
+.folio-reaction-burst > span:nth-child(3) { --burst-x: 25px; --burst-y: 8px; animation-delay: 40ms; }
+.folio-reaction-burst > span:nth-child(4) { --burst-x: -22px; --burst-y: 11px; animation-delay: 95ms; }
+.folio-reaction-burst > span:nth-child(5) { --burst-x: 1px; --burst-y: -31px; animation-delay: 25ms; }
+
+@keyframes folio-reaction-pop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.45); }
+  20% { opacity: 1; transform: translate(-50%, -50%) scale(1.18); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--burst-x)), calc(-50% + var(--burst-y))) scale(.7) rotate(18deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .folio-skeleton {
     animation: none;
+  }
+
+  .folio-reaction-burst > span {
+    animation: none;
+    opacity: 0;
   }
 }
 
