@@ -291,6 +291,7 @@ function nearestInteraction(player: Player) {
 export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCreatePost }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const frameRef = useRef<number | null>(null)
+  const interactionPromptRef = useRef<HTMLDivElement | null>(null)
   const keysRef = useRef<Record<string, boolean>>({})
   const playerRef = useRef<Player>({ x: 466, y: 505, direction: 'up', moving: false, step: 0 })
   const lastTimeRef = useRef(0)
@@ -345,6 +346,28 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
       const cameraY = portrait
         ? Math.max(0, Math.min(WORLD_HEIGHT - visibleWorldHeight, playerCenterY - visibleWorldHeight / 2))
         : -(visibleWorldHeight - WORLD_HEIGHT) / 2
+
+      const prompt = interactionPromptRef.current
+      const interaction = nearbyRef.current
+      if (prompt && interaction) {
+        if (canvasNode.clientWidth < 640) {
+          const pixelRatio = window.devicePixelRatio || 1
+          const cssWidth = viewWidth / pixelRatio
+          const cssHeight = viewHeight / pixelRatio
+          const interactionX = ((interaction.x - cameraX) * scale) / pixelRatio
+          const interactionY = ((interaction.y - cameraY) * scale) / pixelRatio
+          const promptHalfWidth = Math.min(150, cssWidth * 0.39)
+          const promptX = Math.max(promptHalfWidth + 8, Math.min(cssWidth - promptHalfWidth - 8, interactionX))
+          const promptY = Math.max(155, Math.min(cssHeight - 96, interactionY - 18))
+          prompt.style.left = `${promptX}px`
+          prompt.style.top = `${promptY}px`
+          prompt.style.bottom = 'auto'
+        } else {
+          prompt.style.left = '50%'
+          prompt.style.top = 'auto'
+          prompt.style.bottom = '24px'
+        }
+      }
 
       context.setTransform(1, 0, 0, 1, 0, 0)
       context.fillStyle = '#120d09'
@@ -469,7 +492,7 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
           )}
 
           {nearby && !showGuide && (
-            <div className="absolute bottom-20 left-1/2 w-[min(90%,390px)] -translate-x-1/2 rounded-xl border border-amber-100/25 bg-[#1c120d]/95 p-3 text-center shadow-2xl backdrop-blur-sm sm:bottom-6">
+            <div ref={interactionPromptRef} className="absolute z-10 w-[min(78%,300px)] -translate-x-1/2 -translate-y-full rounded-xl border border-amber-100/25 bg-[#1c120d]/95 p-3 text-center shadow-2xl backdrop-blur-sm sm:w-[390px] sm:translate-y-0">
               <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-200/65">Você encontrou</p>
               <p className="mt-0.5 font-serif text-base font-bold text-amber-50">{nearby.label}</p>
               <p className="mt-0.5 text-[11px] text-amber-100/60">{nearby.hint}</p>
@@ -479,13 +502,12 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
             </div>
           )}
 
-          <div className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-4 h-40 w-40 sm:hidden">
+          <div className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-4 h-40 w-40 sm:hidden">
             {directionButton('ArrowUp', '↑', 'left-14 top-0')}
             {directionButton('ArrowLeft', '←', 'left-0 top-14')}
             {directionButton('ArrowDown', '↓', 'left-14 top-14')}
             {directionButton('ArrowRight', '→', 'left-28 top-14')}
           </div>
-          {nearby && !showGuide && <button type="button" onClick={useInteraction} className="absolute bottom-7 right-6 flex h-14 w-14 items-center justify-center rounded-full border-2 border-amber-100/30 bg-amber-200 text-sm font-black text-[#2b1a10] shadow-xl sm:hidden">E</button>}
         </div>
       </div>
     </main>
