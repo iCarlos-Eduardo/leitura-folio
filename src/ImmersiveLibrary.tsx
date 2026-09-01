@@ -28,6 +28,7 @@ type Player = {
 type Interaction = {
   id: string
   label: string
+  shortLabel: string
   hint: string
   x: number
   y: number
@@ -42,17 +43,36 @@ const WORLD_WIDTH = 960
 const WORLD_HEIGHT = 600
 const PLAYER_WIDTH = 28
 const PLAYER_HEIGHT = 42
+const PLAYER_POSITION_KEY = 'folio_immersive_player_position'
+
+function storedPlayer(): Player {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(PLAYER_POSITION_KEY) || '') as Partial<Player>
+    if (typeof saved.x === 'number' && typeof saved.y === 'number') {
+      return {
+        x: Math.max(20, Math.min(WORLD_WIDTH - PLAYER_WIDTH - 20, saved.x)),
+        y: Math.max(74, Math.min(WORLD_HEIGHT - PLAYER_HEIGHT - 18, saved.y)),
+        direction: saved.direction === 'up' || saved.direction === 'down' || saved.direction === 'left' || saved.direction === 'right' ? saved.direction : 'up',
+        moving: false,
+        step: 0,
+      }
+    }
+  } catch {
+    // A posição é apenas conveniência visual; um valor inválido reinicia o avatar.
+  }
+  return { x: 466, y: 505, direction: 'up', moving: false, step: 0 }
+}
 
 const interactions: Interaction[] = [
-  { id: 'shelf', label: 'Abrir minha estante', hint: 'Sua coleção e progresso de leitura', x: 155, y: 316, color: '#d28b4b', page: 'shelf' },
-  { id: 'library', label: 'Explorar biblioteca', hint: 'O catálogo completo de livros', x: 805, y: 305, color: '#8aa877', page: 'library' },
-  { id: 'timeline', label: 'Sentar e ver o início', hint: 'Publicações da comunidade', x: 480, y: 225, color: '#d7a957', page: 'timeline' },
-  { id: 'post', label: 'Escrever nova publicação', hint: 'Compartilhe sua leitura', x: 610, y: 205, color: '#c17d51', action: 'post' },
-  { id: 'profile', label: 'Ver meu perfil', hint: 'Seu cantinho de leitor', x: 112, y: 472, color: '#a87966', page: 'profile' },
-  { id: 'notifications', label: 'Ver correspondências', hint: 'Notificações e novidades', x: 268, y: 478, color: '#6f8e92', page: 'notifications' },
-  { id: 'dashboard', label: 'Abrir painel do superadmin', hint: 'Indicadores e administração', x: 495, y: 480, color: '#8f7356', page: 'superadmin' },
-  { id: 'goals', label: 'Consultar metas', hint: 'Acompanhe seus objetivos', x: 700, y: 480, color: '#b19358', page: 'goals' },
-  { id: 'store', label: 'Entrar na lojinha', hint: 'Produtos e pedidos', x: 850, y: 472, color: '#9e6d49', page: 'store' },
+  { id: 'shelf', label: 'Abrir minha estante', shortLabel: 'Estante', hint: 'Sua coleção e progresso de leitura', x: 155, y: 316, color: '#d28b4b', page: 'shelf' },
+  { id: 'library', label: 'Explorar biblioteca', shortLabel: 'Biblioteca', hint: 'O catálogo completo de livros', x: 805, y: 305, color: '#8aa877', page: 'library' },
+  { id: 'timeline', label: 'Sentar e ver o início', shortLabel: 'Início', hint: 'Publicações da comunidade', x: 480, y: 225, color: '#d7a957', page: 'timeline' },
+  { id: 'post', label: 'Escrever nova publicação', shortLabel: 'Publicar', hint: 'Compartilhe sua leitura', x: 610, y: 205, color: '#c17d51', action: 'post' },
+  { id: 'profile', label: 'Ver meu perfil', shortLabel: 'Perfil', hint: 'Seu cantinho de leitor', x: 112, y: 472, color: '#a87966', page: 'profile' },
+  { id: 'notifications', label: 'Ver correspondências', shortLabel: 'Avisos', hint: 'Notificações e novidades', x: 268, y: 478, color: '#6f8e92', page: 'notifications' },
+  { id: 'dashboard', label: 'Abrir painel do superadmin', shortLabel: 'Painel', hint: 'Indicadores e administração', x: 495, y: 480, color: '#8f7356', page: 'superadmin' },
+  { id: 'goals', label: 'Consultar metas', shortLabel: 'Metas', hint: 'Acompanhe seus objetivos', x: 700, y: 480, color: '#b19358', page: 'goals' },
+  { id: 'store', label: 'Entrar na lojinha', shortLabel: 'Loja', hint: 'Produtos e pedidos', x: 850, y: 472, color: '#9e6d49', page: 'store' },
 ]
 
 const solids: Solid[] = [
@@ -293,7 +313,7 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
   const frameRef = useRef<number | null>(null)
   const interactionPromptRef = useRef<HTMLDivElement | null>(null)
   const keysRef = useRef<Record<string, boolean>>({})
-  const playerRef = useRef<Player>({ x: 466, y: 505, direction: 'up', moving: false, step: 0 })
+  const playerRef = useRef<Player>(storedPlayer())
   const lastTimeRef = useRef(0)
   const walkTimeRef = useRef(0)
   const [nearby, setNearby] = useState<Interaction | null>(null)
@@ -356,7 +376,7 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
           const cssHeight = viewHeight / pixelRatio
           const interactionX = ((interaction.x - cameraX) * scale) / pixelRatio
           const interactionY = ((interaction.y - cameraY) * scale) / pixelRatio
-          const promptHalfWidth = Math.min(150, cssWidth * 0.39)
+          const promptHalfWidth = Math.min(90, cssWidth * 0.24)
           const promptX = Math.max(promptHalfWidth + 8, Math.min(cssWidth - promptHalfWidth - 8, interactionX))
           const promptY = Math.max(155, Math.min(cssHeight - 96, interactionY - 18))
           prompt.style.left = `${promptX}px`
@@ -438,6 +458,7 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
     frameRef.current = window.requestAnimationFrame(animate)
     return () => {
       if (frameRef.current) window.cancelAnimationFrame(frameRef.current)
+      sessionStorage.setItem(PLAYER_POSITION_KEY, JSON.stringify(playerRef.current))
       resizeObserver.disconnect()
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
@@ -492,13 +513,18 @@ export default function ImmersiveLibrary({ currentUser, onExit, onNavigate, onCr
           )}
 
           {nearby && !showGuide && (
-            <div ref={interactionPromptRef} className="absolute z-10 w-[min(78%,300px)] -translate-x-1/2 -translate-y-full rounded-xl border border-amber-100/25 bg-[#1c120d]/95 p-3 text-center shadow-2xl backdrop-blur-sm sm:w-[390px] sm:translate-y-0">
-              <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-200/65">Você encontrou</p>
-              <p className="mt-0.5 font-serif text-base font-bold text-amber-50">{nearby.label}</p>
-              <p className="mt-0.5 text-[11px] text-amber-100/60">{nearby.hint}</p>
-              <button type="button" onClick={useInteraction} className="mt-2 rounded-lg px-4 py-2 text-xs font-extrabold text-[#21150f] shadow-lg transition hover:brightness-110" style={{ backgroundColor: nearby.color }}>
-                Abrir <span className="ml-1 hidden opacity-60 sm:inline">E / Enter</span>
+            <div ref={interactionPromptRef} className="absolute z-10 w-auto max-w-[180px] -translate-x-1/2 -translate-y-full text-center sm:w-[390px] sm:max-w-none sm:translate-y-0 sm:rounded-xl sm:border sm:border-amber-100/25 sm:bg-[#1c120d]/95 sm:p-3 sm:shadow-2xl sm:backdrop-blur-sm">
+              <button type="button" onClick={useInteraction} className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-extrabold text-[#21150f] shadow-xl transition hover:brightness-110 sm:hidden" style={{ backgroundColor: nearby.color }}>
+                {nearby.shortLabel}, abrir
               </button>
+              <div className="hidden sm:block">
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-200/65">Você encontrou</p>
+                <p className="mt-0.5 font-serif text-base font-bold text-amber-50">{nearby.label}</p>
+                <p className="mt-0.5 text-[11px] text-amber-100/60">{nearby.hint}</p>
+                <button type="button" onClick={useInteraction} className="mt-2 rounded-lg px-4 py-2 text-xs font-extrabold text-[#21150f] shadow-lg transition hover:brightness-110" style={{ backgroundColor: nearby.color }}>
+                  Abrir <span className="ml-1 opacity-60">E / Enter</span>
+                </button>
+              </div>
             </div>
           )}
 

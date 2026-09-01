@@ -8667,6 +8667,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [theme, setTheme] = useState<ColorTheme>(() => storedColorTheme())
   const [immersiveMode, setImmersiveMode] = useState(false)
+  const [immersiveSession, setImmersiveSession] = useState(false)
   const [page, setPage] = useState<Page>(() => storedPage())
   const [selectedBookId, setSelectedBookId] = useState<string | null>(() => storedBookId())
   const [selectedPostId, setSelectedPostId] = useState<string | null>(() => storedPostId())
@@ -9793,6 +9794,8 @@ export default function App() {
     }
 
     setCurrentUser(null)
+    setImmersiveMode(false)
+    setImmersiveSession(false)
     localStorage.removeItem('folio_token')
     setToken('')
     setResumeError('')
@@ -9830,7 +9833,10 @@ export default function App() {
     return (
       <ImmersiveLibrary
         currentUser={currentUser}
-        onExit={() => setImmersiveMode(false)}
+        onExit={() => {
+          setImmersiveMode(false)
+          setImmersiveSession(false)
+        }}
         onNavigate={handleImmersiveNavigate}
         onCreatePost={() => {
           setImmersiveMode(false)
@@ -9849,11 +9855,23 @@ export default function App() {
         onToggleTheme={handleToggleTheme}
         onNavigate={handleNavigate}
         onCreatePost={() => handleOpenCreatePost()}
-        onOpenImmersion={() => setImmersiveMode(true)}
+        onOpenImmersion={() => {
+          setImmersiveSession(true)
+          setImmersiveMode(true)
+        }}
         onLogout={handleLogout}
       />
       <ActionLoadingIndicator active={actionLoadingCount > 0} />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      {immersiveSession && isSuperAdminUser(currentUser) && (
+        <button
+          type="button"
+          onClick={() => setImmersiveMode(true)}
+          className="fixed left-1/2 top-3 z-[70] -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-300/35 bg-stone-950/95 px-4 py-2 text-xs font-extrabold text-amber-300 shadow-xl shadow-black/30 backdrop-blur-xl transition hover:bg-stone-900 sm:top-4"
+        >
+          ← Voltar à imersão
+        </button>
+      )}
       <NotificationTopButton count={notificationCount} active={page === 'notifications'} onClick={() => void handleNavigate('notifications')} />
       {datePromptDialog}
       {confirmPromptDialog}
