@@ -1,23 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr'
 
 type ImmersiveDestination = 'timeline' | 'shelf' | 'library' | 'profile' | 'goals' | 'notifications' | 'superadmin' | 'store'
 
 type LibraryUser = {
+  id: string
   name: string
   handle: string
   avatar?: string
 }
 
 export type ImmersiveOnlineUser = LibraryUser & {
-  id: string
+  immersive?: boolean
+  x?: number | null
+  y?: number | null
+  direction?: Direction | null
+  moving?: boolean
 }
 
 type Props = {
   currentUser: LibraryUser
   onlineUsers: ImmersiveOnlineUser[]
+  token: string
+  hubUrl: string
+  mediaBaseUrl: string
+  isSuperAdmin: boolean
   onExit: () => void
   onNavigate: (page: ImmersiveDestination) => void
   onCreatePost: () => void
+  onUserClick: (userId: string) => void
 }
 
 type Direction = 'up' | 'down' | 'left' | 'right'
@@ -45,6 +56,7 @@ type Interaction = {
 type Solid = { x: number; y: number; width: number; height: number }
 
 type LibraryNpc = ImmersiveOnlineUser & Player & {
+  immersive: boolean
   decisionTimer: number
   speed: number
 }
@@ -325,15 +337,17 @@ function drawNpc(ctx: CanvasRenderingContext2D, npc: LibraryNpc, avatar: HTMLIma
   drawAvatarFace(ctx, npc.x, npc.y, avatar, npc.name)
   const firstName = npc.name.split(' ')[0] || npc.handle || 'Leitor'
   ctx.font = '700 10px "Plus Jakarta Sans", sans-serif'
-  const labelWidth = Math.max(42, Math.min(92, ctx.measureText(firstName).width + 16))
+  const status = npc.immersive ? 'NO MODO' : 'NPC'
+  const labelWidth = Math.max(58, Math.min(104, Math.max(ctx.measureText(firstName).width + 16, ctx.measureText(status).width + 18)))
   ctx.fillStyle = 'rgba(31, 20, 14, .86)'
-  roundedRect(ctx, npc.x + 14 - labelWidth / 2, npc.y - 16, labelWidth, 14, 6)
+  roundedRect(ctx, npc.x + 14 - labelWidth / 2, npc.y - 27, labelWidth, 25, 6)
   ctx.fill()
   ctx.fillStyle = '#fff0c9'
   ctx.textAlign = 'center'
-  ctx.fillText(firstName, npc.x + 14, npc.y - 6)
-  ctx.fillStyle = '#62c98c'
-  ctx.beginPath(); ctx.arc(npc.x + 14 + labelWidth / 2 - 5, npc.y - 11, 2.5, 0, Math.PI * 2); ctx.fill()
+  ctx.fillText(firstName, npc.x + 14, npc.y - 17)
+  ctx.fillStyle = npc.immersive ? '#62c98c' : '#b8aa99'
+  ctx.font = '800 6px "Plus Jakarta Sans", sans-serif'
+  ctx.fillText(status, npc.x + 14, npc.y - 7)
 }
 
 function overlapsSolid(x: number, y: number) {
@@ -342,12 +356,13 @@ function overlapsSolid(x: number, y: number) {
   return solids.some(solid => foot.x < solid.x + solid.width && foot.x + foot.width > solid.x && foot.y < solid.y + solid.height && foot.y + foot.height > solid.y)
 }
 
-function nearestInteraction(player: Player) {
+function nearestInteraction(player: Player, isSuperAdmin: boolean) {
   const px = player.x + PLAYER_WIDTH / 2
   const py = player.y + PLAYER_HEIGHT / 2
   let nearest: Interaction | null = null
   let nearestDistance = Number.POSITIVE_INFINITY
   for (const interaction of interactions) {
+    if (!isSuperAdmin && (interaction.id === 'dashboard' || interaction.id === 'store')) continue
     const distance = Math.hypot(px - interaction.x, py - interaction.y)
     if (distance < 82 && distance < nearestDistance) {
       nearest = interaction
@@ -357,7 +372,7 @@ function nearestInteraction(player: Player) {
   return nearest
 }
 
-export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onNavigate, onCreatePost }: Props) {
+export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubUrl, mediaBaseUrl, isSuperAdmin, onExit, onNavigate, onCreatePost, onUserClick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const frameRef = useRef<number | null>(null)
   const interactionPromptRef = useRef<HTMLDivElement | null>(null)
@@ -365,10 +380,14 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onN
   const playerRef = useRef<Player>(storedPlayer())
   const npcsRef = useRef<LibraryNpc[]>([])
   const avatarImagesRef = useRef<Map<string, HTMLImageElement>>(new Map())
+  const immersiveConnectionRef = useRef<ReturnType<HubConnectionBuilder['build']> | null>(null)
+  const lastMoveBroadcastRef = useRef(0)
   const lastTimeRef = useRef(0)
   const walkTimeRef = useRef(0)
   const [nearby, setNearby] = useState<Interaction | null>(null)
+  const [nearbyUser, setNearbyUser] = useState<LibraryNpc | null>(null)
   const nearbyRef = useRef<Interaction | null>(null)
+  const nearbyUserRef = useRef<LibraryNpc | null>(null)
   const [showGuide, setShowGuide] = useState(() => sessionStorage.getItem(GUIDE_SEEN_KEY) !== '1')
 
   function dismissGuide() {
@@ -385,14 +404,24 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onN
     ]
     npcsRef.current = onlineUsers.slice(0, 20).map((user, index) => {
       const existing = previous.get(user.id)
-      if (existing) return { ...existing, ...user }
+      const immersive = Boolean(user.immersive)
+      if (existing) return {
+        ...existing,
+        ...user,
+        immersive,
+        x: immersive && typeof user.x === 'number' ? user.x : existing.x,
+        y: immersive && typeof user.y === 'number' ? user.y : existing.y,
+        direction: user.direction || existing.direction,
+        moving: immersive ? Boolean(user.moving) : existing.moving,
+      }
       const spawn = spawnPoints[index % spawnPoints.length]
       return {
         ...user,
-        x: spawn.x + (index >= spawnPoints.length ? (index % 3) * 18 : 0),
-        y: spawn.y + (index >= spawnPoints.length ? (index % 2) * 18 : 0),
-        direction: 'down' as Direction,
-        moving: false,
+        immersive,
+        x: immersive && typeof user.x === 'number' ? user.x : spawn.x + (index >= spawnPoints.length ? (index % 3) * 18 : 0),
+        y: immersive && typeof user.y === 'number' ? user.y : spawn.y + (index >= spawnPoints.length ? (index % 2) * 18 : 0),
+        direction: user.direction || 'down',
+        moving: immersive ? Boolean(user.moving) : false,
         step: index % 4,
         decisionTimer: 0.5 + (index % 5) * 0.4,
         speed: 42 + (index % 4) * 5,
@@ -408,6 +437,97 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onN
       avatarImagesRef.current.set(url, image)
     }
   }, [currentUser, onlineUsers])
+
+  useEffect(() => {
+    type RemotePlayer = {
+      userId: string
+      name: string
+      handle: string
+      avatar: string
+      x: number
+      y: number
+      direction: Direction
+      moving: boolean
+    }
+
+    const resolveAvatar = (value: string) => {
+      if (!value) return 'L'
+      if (/^https?:\/\//i.test(value)) return value
+      if (value.startsWith('/')) return `${mediaBaseUrl.replace(/\/$/, '')}${value}`
+      if (/^(uploads|media|files)\//i.test(value)) return `${mediaBaseUrl.replace(/\/$/, '')}/${value}`
+      return value
+    }
+    const upsertRemote = (remote: RemotePlayer) => {
+      if (remote.userId === currentUser.id) return
+      const avatar = resolveAvatar(remote.avatar)
+      const index = npcsRef.current.findIndex(npc => npc.id === remote.userId)
+      const base: LibraryNpc = {
+        id: remote.userId,
+        name: remote.name,
+        handle: remote.handle,
+        avatar,
+        immersive: true,
+        x: remote.x,
+        y: remote.y,
+        direction: remote.direction || 'down',
+        moving: Boolean(remote.moving),
+        step: 0,
+        decisionTimer: 1,
+        speed: 48,
+      }
+      if (index >= 0) npcsRef.current[index] = { ...npcsRef.current[index], ...base }
+      else npcsRef.current.push(base)
+      if (/^(https?:|\/\/|\/)/i.test(avatar) && !avatarImagesRef.current.has(avatar)) {
+        const image = new Image()
+        image.decoding = 'async'
+        image.src = avatar
+        avatarImagesRef.current.set(avatar, image)
+      }
+    }
+    const handleSnapshot = (players: RemotePlayer[]) => {
+      npcsRef.current.forEach(npc => { npc.immersive = false })
+      players.forEach(upsertRemote)
+    }
+    const handleLeft = ({ userId }: { userId: string }) => {
+      const npc = npcsRef.current.find(item => item.id === userId)
+      if (npc) {
+        npc.immersive = false
+        npc.moving = false
+        npc.decisionTimer = 0.5
+      }
+    }
+
+    const connection = new HubConnectionBuilder()
+      .withUrl(hubUrl, { accessTokenFactory: () => token })
+      .withAutomaticReconnect([0, 2_000, 5_000, 10_000])
+      .configureLogging(LogLevel.Warning)
+      .build()
+    immersiveConnectionRef.current = connection
+    connection.on('immersiveSnapshot', handleSnapshot)
+    connection.on('immersivePlayerJoined', upsertRemote)
+    connection.on('immersivePlayerMoved', upsertRemote)
+    connection.on('immersivePlayerLeft', handleLeft)
+
+    const enter = () => {
+      const player = playerRef.current
+      return connection.invoke('EnterImmersive', player.x, player.y, player.direction)
+    }
+    connection.onreconnected(() => { void enter().catch(() => undefined) })
+    void connection.start().then(enter).catch(() => undefined)
+
+    return () => {
+      immersiveConnectionRef.current = null
+      connection.off('immersiveSnapshot', handleSnapshot)
+      connection.off('immersivePlayerJoined', upsertRemote)
+      connection.off('immersivePlayerMoved', upsertRemote)
+      connection.off('immersivePlayerLeft', handleLeft)
+      if (connection.state === HubConnectionState.Connected) {
+        void connection.invoke('LeaveImmersive').finally(() => connection.stop())
+      } else if (connection.state !== HubConnectionState.Disconnected) {
+        void connection.stop()
+      }
+    }
+  }, [currentUser.id, hubUrl, mediaBaseUrl, token])
 
   const useInteraction = useCallback(() => {
     const interaction = nearbyRef.current
@@ -457,7 +577,7 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onN
         : -(visibleWorldHeight - WORLD_HEIGHT) / 2
 
       const prompt = interactionPromptRef.current
-      const interaction = nearbyRef.current
+      const interaction = nearbyUserRef.current || nearbyRef.current
       if (prompt && interaction) {
         if (canvasNode.clientWidth < 640) {
           const pixelRatio = window.devicePixelRatio || 1
@@ -532,7 +652,18 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onN
         player.step = 0
       }
 
+      const immersiveConnection = immersiveConnectionRef.current
+      if (immersiveConnection?.state === HubConnectionState.Connected && time - lastMoveBroadcastRef.current >= 140) {
+        lastMoveBroadcastRef.current = time
+        void immersiveConnection.invoke('MoveImmersive', player.x, player.y, player.direction, player.moving).catch(() => undefined)
+      }
+
       for (const npc of npcsRef.current) {
+        if (npc.immersive) {
+          if (npc.moving) npc.step = (npc.step + delta * 7) % 4
+          else npc.step = 0
+          continue
+        }
         npc.decisionTimer -= delta
         if (npc.decisionTimer <= 0) {
           const choice = Math.floor(Math.random() * 6)
@@ -559,10 +690,20 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onN
         }
       }
 
-      const nextNearby = nearestInteraction(player)
+      const nextNearby = nearestInteraction(player, isSuperAdmin)
       if (nextNearby?.id !== nearbyRef.current?.id) {
         nearbyRef.current = nextNearby
         setNearby(nextNearby)
+      }
+      const playerCenterX = player.x + PLAYER_WIDTH / 2
+      const playerCenterY = player.y + PLAYER_HEIGHT / 2
+      const nextNearbyUser = npcsRef.current
+        .map(npc => ({ npc, distance: Math.hypot(playerCenterX - (npc.x + PLAYER_WIDTH / 2), playerCenterY - (npc.y + PLAYER_HEIGHT / 2)) }))
+        .filter(item => item.distance < 58)
+        .sort((a, b) => a.distance - b.distance)[0]?.npc || null
+      if (nextNearbyUser?.id !== nearbyUserRef.current?.id) {
+        nearbyUserRef.current = nextNearbyUser
+        setNearbyUser(nextNearbyUser)
       }
 
       resizeCanvas()
@@ -583,7 +724,7 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onN
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [onExit, useInteraction])
+  }, [currentUser.avatar, currentUser.name, isSuperAdmin, onExit, useInteraction])
 
   function pressKey(code: string, pressed: boolean) {
     keysRef.current[code] = pressed
@@ -632,7 +773,7 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onN
             </div>
           )}
 
-          {nearby && !showGuide && (
+          {nearby && !nearbyUser && !showGuide && (
             <div ref={interactionPromptRef} className="absolute z-10 w-auto max-w-[180px] -translate-x-1/2 -translate-y-full text-center sm:w-[390px] sm:max-w-none sm:translate-y-0 sm:rounded-xl sm:border sm:border-amber-100/25 sm:bg-[#1c120d]/95 sm:p-3 sm:shadow-2xl sm:backdrop-blur-sm">
               <button type="button" onClick={useInteraction} className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-extrabold text-[#21150f] shadow-xl transition hover:brightness-110 sm:hidden" style={{ backgroundColor: nearby.color }}>
                 {nearby.shortLabel}, abrir
@@ -644,6 +785,20 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, onExit, onN
                 <button type="button" onClick={useInteraction} className="mt-2 rounded-lg px-4 py-2 text-xs font-extrabold text-[#21150f] shadow-lg transition hover:brightness-110" style={{ backgroundColor: nearby.color }}>
                   Abrir <span className="ml-1 opacity-60">E / Enter</span>
                 </button>
+              </div>
+            </div>
+          )}
+
+          {nearbyUser && !showGuide && (
+            <div ref={interactionPromptRef} className="absolute z-10 w-auto max-w-[190px] -translate-x-1/2 -translate-y-full text-center sm:w-[340px] sm:max-w-none sm:translate-y-0 sm:rounded-xl sm:border sm:border-amber-100/25 sm:bg-[#1c120d]/95 sm:p-3 sm:shadow-2xl sm:backdrop-blur-sm">
+              <button type="button" onClick={() => onUserClick(nearbyUser.id)} className="whitespace-nowrap rounded-lg bg-emerald-300 px-3 py-2 text-xs font-extrabold text-[#17251d] shadow-xl transition hover:bg-emerald-200 sm:hidden">
+                {nearbyUser.name.split(' ')[0]}, ver perfil
+              </button>
+              <div className="hidden sm:block">
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-emerald-300/75">{nearbyUser.immersive ? 'Explorando agora' : 'Personagem NPC'}</p>
+                <p className="mt-1 font-serif text-base font-bold text-amber-50">{nearbyUser.name}</p>
+                <p className="mt-0.5 text-[11px] text-amber-100/60">@{nearbyUser.handle || 'leitor'}</p>
+                <button type="button" onClick={() => onUserClick(nearbyUser.id)} className="mt-2 rounded-lg bg-emerald-300 px-4 py-2 text-xs font-extrabold text-[#17251d] transition hover:bg-emerald-200">Ver perfil</button>
               </div>
             </div>
           )}

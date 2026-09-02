@@ -2752,12 +2752,10 @@ function Navigation({ currentUser, page, theme, onToggleTheme, onNavigate, onCre
         <button onClick={onCreatePost} className="mb-4 rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-bold text-stone-950 transition hover:bg-amber-200">
           Nova publicação
         </button>
-        {isSuperAdminUser(currentUser) && (
-          <button onClick={onOpenImmersion} className="mb-3 flex items-center justify-center gap-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-4 py-2.5 text-sm font-bold text-amber-300 transition hover:bg-amber-300/20">
-            <span aria-hidden="true">♟</span>
-            Modo imersão
-          </button>
-        )}
+        <button onClick={onOpenImmersion} className="mb-3 flex items-center justify-center gap-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-4 py-2.5 text-sm font-bold text-amber-300 transition hover:bg-amber-300/20">
+          <span aria-hidden="true">♟</span>
+          Modo imersão
+        </button>
         <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <div className="flex items-center gap-3 border-t border-stone-800 pt-4">
           <Avatar user={currentUser} size="sm" />
@@ -2771,7 +2769,7 @@ function Navigation({ currentUser, page, theme, onToggleTheme, onNavigate, onCre
         </div>
       </aside>
 
-      <MobileQuickActions theme={theme} onToggleTheme={onToggleTheme} onCreatePost={onCreatePost} onOpenStore={isSuperAdminUser(currentUser) ? () => onNavigate('store') : undefined} onOpenImmersion={isSuperAdminUser(currentUser) ? onOpenImmersion : undefined} />
+      <MobileQuickActions theme={theme} onToggleTheme={onToggleTheme} onCreatePost={onCreatePost} onOpenStore={isSuperAdminUser(currentUser) ? () => onNavigate('store') : undefined} onOpenImmersion={onOpenImmersion} />
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-800 bg-stone-950/95 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-2 backdrop-blur-xl md:hidden">
         <div className="mx-auto grid max-w-md items-center gap-1" style={{ gridTemplateColumns: `repeat(${mobileNavItems.length}, minmax(0, 1fr))` }}>
@@ -9173,7 +9171,7 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    if (!immersiveSession || !token || !currentUser || !isSuperAdminUser(currentUser)) {
+    if (!immersiveSession || !token || !currentUser) {
       setImmersiveOnlineUsers([])
       return
     }
@@ -9181,16 +9179,14 @@ export default function App() {
     let active = true
     const currentUserId = currentUser.id
     const loadOnlineUsers = () => {
-      apiRequest<SuperAdminDashboard>('/folio/superadmin/dashboard', {}, token)
+      apiRequest<{ users: ImmersiveOnlineUser[] }>('/folio/immersive/presence', {}, token)
         .then(data => {
           if (!active) return
-          setImmersiveOnlineUsers(data.activeNow
-            .filter(row => row.user.id !== currentUserId)
-            .map(row => ({
-              id: row.user.id,
-              name: row.user.name,
-              handle: row.user.handle,
-              avatar: resolveMediaUrl(row.user.avatar),
+          setImmersiveOnlineUsers(data.users
+            .filter(user => user.id !== currentUserId)
+            .map(user => ({
+              ...user,
+              avatar: resolveMediaUrl(user.avatar),
             })))
         })
         .catch(() => {
@@ -9864,11 +9860,15 @@ export default function App() {
   const selectedProfileUser = users.find(user => user.id === (selectedProfileUserId || currentUser.id)) || currentUser
   const notificationCount = visibleNotifications.filter(notification => !notification.read).length
 
-  if (immersiveMode && isSuperAdminUser(currentUser)) {
+  if (immersiveMode) {
     return (
       <ImmersiveLibrary
         currentUser={{ ...currentUser, avatar: resolveMediaUrl(currentUser.avatar) }}
         onlineUsers={immersiveOnlineUsers}
+        token={token}
+        hubUrl={FOLIO_HUB_URL}
+        mediaBaseUrl={MEDIA_BASE_URL}
+        isSuperAdmin={isSuperAdminUser(currentUser)}
         onExit={() => {
           setImmersiveMode(false)
           setImmersiveSession(false)
@@ -9877,6 +9877,10 @@ export default function App() {
         onCreatePost={() => {
           setImmersiveMode(false)
           handleOpenCreatePost()
+        }}
+        onUserClick={userId => {
+          setImmersiveMode(false)
+          handleUserClick(userId)
         }}
       />
     )
@@ -9899,7 +9903,7 @@ export default function App() {
       />
       <ActionLoadingIndicator active={actionLoadingCount > 0} />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
-      {immersiveSession && isSuperAdminUser(currentUser) && (
+      {immersiveSession && (
         <button
           type="button"
           onClick={() => setImmersiveMode(true)}
