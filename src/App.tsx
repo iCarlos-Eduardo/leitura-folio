@@ -9151,6 +9151,27 @@ export default function App() {
     if (!token || !currentUser) return
 
     let active = true
+    const refreshNotifications = async () => {
+      if (!active || document.hidden) return
+      try {
+        const latest = await apiRequest<FolioNotification[]>('/folio/notifications', {}, token)
+        if (active) setNotifications(latest)
+      } catch {
+        // O SignalR e a sincronização ao retomar continuam como alternativas.
+      }
+    }
+
+    const timer = window.setInterval(() => void refreshNotifications(), 20_000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [token, currentUser?.id])
+
+  useEffect(() => {
+    if (!token || !currentUser) return
+
+    let active = true
     let refreshTimer: number | undefined
     const connection = new HubConnectionBuilder()
       .withUrl(FOLIO_HUB_URL, { accessTokenFactory: () => activeAuthToken() })
