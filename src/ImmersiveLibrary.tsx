@@ -409,16 +409,26 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
       // O estado recebido em tempo real tem prioridade sobre a consulta periódica.
       // A saída efetiva é tratada pelo evento immersivePlayerLeft.
       const immersive = Boolean(user.immersive || existing?.immersive)
-      if (existing) return {
-        ...existing,
-        ...user,
-        immersive,
-        x: existing.x,
-        y: existing.y,
-        targetX: immersive && typeof user.x === 'number' ? user.x : existing.targetX,
-        targetY: immersive && typeof user.y === 'number' ? user.y : existing.targetY,
-        direction: user.direction || existing.direction,
-        moving: immersive ? Boolean(user.moving) : existing.moving,
+      if (existing) {
+        // Enquanto estiver no modo, apenas o canal em tempo real pode alterar
+        // movimento e posição. A consulta HTTP pode conter coordenadas antigas.
+        if (existing.immersive) return {
+          ...existing,
+          name: user.name,
+          handle: user.handle,
+          avatar: user.avatar,
+        }
+        return {
+          ...existing,
+          ...user,
+          immersive,
+          x: existing.x,
+          y: existing.y,
+          targetX: immersive && typeof user.x === 'number' ? user.x : existing.targetX,
+          targetY: immersive && typeof user.y === 'number' ? user.y : existing.targetY,
+          direction: user.direction || existing.direction,
+          moving: immersive ? Boolean(user.moving) : existing.moving,
+        }
       }
       const spawn = spawnPoints[index % spawnPoints.length]
       const initialX = immersive && typeof user.x === 'number' ? user.x : spawn.x + (index >= spawnPoints.length ? (index % 3) * 18 : 0)
