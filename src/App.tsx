@@ -9909,6 +9909,9 @@ export default function App() {
         hubUrl={FOLIO_HUB_URL}
         mediaBaseUrl={MEDIA_BASE_URL}
         isSuperAdmin={isSuperAdminUser(currentUser)}
+        raceUsers={users}
+        raceBooks={books}
+        raceShelf={shelf}
         onExit={() => {
           setImmersiveMode(false)
           setImmersiveSession(false)

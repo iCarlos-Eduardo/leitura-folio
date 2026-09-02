@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr'
 
 type ImmersiveDestination = 'timeline' | 'shelf' | 'library' | 'profile' | 'goals' | 'notifications' | 'superadmin' | 'store'
@@ -8,6 +8,24 @@ type LibraryUser = {
   name: string
   handle: string
   avatar?: string
+}
+
+type RaceUser = LibraryUser
+
+type RaceBook = {
+  id: string
+  title: string
+  author: string
+  cover: string
+  totalChapters: number
+}
+
+type RaceShelfEntry = {
+  userId: string
+  bookId: string
+  status: string
+  progress: number
+  endDate?: string | null
 }
 
 export type ImmersiveOnlineUser = LibraryUser & {
@@ -25,6 +43,9 @@ type Props = {
   hubUrl: string
   mediaBaseUrl: string
   isSuperAdmin: boolean
+  raceUsers: RaceUser[]
+  raceBooks: RaceBook[]
+  raceShelf: RaceShelfEntry[]
   onExit: () => void
   onNavigate: (page: ImmersiveDestination) => void
   onCreatePost: () => void
@@ -407,6 +428,83 @@ function drawNpc(ctx: CanvasRenderingContext2D, npc: LibraryNpc, avatar: HTMLIma
   ctx.fillText(status, npc.x + 14, npc.y - 7)
 }
 
+const RACE_ANIMALS = ['🐇', '🦊', '🐻', '🐱', '🐶', '🦉', '🐼', '🐸']
+
+function raceAnimal(userId: string) {
+  return RACE_ANIMALS[stableUserHash(userId) % RACE_ANIMALS.length]
+}
+
+function ReadingRaces({ users, books, shelf, onClose }: { users: RaceUser[]; books: RaceBook[]; shelf: RaceShelfEntry[]; onClose: () => void }) {
+  const [tab, setTab] = useState<'book' | 'year'>('book')
+  const availableBooks = useMemo(() => books
+    .map(book => ({ book, racers: shelf.filter(entry => entry.bookId === book.id).length }))
+    .filter(item => item.racers > 0)
+    .sort((a, b) => b.racers - a.racers || a.book.title.localeCompare(b.book.title)), [books, shelf])
+  const [selectedBookId, setSelectedBookId] = useState(() => availableBooks[0]?.book.id || '')
+  const selectedBook = availableBooks.find(item => item.book.id === selectedBookId)?.book || availableBooks[0]?.book
+  const usersById = useMemo(() => new Map(users.map(user => [user.id, user])), [users])
+  const bookRacers = selectedBook ? shelf
+    .filter(entry => entry.bookId === selectedBook.id)
+    .map(entry => ({ entry, user: usersById.get(entry.userId) }))
+    .filter((item): item is { entry: RaceShelfEntry; user: RaceUser } => Boolean(item.user))
+    .sort((a, b) => b.entry.progress - a.entry.progress)
+    .slice(0, 14) : []
+  const currentYear = new Date().getFullYear()
+  const annualRacers = users.map(user => ({
+    user,
+    total: shelf.filter(entry => entry.userId === user.id && (entry.status === 'read' || entry.status === 'favorite') && entry.endDate && new Date(entry.endDate).getFullYear() === currentYear).length,
+  })).filter(item => item.total > 0).sort((a, b) => b.total - a.total).slice(0, 14)
+  const annualLeader = Math.max(1, annualRacers[0]?.total || 1)
+
+  const lane = (user: RaceUser, progress: number, detail: string, rank: number) => (
+    <div key={user.id} className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[42px_minmax(0,1fr)_100px]">
+      <span className="text-center text-xs font-black text-amber-200/70">#{rank}</span>
+      <div className="min-w-0">
+        <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-bold">
+          <span className="truncate text-amber-50">{user.name}</span>
+          <span className="shrink-0 text-amber-100/65 sm:hidden">{detail}</span>
+        </div>
+        <div className="relative h-9 overflow-hidden rounded-lg border border-amber-100/15 bg-[#765238]/70">
+          <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-800/35 to-emerald-400/20" style={{ width: `${Math.max(3, Math.min(100, progress))}%` }} />
+          <div className="absolute inset-y-0 right-2 border-r-2 border-dashed border-amber-50/65" />
+          <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl drop-shadow-lg transition-all duration-500" style={{ left: `${Math.max(6, Math.min(94, progress))}%` }}>{raceAnimal(user.id)}</span>
+          <span className="absolute right-0.5 top-0.5 text-base">🏁</span>
+        </div>
+      </div>
+      <span className="hidden text-right text-[11px] font-bold text-amber-100/65 sm:block">{detail}</span>
+    </div>
+  )
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-end justify-center bg-[#0e0906]/80 p-2 backdrop-blur-sm sm:items-center sm:p-5" onClick={event => event.currentTarget === event.target && onClose()}>
+      <section className="flex max-h-[88%] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-amber-200/25 bg-[#24160f] shadow-2xl shadow-black/70">
+        <header className="flex items-center justify-between border-b border-amber-100/15 px-4 py-3">
+          <div><p className="font-serif text-lg font-bold text-amber-50">Corrida de leitura</p><p className="text-[10px] font-bold uppercase tracking-[.16em] text-amber-200/55">Clube da estante</p></div>
+          <button type="button" onClick={onClose} className="rounded-lg border border-white/15 px-3 py-1.5 text-sm text-white/75 hover:bg-white/10">×</button>
+        </header>
+        <div className="grid grid-cols-2 gap-1 border-b border-amber-100/10 p-2">
+          <button type="button" onClick={() => setTab('book')} className={`rounded-lg px-3 py-2 text-xs font-extrabold ${tab === 'book' ? 'bg-amber-200 text-[#28180f]' : 'text-amber-100/60 hover:bg-white/5'}`}>Por livro</button>
+          <button type="button" onClick={() => setTab('year')} className={`rounded-lg px-3 py-2 text-xs font-extrabold ${tab === 'year' ? 'bg-amber-200 text-[#28180f]' : 'text-amber-100/60 hover:bg-white/5'}`}>Geral {currentYear}</button>
+        </div>
+        <div className="overflow-y-auto p-3 sm:p-4">
+          {tab === 'book' ? <>
+            {availableBooks.length ? <select value={selectedBook?.id || ''} onChange={event => setSelectedBookId(event.target.value)} className="mb-4 w-full rounded-lg border border-amber-100/20 bg-[#160e0a] px-3 py-2 text-xs font-bold text-amber-50 outline-none focus:border-amber-300">
+              {availableBooks.map(item => <option key={item.book.id} value={item.book.id}>{item.book.title} · {item.racers} corredor(es)</option>)}
+            </select> : null}
+            <div className="space-y-3">
+              {bookRacers.map((item, index) => lane(item.user, item.entry.progress, `Cap. ${Math.round((item.entry.progress / 100) * Math.max(1, selectedBook?.totalChapters || 1))} · ${Math.round(item.entry.progress)}%`, index + 1))}
+              {!bookRacers.length && <p className="py-10 text-center text-sm text-amber-100/50">Nenhuma corrida de livro disponível ainda.</p>}
+            </div>
+          </> : <div className="space-y-3">
+            {annualRacers.map((item, index) => lane(item.user, (item.total / annualLeader) * 100, `${item.total} livro${item.total === 1 ? '' : 's'}`, index + 1))}
+            {!annualRacers.length && <p className="py-10 text-center text-sm text-amber-100/50">Ainda não há livros concluídos em {currentYear}.</p>}
+          </div>}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function overlapsSolid(x: number, y: number) {
   const foot = { x: x + 5, y: y + 31, width: PLAYER_WIDTH - 10, height: 11 }
   if (foot.x < 20 || foot.y < 74 || foot.x + foot.width > WORLD_WIDTH - 20 || foot.y + foot.height > WORLD_HEIGHT - 18) return true
@@ -429,7 +527,7 @@ function nearestInteraction(player: Player, isSuperAdmin: boolean) {
   return nearest
 }
 
-export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubUrl, mediaBaseUrl, isSuperAdmin, onExit, onNavigate, onCreatePost, onUserClick }: Props) {
+export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubUrl, mediaBaseUrl, isSuperAdmin, raceUsers, raceBooks, raceShelf, onExit, onNavigate, onCreatePost, onUserClick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const frameRef = useRef<number | null>(null)
   const interactionPromptRef = useRef<HTMLDivElement | null>(null)
@@ -443,6 +541,7 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
   const walkTimeRef = useRef(0)
   const [nearby, setNearby] = useState<Interaction | null>(null)
   const [nearbyUser, setNearbyUser] = useState<LibraryNpc | null>(null)
+  const [showRaces, setShowRaces] = useState(false)
   const nearbyRef = useRef<Interaction | null>(null)
   const nearbyUserRef = useRef<LibraryNpc | null>(null)
   const [showGuide, setShowGuide] = useState(() => sessionStorage.getItem(GUIDE_SEEN_KEY) !== '1')
@@ -879,6 +978,7 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
               <button type="button" onClick={useInteraction} className="whitespace-nowrap rounded-lg px-3 py-2 text-xs font-extrabold text-[#21150f] shadow-xl transition hover:brightness-110 sm:hidden" style={{ backgroundColor: nearby.color }}>
                 {nearby.shortLabel}, abrir
               </button>
+              {nearby.id === 'shelf' && <button type="button" onClick={() => setShowRaces(true)} className="mt-1.5 whitespace-nowrap rounded-lg bg-emerald-300 px-3 py-2 text-xs font-extrabold text-[#17251d] shadow-xl transition hover:bg-emerald-200 sm:hidden">Corridas, abrir</button>}
               <div className="hidden sm:block">
                 <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-200/65">Você encontrou</p>
                 <p className="mt-0.5 font-serif text-base font-bold text-amber-50">{nearby.label}</p>
@@ -886,6 +986,7 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
                 <button type="button" onClick={useInteraction} className="mt-2 rounded-lg px-4 py-2 text-xs font-extrabold text-[#21150f] shadow-lg transition hover:brightness-110" style={{ backgroundColor: nearby.color }}>
                   Abrir <span className="ml-1 opacity-60">E / Enter</span>
                 </button>
+                {nearby.id === 'shelf' && <button type="button" onClick={() => setShowRaces(true)} className="ml-2 mt-2 rounded-lg bg-emerald-300 px-4 py-2 text-xs font-extrabold text-[#17251d] transition hover:bg-emerald-200">Ver corridas</button>}
               </div>
             </div>
           )}
@@ -903,6 +1004,8 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
               </div>
             </div>
           )}
+
+          {showRaces && <ReadingRaces users={raceUsers} books={raceBooks} shelf={raceShelf} onClose={() => setShowRaces(false)} />}
 
           <div className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-4 h-40 w-40 sm:hidden">
             {directionButton('ArrowUp', '↑', 'left-14 top-0')}
