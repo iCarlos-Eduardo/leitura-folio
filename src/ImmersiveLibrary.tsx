@@ -55,10 +55,19 @@ type Interaction = {
 
 type Solid = { x: number; y: number; width: number; height: number }
 
+type RemoteWaypoint = {
+  x: number
+  y: number
+  direction: Direction
+  moving: boolean
+  receivedAt: number
+}
+
 type LibraryNpc = ImmersiveOnlineUser & Player & {
   immersive: boolean
   targetX: number
   targetY: number
+  route: RemoteWaypoint[]
   decisionTimer: number
   speed: number
 }
@@ -69,6 +78,52 @@ const PLAYER_WIDTH = 28
 const PLAYER_HEIGHT = 42
 const PLAYER_POSITION_KEY = 'folio_immersive_player_position'
 const GUIDE_SEEN_KEY = 'folio_immersive_guide_seen'
+
+const NPC_PATROL_ROUTES = [
+  [{ x: 270, y: 280 }, { x: 675, y: 280 }, { x: 675, y: 345 }, { x: 270, y: 345 }],
+  [{ x: 315, y: 215 }, { x: 640, y: 215 }, { x: 640, y: 365 }, { x: 315, y: 365 }],
+  [{ x: 190, y: 500 }, { x: 780, y: 500 }, { x: 780, y: 330 }, { x: 190, y: 330 }],
+]
+
+function stableUserHash(userId: string) {
+  let hash = 2166136261
+  for (let index = 0; index < userId.length; index += 1) {
+    hash ^= userId.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function deterministicNpcPosition(userId: string, timestamp = Date.now()) {
+  const hash = stableUserHash(userId)
+  const route = NPC_PATROL_ROUTES[hash % NPC_PATROL_ROUTES.length]
+  const segments = route.map((point, index) => {
+    const next = route[(index + 1) % route.length]
+    return { point, next, length: Math.hypot(next.x - point.x, next.y - point.y) }
+  })
+  const routeLength = segments.reduce((total, segment) => total + segment.length, 0)
+  let distance = ((timestamp / 1000) * 34 + (hash % Math.round(routeLength))) % routeLength
+  for (const segment of segments) {
+    if (distance <= segment.length) {
+      const progress = segment.length ? distance / segment.length : 0
+      const dx = segment.next.x - segment.point.x
+      const dy = segment.next.y - segment.point.y
+      const direction: Direction = Math.abs(dx) > Math.abs(dy) ? (dx >= 0 ? 'right' : 'left') : (dy >= 0 ? 'down' : 'up')
+      return {
+        x: segment.point.x + dx * progress,
+        y: segment.point.y + dy * progress,
+        direction,
+      }
+    }
+    distance -= segment.length
+  }
+  return { ...route[0], direction: 'down' as Direction }
+}
+
+export function prepareFreshImmersivePosition(userId: string) {
+  const position = deterministicNpcPosition(userId)
+  sessionStorage.setItem(PLAYER_POSITION_KEY, JSON.stringify({ ...position, moving: false, step: 0 }))
+}
 
 function storedPlayer(): Player {
   try {
@@ -399,11 +454,6 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
 
   useEffect(() => {
     const previous = new Map(npcsRef.current.map(npc => [npc.id, npc]))
-    const spawnPoints = [
-      { x: 285, y: 285 }, { x: 665, y: 285 }, { x: 270, y: 530 }, { x: 650, y: 530 },
-      { x: 335, y: 350 }, { x: 595, y: 350 }, { x: 310, y: 210 }, { x: 625, y: 215 },
-      { x: 470, y: 300 }, { x: 520, y: 540 }, { x: 205, y: 340 }, { x: 740, y: 345 },
-    ]
     npcsRef.current = onlineUsers.slice(0, 20).map((user, index) => {
       const existing = previous.get(user.id)
       // O estado recebido em tempo real tem prioridade sobre a consulta periódica.
@@ -430,9 +480,9 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
           moving: immersive ? Boolean(user.moving) : existing.moving,
         }
       }
-      const spawn = spawnPoints[index % spawnPoints.length]
-      const initialX = immersive && typeof user.x === 'number' ? user.x : spawn.x + (index >= spawnPoints.length ? (index % 3) * 18 : 0)
-      const initialY = immersive && typeof user.y === 'number' ? user.y : spawn.y + (index >= spawnPoints.length ? (index % 2) * 18 : 0)
+      const patrol = deterministicNpcPosition(user.id)
+      const initialX = immersive && typeof user.x === 'number' ? user.x : patrol.x
+      const initialY = immersive && typeof user.y === 'number' ? user.y : patrol.y
       return {
         ...user,
         immersive,
@@ -440,8 +490,9 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
         y: initialY,
         targetX: initialX,
         targetY: initialY,
-        direction: user.direction || 'down',
-        moving: immersive ? Boolean(user.moving) : false,
+        route: [],
+        direction: user.direction || patrol.direction,
+        moving: immersive ? Boolean(user.moving) : true,
         step: index % 4,
         decisionTimer: 0.5 + (index % 5) * 0.4,
         speed: 42 + (index % 4) * 5,
@@ -481,6 +532,14 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
       if (remote.userId === currentUser.id) return
       const avatar = resolveAvatar(remote.avatar)
       const index = npcsRef.current.findIndex(npc => npc.id === remote.userId)
+      const receivedAt = performance.now()
+      const waypoint: RemoteWaypoint = {
+        x: remote.x,
+        y: remote.y,
+        direction: remote.direction || 'down',
+        moving: Boolean(remote.moving),
+        receivedAt,
+      }
       const base: LibraryNpc = {
         id: remote.userId,
         name: remote.name,
@@ -491,6 +550,7 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
         y: remote.y,
         targetX: remote.x,
         targetY: remote.y,
+        route: [waypoint],
         direction: remote.direction || 'down',
         moving: Boolean(remote.moving),
         step: 0,
@@ -499,6 +559,12 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
       }
       if (index >= 0) {
         const existing = npcsRef.current[index]
+        const lastPoint = existing.route[existing.route.length - 1]
+        const origin = lastPoint || { x: existing.x, y: existing.y, direction: existing.direction, moving: existing.moving, receivedAt: receivedAt - 100 }
+        const jumpDistance = Math.hypot(remote.x - origin.x, remote.y - origin.y)
+        const route = jumpDistance > 110
+          ? [waypoint]
+          : [...(existing.route.length ? existing.route : [origin]), waypoint].slice(-24)
         npcsRef.current[index] = {
           ...existing,
           ...base,
@@ -506,6 +572,7 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
           y: existing.y,
           targetX: remote.x,
           targetY: remote.y,
+          route,
         }
       } else npcsRef.current.push(base)
       if (/^(https?:|\/\/|\/)/i.test(avatar) && !avatarImagesRef.current.has(avatar)) {
@@ -524,6 +591,7 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
       if (npc) {
         npc.immersive = false
         npc.moving = false
+        npc.route = []
         npc.decisionTimer = 0.5
       }
     }
@@ -684,46 +752,43 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
       }
 
       const immersiveConnection = immersiveConnectionRef.current
-      if (immersiveConnection?.state === HubConnectionState.Connected && time - lastMoveBroadcastRef.current >= 140) {
+      if (immersiveConnection?.state === HubConnectionState.Connected && time - lastMoveBroadcastRef.current >= 90) {
         lastMoveBroadcastRef.current = time
         void immersiveConnection.invoke('MoveImmersive', player.x, player.y, player.direction, player.moving).catch(() => undefined)
       }
 
       for (const npc of npcsRef.current) {
         if (npc.immersive) {
-          const smoothing = Math.min(1, delta * 11)
-          npc.x += (npc.targetX - npc.x) * smoothing
-          npc.y += (npc.targetY - npc.y) * smoothing
+          const playbackTime = time - 140
+          while (npc.route.length >= 2 && npc.route[1].receivedAt <= playbackTime) npc.route.shift()
+          if (npc.route.length >= 2) {
+            const from = npc.route[0]
+            const to = npc.route[1]
+            const duration = Math.max(1, to.receivedAt - from.receivedAt)
+            const progress = Math.max(0, Math.min(1, (playbackTime - from.receivedAt) / duration))
+            npc.x = from.x + (to.x - from.x) * progress
+            npc.y = from.y + (to.y - from.y) * progress
+            npc.direction = to.direction
+            npc.moving = to.moving
+          } else if (npc.route.length === 1 && playbackTime >= npc.route[0].receivedAt) {
+            const point = npc.route[0]
+            npc.x = point.x
+            npc.y = point.y
+            npc.direction = point.direction
+            npc.moving = point.moving
+          }
           if (npc.moving) npc.step = (npc.step + delta * 7) % 4
           else npc.step = 0
           continue
         }
-        npc.decisionTimer -= delta
-        if (npc.decisionTimer <= 0) {
-          const choice = Math.floor(Math.random() * 6)
-          npc.moving = choice < 4
-          if (choice === 0) npc.direction = 'up'
-          if (choice === 1) npc.direction = 'down'
-          if (choice === 2) npc.direction = 'left'
-          if (choice === 3) npc.direction = 'right'
-          npc.decisionTimer = npc.moving ? 1.2 + Math.random() * 2.4 : 0.7 + Math.random() * 1.6
-        }
-        if (!npc.moving) continue
-        const distance = npc.speed * delta
-        const dx = npc.direction === 'left' ? -distance : npc.direction === 'right' ? distance : 0
-        const dy = npc.direction === 'up' ? -distance : npc.direction === 'down' ? distance : 0
-        const nextX = npc.x + dx
-        const nextY = npc.y + dy
-        if (!overlapsSolid(nextX, nextY)) {
-          npc.x = nextX
-          npc.y = nextY
-          npc.targetX = nextX
-          npc.targetY = nextY
-          npc.step = (npc.step + delta * 7) % 4
-        } else {
-          npc.moving = false
-          npc.decisionTimer = 0.1
-        }
+        const patrol = deterministicNpcPosition(npc.id)
+        npc.x = patrol.x
+        npc.y = patrol.y
+        npc.targetX = patrol.x
+        npc.targetY = patrol.y
+        npc.direction = patrol.direction
+        npc.moving = true
+        npc.step = (npc.step + delta * 7) % 4
       }
 
       const nextNearby = nearestInteraction(player, isSuperAdmin)

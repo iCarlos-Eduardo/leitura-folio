@@ -2,7 +2,7 @@
 
 import { HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr'
 import type { ImgHTMLAttributes } from 'react'
-import ImmersiveLibrary, { type ImmersiveOnlineUser } from './ImmersiveLibrary'
+import ImmersiveLibrary, { prepareFreshImmersivePosition, type ImmersiveOnlineUser } from './ImmersiveLibrary'
 
 type BookStatus = 'reading' | 'want' | 'read' | 'favorite' | 'rereading' | 'abandoned'
 type PostType = 'comment' | 'reaction' | 'theory'
@@ -9896,6 +9896,7 @@ export default function App() {
         onNavigate={handleNavigate}
         onCreatePost={() => handleOpenCreatePost()}
         onOpenImmersion={() => {
+          if (!immersiveSession) prepareFreshImmersivePosition(currentUser.id)
           setImmersiveSession(true)
           setImmersiveMode(true)
         }}
