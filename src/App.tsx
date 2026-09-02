@@ -142,9 +142,23 @@ type ReplyReactionType = ReactionType
 
 type AddReplyHandler = (postId: string, text: string, parentReplyId?: string, mentionedUserIds?: string[]) => Promise<boolean | void> | boolean | void
 
+type FolioNotificationType =
+  | 'follow'
+  | 'like'
+  | 'reaction'
+  | 'post_reaction'
+  | 'reply'
+  | 'reply_like'
+  | 'reply_reaction'
+  | 'comment_like'
+  | 'comment_reaction'
+  | 'reply_reply'
+  | 'book_comment'
+  | 'mention'
+
 interface FolioNotification {
   id: string
-  type: 'follow' | 'like' | 'reply' | 'reply_like' | 'reply_reply' | 'book_comment' | 'mention'
+  type: FolioNotificationType | string
   userId: string
   postId?: string
   bookId?: string
@@ -2205,16 +2219,21 @@ function notificationBookCommentText(status?: BookStatus) {
 }
 
 function notificationTypeText(type: FolioNotification['type'], status?: BookStatus) {
-  const textByType: Record<FolioNotification['type'], string> = {
+  const textByType: Record<string, string> = {
     follow: 'começou a seguir você',
     like: 'curtiu sua publicação',
+    reaction: 'reagiu à sua publicação',
+    post_reaction: 'reagiu à sua publicação',
     reply: 'comentou na sua publicação',
     reply_like: 'curtiu seu comentário',
+    reply_reaction: 'reagiu ao seu comentário',
+    comment_like: 'curtiu seu comentário',
+    comment_reaction: 'reagiu ao seu comentário',
     reply_reply: 'respondeu seu comentário',
     book_comment: notificationBookCommentText(status),
     mention: 'mencionou você',
   }
-  return textByType[type]
+  return textByType[type] || 'interagiu com você'
 }
 
 function notificationShelfStatus(notification: FolioNotification, currentUser: User | null | undefined, shelf: ShelfEntry[]) {
