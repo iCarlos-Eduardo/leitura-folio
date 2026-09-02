@@ -447,33 +447,41 @@ function ReadingRaces({ users, books, shelf, onClose }: { users: RaceUser[]; boo
     .filter(entry => entry.bookId === selectedBook.id)
     .map(entry => ({ entry, user: usersById.get(entry.userId) }))
     .filter((item): item is { entry: RaceShelfEntry; user: RaceUser } => Boolean(item.user))
-    .sort((a, b) => b.entry.progress - a.entry.progress)
-    .slice(0, 14) : []
+    .sort((a, b) => b.entry.progress - a.entry.progress) : []
   const currentYear = new Date().getFullYear()
   const annualRacers = users.map(user => ({
     user,
     total: shelf.filter(entry => entry.userId === user.id && (entry.status === 'read' || entry.status === 'favorite') && entry.endDate && new Date(entry.endDate).getFullYear() === currentYear).length,
-  })).filter(item => item.total > 0).sort((a, b) => b.total - a.total).slice(0, 14)
+  })).filter(item => item.total > 0).sort((a, b) => b.total - a.total)
   const annualLeader = Math.max(1, annualRacers[0]?.total || 1)
 
-  const lane = (user: RaceUser, progress: number, detail: string, rank: number) => (
-    <div key={user.id} className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[42px_minmax(0,1fr)_100px]">
-      <span className="text-center text-xs font-black text-amber-200/70">#{rank}</span>
-      <div className="min-w-0">
-        <div className="mb-1 flex items-center justify-between gap-2 text-[10px] font-bold">
-          <span className="truncate text-amber-50">{user.name}</span>
-          <span className="shrink-0 text-amber-100/65 sm:hidden">{detail}</span>
-        </div>
-        <div className="relative h-9 overflow-hidden rounded-lg border border-amber-100/15 bg-[#765238]/70">
-          <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-800/35 to-emerald-400/20" style={{ width: `${Math.max(3, Math.min(100, progress))}%` }} />
-          <div className="absolute inset-y-0 right-2 border-r-2 border-dashed border-amber-50/65" />
-          <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl drop-shadow-lg transition-all duration-500" style={{ left: `${Math.max(6, Math.min(94, progress))}%` }}>{raceAnimal(user.id)}</span>
-          <span className="absolute right-0.5 top-0.5 text-base">🏁</span>
+  const sharedTrack = (racers: { user: RaceUser; progress: number; detail: string }[], checkpoints: string[]) => {
+    const trackHeight = Math.max(190, 48 + racers.length * 38)
+    return (
+      <div className="overflow-x-hidden rounded-xl border-2 border-[#b8814f] bg-[#91704b] p-2 shadow-inner shadow-black/40">
+        <div className="relative overflow-hidden rounded-lg bg-[linear-gradient(90deg,rgba(255,255,255,.045)_1px,transparent_1px),linear-gradient(#73543a,#8e6b49)] bg-[size:12.5%_100%,100%_100%]" style={{ height: trackHeight }}>
+          <div className="absolute inset-y-0 left-[6%] border-l-2 border-dashed border-amber-50/55" />
+          <div className="absolute inset-y-0 right-[6%] w-2 bg-[repeating-conic-gradient(#f8ead0_0_25%,#3d2a20_0_50%)] bg-[size:8px_8px] shadow-md" />
+          <span className="absolute right-[2%] top-1 text-2xl drop-shadow-lg">🏁</span>
+          <div className="absolute inset-x-[6%] top-2 flex justify-between text-[8px] font-black uppercase tracking-wide text-amber-50/60">
+            {checkpoints.map((label, index) => <span key={`${label}-${index}`} className={index === checkpoints.length - 1 ? 'translate-x-1/2' : index === 0 ? '-translate-x-1/2' : ''}>{label}</span>)}
+          </div>
+          {racers.map((racer, index) => {
+            const position = 6 + Math.max(0, Math.min(100, racer.progress)) * 0.88
+            return (
+              <div key={racer.user.id} className="absolute flex -translate-x-1/2 items-center gap-1 transition-all duration-500" style={{ left: `${position}%`, top: 31 + index * 38 }}>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#2f2118]/80 text-xl shadow-lg ring-1 ring-amber-100/25">{raceAnimal(racer.user.id)}</span>
+                <span className={`max-w-28 whitespace-nowrap rounded-md bg-[#24160f]/90 px-1.5 py-1 text-[8px] font-extrabold leading-tight text-amber-50 shadow-md ${position > 76 ? '-order-1 text-right' : ''}`}>
+                  <span className="block truncate">#{index + 1} {racer.user.name.split(' ')[0]}</span>
+                  <span className="block text-[7px] text-amber-200/65">{racer.detail}</span>
+                </span>
+              </div>
+            )
+          })}
         </div>
       </div>
-      <span className="hidden text-right text-[11px] font-bold text-amber-100/65 sm:block">{detail}</span>
-    </div>
-  )
+    )
+  }
 
   return (
     <div className="absolute inset-0 z-50 flex items-end justify-center bg-[#0e0906]/80 p-2 backdrop-blur-sm sm:items-center sm:p-5" onClick={event => event.currentTarget === event.target && onClose()}>
@@ -491,14 +499,16 @@ function ReadingRaces({ users, books, shelf, onClose }: { users: RaceUser[]; boo
             {availableBooks.length ? <select value={selectedBook?.id || ''} onChange={event => setSelectedBookId(event.target.value)} className="mb-4 w-full rounded-lg border border-amber-100/20 bg-[#160e0a] px-3 py-2 text-xs font-bold text-amber-50 outline-none focus:border-amber-300">
               {availableBooks.map(item => <option key={item.book.id} value={item.book.id}>{item.book.title} · {item.racers} corredor(es)</option>)}
             </select> : null}
-            <div className="space-y-3">
-              {bookRacers.map((item, index) => lane(item.user, item.entry.progress, `Cap. ${Math.round((item.entry.progress / 100) * Math.max(1, selectedBook?.totalChapters || 1))} · ${Math.round(item.entry.progress)}%`, index + 1))}
-              {!bookRacers.length && <p className="py-10 text-center text-sm text-amber-100/50">Nenhuma corrida de livro disponível ainda.</p>}
-            </div>
-          </> : <div className="space-y-3">
-            {annualRacers.map((item, index) => lane(item.user, (item.total / annualLeader) * 100, `${item.total} livro${item.total === 1 ? '' : 's'}`, index + 1))}
-            {!annualRacers.length && <p className="py-10 text-center text-sm text-amber-100/50">Ainda não há livros concluídos em {currentYear}.</p>}
-          </div>}
+            {bookRacers.length ? sharedTrack(
+              bookRacers.map(item => ({ user: item.user, progress: item.entry.progress, detail: `Cap. ${Math.round((item.entry.progress / 100) * Math.max(1, selectedBook?.totalChapters || 1))}` })),
+              ['Início', `Cap. ${Math.round(Math.max(1, selectedBook?.totalChapters || 1) / 2)}`, `Cap. ${Math.max(1, selectedBook?.totalChapters || 1)}`],
+            ) : <p className="py-10 text-center text-sm text-amber-100/50">Nenhuma corrida de livro disponível ainda.</p>}
+          </> : <>
+            {annualRacers.length ? sharedTrack(
+              annualRacers.map(item => ({ user: item.user, progress: (item.total / annualLeader) * 100, detail: `${item.total} livro${item.total === 1 ? '' : 's'}` })),
+              ['Início', `${Math.max(1, Math.ceil(annualLeader / 2))} livros`, `${annualLeader} livros`],
+            ) : <p className="py-10 text-center text-sm text-amber-100/50">Ainda não há livros concluídos em {currentYear}.</p>}
+          </>}
         </div>
       </section>
     </div>
