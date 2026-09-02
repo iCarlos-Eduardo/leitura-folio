@@ -57,6 +57,8 @@ type Solid = { x: number; y: number; width: number; height: number }
 
 type LibraryNpc = ImmersiveOnlineUser & Player & {
   immersive: boolean
+  targetX: number
+  targetY: number
   decisionTimer: number
   speed: number
 }
@@ -404,22 +406,30 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
     ]
     npcsRef.current = onlineUsers.slice(0, 20).map((user, index) => {
       const existing = previous.get(user.id)
-      const immersive = Boolean(user.immersive)
+      // O estado recebido em tempo real tem prioridade sobre a consulta periódica.
+      // A saída efetiva é tratada pelo evento immersivePlayerLeft.
+      const immersive = Boolean(user.immersive || existing?.immersive)
       if (existing) return {
         ...existing,
         ...user,
         immersive,
-        x: immersive && typeof user.x === 'number' ? user.x : existing.x,
-        y: immersive && typeof user.y === 'number' ? user.y : existing.y,
+        x: existing.x,
+        y: existing.y,
+        targetX: immersive && typeof user.x === 'number' ? user.x : existing.targetX,
+        targetY: immersive && typeof user.y === 'number' ? user.y : existing.targetY,
         direction: user.direction || existing.direction,
         moving: immersive ? Boolean(user.moving) : existing.moving,
       }
       const spawn = spawnPoints[index % spawnPoints.length]
+      const initialX = immersive && typeof user.x === 'number' ? user.x : spawn.x + (index >= spawnPoints.length ? (index % 3) * 18 : 0)
+      const initialY = immersive && typeof user.y === 'number' ? user.y : spawn.y + (index >= spawnPoints.length ? (index % 2) * 18 : 0)
       return {
         ...user,
         immersive,
-        x: immersive && typeof user.x === 'number' ? user.x : spawn.x + (index >= spawnPoints.length ? (index % 3) * 18 : 0),
-        y: immersive && typeof user.y === 'number' ? user.y : spawn.y + (index >= spawnPoints.length ? (index % 2) * 18 : 0),
+        x: initialX,
+        y: initialY,
+        targetX: initialX,
+        targetY: initialY,
         direction: user.direction || 'down',
         moving: immersive ? Boolean(user.moving) : false,
         step: index % 4,
@@ -469,14 +479,25 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
         immersive: true,
         x: remote.x,
         y: remote.y,
+        targetX: remote.x,
+        targetY: remote.y,
         direction: remote.direction || 'down',
         moving: Boolean(remote.moving),
         step: 0,
         decisionTimer: 1,
         speed: 48,
       }
-      if (index >= 0) npcsRef.current[index] = { ...npcsRef.current[index], ...base }
-      else npcsRef.current.push(base)
+      if (index >= 0) {
+        const existing = npcsRef.current[index]
+        npcsRef.current[index] = {
+          ...existing,
+          ...base,
+          x: existing.x,
+          y: existing.y,
+          targetX: remote.x,
+          targetY: remote.y,
+        }
+      } else npcsRef.current.push(base)
       if (/^(https?:|\/\/|\/)/i.test(avatar) && !avatarImagesRef.current.has(avatar)) {
         const image = new Image()
         image.decoding = 'async'
@@ -660,6 +681,9 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
 
       for (const npc of npcsRef.current) {
         if (npc.immersive) {
+          const smoothing = Math.min(1, delta * 11)
+          npc.x += (npc.targetX - npc.x) * smoothing
+          npc.y += (npc.targetY - npc.y) * smoothing
           if (npc.moving) npc.step = (npc.step + delta * 7) % 4
           else npc.step = 0
           continue
@@ -683,6 +707,8 @@ export default function ImmersiveLibrary({ currentUser, onlineUsers, token, hubU
         if (!overlapsSolid(nextX, nextY)) {
           npc.x = nextX
           npc.y = nextY
+          npc.targetX = nextX
+          npc.targetY = nextY
           npc.step = (npc.step + delta * 7) % 4
         } else {
           npc.moving = false
