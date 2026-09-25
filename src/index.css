@@ -67,6 +67,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Keep the mobile navigation attached to the visual viewport on iOS Safari. */
+.folio-mobile-nav {
+  -webkit-backdrop-filter: blur(24px);
+  -webkit-transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  contain: layout paint;
+  min-height: calc(4.25rem + env(safe-area-inset-bottom));
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+
 ::selection {
   background: var(--color-amber-300);
   color: var(--color-stone-950);
