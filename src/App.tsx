@@ -11,6 +11,8 @@ type ProfileListKind = 'following' | 'followers' | 'posts'
 type BookSearchField = 'all' | 'title' | 'author' | 'series' | 'genre' | 'trope' | 'tag'
 type ColorTheme = 'light' | 'dark'
 type BookFeedVisibility = 'all' | 'available'
+type BookCommentSort = 'posted' | 'chapter'
+type BookCommentSortDirection = 'asc' | 'desc'
 type BookTab = 'feed' | 'theories' | 'rooms' | 'replay' | 'about'
 
 type ViewState = {
@@ -4748,6 +4750,8 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   const [newShelfStatus, setNewShelfStatus] = useState<BookStatus>('reading')
   const [readersModalOpen, setReadersModalOpen] = useState(false)
   const [feedVisibility, setFeedVisibility] = useState<BookFeedVisibility>('all')
+  const [commentSort, setCommentSort] = useState<BookCommentSort>('posted')
+  const [commentSortDirection, setCommentSortDirection] = useState<BookCommentSortDirection>('desc')
   const [unlockedRange, setUnlockedRange] = useState<{ from: number; to: number; count: number } | null>(null)
   const highlightedScrollKeyRef = useRef<string | null>(null)
   const { askDate, datePromptDialog } = useDatePrompt()
@@ -4779,7 +4783,15 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
   const platformSpiceRating = spiceSummaryText(averageSpiceRating, spiceRatings.length)
 
   const postsInBook = posts.filter(post => post.bookId === book.id)
-  const comments = postsInBook.filter(post => post.type !== 'theory').sort(newestFirst)
+  const comments = postsInBook
+    .filter(post => post.type !== 'theory')
+    .sort((a, b) => {
+      const direction = commentSortDirection === 'asc' ? 1 : -1
+      const primary = commentSort === 'chapter'
+        ? a.chapter - b.chapter
+        : new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      return primary * direction || a.id.localeCompare(b.id) * direction
+    })
   const theories = postsInBook.filter(post => post.type === 'theory').sort(newestFirst)
   const myReplayPosts = postsInBook
     .filter(post => post.userId === currentUser.id)
@@ -5254,10 +5266,38 @@ function BookPage({ book, shelf, posts, replies, users, currentUser, highlighted
         </div>
       ) : (
         <div>
+          {tab === 'feed' && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-800 px-4 py-3 md:px-5">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Ordenar comentários</p>
+                <p className="mt-1 text-xs text-stone-600">Escolha como o feed deste livro será exibido.</p>
+              </div>
+              <div className="flex w-full gap-2">
+                <select
+                  value={commentSort}
+                  onChange={event => setCommentSort(event.target.value as BookCommentSort)}
+                  className="min-w-0 flex-1 rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-xs font-bold text-stone-100 outline-none transition focus:border-amber-300"
+                  aria-label="Critério de ordenação dos comentários"
+                >
+                  <option value="posted">Por postagem</option>
+                  <option value="chapter">Por capítulo</option>
+                </select>
+                <select
+                  value={commentSortDirection}
+                  onChange={event => setCommentSortDirection(event.target.value as BookCommentSortDirection)}
+                  className="min-w-0 flex-1 rounded-lg border border-stone-700 bg-stone-900 px-3 py-2 text-xs font-bold text-stone-100 outline-none transition focus:border-amber-300"
+                  aria-label="Direção da ordenação dos comentários"
+                >
+                  <option value="asc">Crescente</option>
+                  <option value="desc">Decrescente</option>
+                </select>
+              </div>
+            </div>
+          )}
           {!visibleActiveList.length && <EmptyState text={feedVisibility === 'available' && activeList.length ? (tab === 'theories' ? `Nenhuma teoria liberada até o capítulo ${visibleChapterLimit}.` : `Nenhum comentário liberado até o capítulo ${visibleChapterLimit}.`) : tab === 'theories' ? 'Nenhuma teoria publicada ainda.' : 'Nenhum comentário publicado ainda.'} />}
           <PaginatedPostList
             posts={visibleActiveList}
-            resetKey={`book-${book.id}-${tab}-${feedVisibility}-${visibleChapterLimit}-${highlightedPostId || ''}`}
+            resetKey={`book-${book.id}-${tab}-${feedVisibility}-${commentSort}-${commentSortDirection}-${visibleChapterLimit}-${highlightedPostId || ''}`}
             initialVisibleCount={initialPostVisibleCount}
             renderPost={post => (
               <div
