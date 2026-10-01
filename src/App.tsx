@@ -109,6 +109,8 @@ interface Post {
   editedAt?: string | null
   likes: string[]
   reactions?: { userId: string; type: ReactionType }[]
+  reactionCounts?: Partial<Record<ReactionType, number>>
+  reactionCount?: number
   comments: number
   views?: string[]
   viewCount?: number
@@ -135,6 +137,8 @@ interface Reply {
   editedAt?: string | null
   likes: string[]
   reactions?: { userId: string; type: ReactionType }[]
+  reactionCounts?: Partial<Record<ReactionType, number>>
+  reactionCount?: number
   comments: number
   mentionedUserIds?: string[]
 }
@@ -1466,6 +1470,23 @@ const REPLY_REACTIONS: { type: ReplyReactionType; emoji: string; label: string }
   { type: 'sad', emoji: '😢', label: 'Tristeza' },
   { type: 'angry', emoji: '😡', label: 'Raiva' },
 ]
+
+function reactionCountsFor(item: { likes?: string[]; reactions?: { type: ReactionType }[]; reactionCounts?: Partial<Record<ReactionType, number>> }) {
+  const counts = { ...(item.reactionCounts || {}) } as Record<ReactionType, number>
+  if (!item.reactionCounts) {
+    for (const reaction of item.reactions || []) counts[reaction.type] = (counts[reaction.type] || 0) + 1
+  }
+  for (const _ of item.likes || []) counts.love = (counts.love || 0) + 1
+  return counts
+}
+
+function ReactionSummary({ counts }: { counts: Record<ReactionType, number> }) {
+  const visible = REPLY_REACTIONS.filter(reaction => (counts[reaction.type] || 0) > 0)
+  if (!visible.length) return null
+  return <span className="flex flex-wrap items-center gap-1 text-xs font-semibold text-stone-400" aria-label="Resumo das reações">
+    {visible.map(reaction => <span key={reaction.type} title={reaction.label}>{reaction.emoji} {counts[reaction.type]}</span>)}
+  </span>
+}
 const GENRE_OPTIONS = [
   'Academia Mágica',
   'Adulto',
@@ -2851,7 +2872,7 @@ function EngagementListDialog({ title, users, emptyText, onClose, onUserClick }:
   )
 }
 
-function ReactionTrigger({ selectedType, total, disabled = false, label, onDefault, onSelect }: { selectedType?: ReactionType; total: number; disabled?: boolean; label: string; onDefault: () => void; onSelect: (type: ReactionType) => void }) {
+function ReactionTrigger({ selectedType, total, counts, disabled = false, label, onDefault, onSelect }: { selectedType?: ReactionType; total: number; counts?: Record<ReactionType, number>; disabled?: boolean; label: string; onDefault: () => void; onSelect: (type: ReactionType) => void }) {
   const [open, setOpen] = useState(false)
   const [burst, setBurst] = useState<{ key: number; type: ReactionType } | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -2916,7 +2937,7 @@ function ReactionTrigger({ selectedType, total, disabled = false, label, onDefau
           </span>
         )}
       </button>
-      {total > 0 && <span className="text-xs font-semibold text-stone-400">{total}</span>}
+      {total > 0 && (counts ? <ReactionSummary counts={counts} /> : <span className="text-xs font-semibold text-stone-400">{total}</span>)}
       {open && (
         <div role="menu" aria-label="Escolher reação" className="absolute bottom-[calc(100%+10px)] left-0 z-30 flex items-center gap-1 rounded-full border border-stone-700 bg-stone-900 px-2 py-1.5 shadow-xl shadow-black/50">
           {REPLY_REACTIONS.map(reaction => (
@@ -2947,8 +2968,9 @@ function ReplyReactionPicker({ reply, currentUserId, onToggle, onToggleLike, onS
   const legacyLiked = (reply.likes || []).includes(currentUserId)
   const selectedType = reactions.find(reaction => reaction.userId === currentUserId)?.type || (legacyLiked ? 'love' : undefined)
   const total = reactions.length + (reply.likes || []).length
+  const counts = reactionCountsFor(reply)
   const select = (type: ReactionType) => type === 'love' && legacyLiked ? onToggleLike(reply.id) : onToggle(reply.id, type)
-  return <ReactionTrigger selectedType={selectedType} total={total} label="Reações ao comentário" onDefault={() => selectedType ? (legacyLiked ? onToggleLike(reply.id) : onToggle(reply.id, selectedType)) : select('love')} onSelect={select} />
+  return <ReactionTrigger selectedType={selectedType} total={total} counts={counts} label="Reações ao comentário" onDefault={() => selectedType ? (legacyLiked ? onToggleLike(reply.id) : onToggle(reply.id, selectedType)) : select('love')} onSelect={select} />
 }
 
 function PostCard({ post, users, books, currentUser, replies, shelf = [], onBookClick, onUserClick, onAddReply, onToggleLike, onToggleReaction, onToggleReplyLike, onToggleReplyReaction, onDeletePost, onDeleteReply, onEditPost, onEditReply, onViewPost, compactBook = false, protectSpoilers = false, spoilerChapterLimit, allowChapterLimitWithoutShelf = false, imageLoading = 'lazy' }: {
@@ -3019,6 +3041,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
   const postReactions = post.reactions || []
   const selectedPostReaction = postReactions.find(reaction => reaction.userId === currentUser.id)?.type || (liked ? 'love' : undefined)
   const postReactionTotal = postReactions.length + post.likes.length
+  const postReactionCounts = reactionCountsFor(post)
   const postContent = postTextParts(post.text)
   const likeUsers = uniqueUsersById(post.likes.map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
   const viewUsers = uniqueUsersById((post.views || []).map(id => users.find(user => user.id === id)).filter((user): user is User => Boolean(user)))
@@ -3165,6 +3188,7 @@ function PostCard({ post, users, books, currentUser, replies, shelf = [], onBook
               <ReactionTrigger
                 selectedType={selectedPostReaction}
                 total={postReactionTotal}
+                counts={postReactionCounts}
                 disabled={!canInteractWithContent}
                 label="Reações à publicação"
                 onDefault={() => selectedPostReaction && !liked ? onToggleReaction(post.id, selectedPostReaction) : onToggleLike(post.id)}
@@ -8756,6 +8780,7 @@ export default function App() {
   const postViewsEndpointUnavailableRef = useRef(false)
   const pendingDeletedPostIdsRef = useRef<Set<string>>(new Set())
   const pendingDeletedReplyIdsRef = useRef<Set<string>>(new Set())
+  const interactionQueueRef = useRef<Map<string, Promise<void>>>(new Map())
   const { askDate, datePromptDialog } = useDatePrompt()
   const { askConfirm, confirmPromptDialog } = useConfirmPrompt()
   const canUseDeviceNotifications = Boolean(currentUser)
@@ -8857,6 +8882,28 @@ export default function App() {
 
   function activeAuthToken() {
     return localStorage.getItem('folio_token') || token
+  }
+
+  function enqueueInteraction(key: string, work: () => Promise<boolean | void>, errorText: string) {
+    const previous = interactionQueueRef.current.get(key) || Promise.resolve()
+    const next = previous
+      .catch(() => undefined)
+      .then(work)
+      .catch(async error => {
+        showToast('error', errorMessage(error, errorText))
+        try {
+          await loadBootstrap(activeAuthToken())
+        } catch {
+          // A próxima atualização normal da tela tentará sincronizar novamente.
+        }
+        return false
+      })
+      .finally(() => {
+        if (interactionQueueRef.current.get(key) === queued) interactionQueueRef.current.delete(key)
+      })
+    const queued = next.then(() => undefined)
+    interactionQueueRef.current.set(key, queued)
+    return next
   }
 
   function dismissToast(id: number) {
@@ -9630,15 +9677,11 @@ export default function App() {
 
   async function handleToggleLike(postId: string) {
     if (!currentUser) return false
-    const post = posts.find(item => item.id === postId)
-    const liked = Boolean(post?.likes.includes(currentUser.id))
-    const nextLikes = liked ? (post?.likes || []).filter(id => id !== currentUser.id) : [...(post?.likes || []), currentUser.id]
-    setPosts(current => current.map(item => item.id === postId ? { ...item, likes: nextLikes } : item))
-    syncInBackground(async () => {
-      const activeToken = activeAuthToken()
-      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/likes/toggle`, { method: 'POST' }, activeToken)
+    return enqueueInteraction(`post:${postId}`, async () => {
+      const saved = await apiRequest<Post>(`/folio/posts/${encodeURIComponent(postId)}/likes/toggle`, { method: 'POST' }, activeAuthToken())
+      setPosts(current => current.map(item => item.id === postId ? saved : item))
+      return true
     }, 'Não foi possível atualizar a curtida.')
-    return true
   }
 
   function handleViewPost(postId: string) {
@@ -9679,31 +9722,20 @@ export default function App() {
 
   async function handleToggleReplyLike(replyId: string) {
     if (!currentUser) return false
-    const reply = replies.find(item => item.id === replyId)
-    const liked = Boolean(reply?.likes?.includes(currentUser.id))
-    const nextLikes = liked ? (reply?.likes || []).filter(id => id !== currentUser.id) : [...(reply?.likes || []), currentUser.id]
-    setReplies(current => current.map(item => item.id === replyId ? { ...item, likes: nextLikes } : item))
-    syncInBackground(async () => {
-      const activeToken = activeAuthToken()
-      await apiRequest('/folio/replies/likes/toggle', { method: 'POST', body: JSON.stringify({ replyId }) }, activeToken)
+    return enqueueInteraction(`reply:${replyId}`, async () => {
+      await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}/likes/toggle`, { method: 'POST' }, activeAuthToken())
+      await loadBootstrap(activeAuthToken())
+      return true
     }, 'Não foi possível atualizar a curtida.')
-    return true
   }
 
   async function handleTogglePostReaction(postId: string, type: ReactionType) {
     if (!currentUser) return false
-    const post = posts.find(item => item.id === postId)
-    const selected = post?.reactions?.some(reaction => reaction.userId === currentUser.id && reaction.type === type)
-    setPosts(current => current.map(item => {
-      if (item.id !== postId) return item
-      const others = (item.reactions || []).filter(reaction => reaction.userId !== currentUser.id)
-      return { ...item, reactions: selected ? others : [...others, { userId: currentUser.id, type }] }
-    }))
-    syncInBackground(async () => {
-      const activeToken = activeAuthToken()
-      await apiRequest(`/folio/posts/${encodeURIComponent(postId)}/reactions/toggle`, { method: 'POST', body: JSON.stringify({ type }) }, activeToken)
+    return enqueueInteraction(`post:${postId}`, async () => {
+      const saved = await apiRequest<Post>(`/folio/posts/${encodeURIComponent(postId)}/reactions/toggle`, { method: 'POST', body: JSON.stringify({ type }) }, activeAuthToken())
+      setPosts(current => current.map(item => item.id === postId ? saved : item))
+      return true
     }, 'Não foi possível reagir à publicação.')
-    return true
   }
 
   function syncInBackground(work: () => Promise<void>, errorText: string, rollback?: () => void) {
@@ -9720,18 +9752,11 @@ export default function App() {
 
   async function handleToggleReplyReaction(replyId: string, type: ReplyReactionType) {
     if (!currentUser) return false
-    const reply = replies.find(item => item.id === replyId)
-    const selected = reply?.reactions?.some(reaction => reaction.userId === currentUser.id && reaction.type === type)
-    setReplies(current => current.map(item => {
-      if (item.id !== replyId) return item
-      const others = (item.reactions || []).filter(reaction => reaction.userId !== currentUser.id)
-      return { ...item, reactions: selected ? others : [...others, { userId: currentUser.id, type }] }
-    }))
-    syncInBackground(async () => {
-      const activeToken = activeAuthToken()
-      await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}/reactions/toggle`, { method: 'POST', body: JSON.stringify({ type }) }, activeToken)
+    return enqueueInteraction(`reply:${replyId}`, async () => {
+      await apiRequest(`/folio/replies/${encodeURIComponent(replyId)}/reactions/toggle`, { method: 'POST', body: JSON.stringify({ type }) }, activeAuthToken())
+      await loadBootstrap(activeAuthToken())
+      return true
     }, 'Não foi possível reagir ao comentário.')
-    return true
   }
 
   async function handleToggleFollow(userId: string) {
